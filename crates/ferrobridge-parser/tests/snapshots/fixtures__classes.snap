@@ -3,7 +3,7 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 2,
+  "format_version": 3,
   "items": [
     {
       "kind": "class",
@@ -12,6 +12,11 @@ expression: module
         "geo"
       ],
       "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
       "constructors": [],
       "methods": [],
       "unsupported_members": [
@@ -49,6 +54,11 @@ expression: module
         "geo"
       ],
       "is_abstract": false,
+      "is_polymorphic": true,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": true
+      },
       "constructors": [
         {
           "params": [
@@ -528,6 +538,11 @@ expression: module
         "geo"
       ],
       "is_abstract": true,
+      "is_polymorphic": true,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": true
+      },
       "constructors": [],
       "methods": [
         {
@@ -566,6 +581,11 @@ expression: module
         "geo"
       ],
       "is_abstract": false,
+      "is_polymorphic": true,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": true
+      },
       "constructors": [
         {
           "params": [

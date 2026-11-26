@@ -58,6 +58,16 @@ fn strings() {
 }
 
 #[test]
+fn vectors() {
+    snapshot("vectors");
+}
+
+#[test]
+fn destructors() {
+    snapshot("destructors");
+}
+
+#[test]
 fn syntax_error_reports_diagnostics_with_line_numbers() {
     let error = parse_header(&fixture("syntax_error"), &ParseOptions::default()).unwrap_err();
     let ParserError::ParseFailed { diagnostics } = &error else {

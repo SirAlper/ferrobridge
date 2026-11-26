@@ -17,3 +17,12 @@ pub mod enums;
 /// `tests/fixtures/strings`: `std::string` parametreleri ve dönüşleri.
 #[path = "generated/strings/bridge.rs"]
 pub mod strings;
+
+/// `tests/fixtures/ownership`: `ferrobridge.toml` açıklamalı sahip olunan/ödünç pointer'lar,
+/// çıkış parametreleri, canlı nesne sayaçları.
+#[path = "generated/ownership/bridge.rs"]
+pub mod ownership;
+
+/// `tests/fixtures/vectors`: `std::vector` parametreleri ve dönüşleri.
+#[path = "generated/vectors/bridge.rs"]
+pub mod vectors;

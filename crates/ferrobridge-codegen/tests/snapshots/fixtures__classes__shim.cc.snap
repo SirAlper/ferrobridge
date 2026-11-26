@@ -11,8 +11,8 @@ expression: files.shim_cc
 //   - geo::Vehicle::operator== (input.h:38): Operatörler v0.2 hedefi.
 //   - geo::Vehicle::public_counter (input.h:42): Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.
 //   - geo::Vehicle::total_km (input.h:39): dönüş tipi: `long` (long) platformlar arasında farklı genişlikte olabilir; `std::int64_t` gibi sabit genişlikli bir tip kullanın.
-//   - geo::Vehicle::raw_handle (input.h:40): dönüş tipi: Ham pointer'ın sahibi ve ömrü header'dan anlaşılamıyor; `ferrobridge.toml` açıklaması gerekecek (Milestone 3).
-//   - geo::Vehicle::read_odometer (input.h:41): parametre `out`: Const olmayan primitif referans (ör. `int&`) için açıklama gerekiyor (Milestone 3).
+//   - geo::Vehicle::raw_handle (input.h:40): dönüş tipi: `void*` tipsiz bir pointer; güvenli bir Rust karşılığı yok.
+//   - geo::Vehicle::read_odometer (input.h:41): parametre `out`: Const olmayan primitif referans (ör. `double&`) saklanabilir; `ferrobridge.toml`'da `borrowed` olarak açıklanmalı.
 //   - geo::Square : Shape (input.h:57): Kalıtım v0.2 hedefi: base sınıfın metotları bu sınıf üzerinden bağlanmıyor.
 //
 // Notlar:

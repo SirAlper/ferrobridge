@@ -1,11 +1,22 @@
 //! Bağlanabilirlik kuralları ve adlandırma için tablo testleri.
 
 use ferrobridge_ir::{
-    Class, Constructor, Enum, EnumVariant, Function, Item, Method, Module, Param, QualType,
-    SourceLocation, Type, Unsupported,
+    Class, Constructor, Destructor, Enum, EnumVariant, Function, Item, Method, Module, Param,
+    QualType, SourceLocation, Type, Unsupported,
 };
 
 use super::*;
+
+/// Açıklamasız analiz (M2 davranışı).
+fn check(module: &Module) -> BridgePlan {
+    super::check(module, &Annotations::default()).unwrap()
+}
+
+/// `ferrobridge.toml` metniyle analiz.
+fn check_with(module: &Module, toml: &str) -> Result<BridgePlan, Vec<AnnotationIssue>> {
+    let annotations = Annotations::from_toml_str(toml, "/yerel/yol/ferrobridge.toml").unwrap();
+    super::check(module, &annotations)
+}
 
 // ---- IR kurucuları -------------------------------------------------------------------------
 
@@ -98,6 +109,8 @@ fn class(name: &str, constructors: Vec<Constructor>, methods: Vec<Method>) -> It
         name: name.to_owned(),
         namespace: vec!["geo".to_owned()],
         is_abstract: false,
+        is_polymorphic: false,
+        destructor: Destructor::Public { is_virtual: false },
         constructors,
         methods,
         unsupported_members: Vec::new(),
@@ -193,7 +206,7 @@ fn pointers_need_ownership_annotations() {
         pointee: Box::new(q(i32_ty())),
     }))
     .unwrap_err();
-    assert!(reason.contains("Milestone 3"), "{reason}");
+    assert!(reason.contains("borrowed"), "{reason}");
 }
 
 #[test]
@@ -208,7 +221,7 @@ fn references_follow_the_type_table() {
     );
     // primitif T& → açıklama gerekiyor
     let reason = single_param(q(lref(q(f64_ty())))).unwrap_err();
-    assert!(reason.contains("Milestone 3"), "{reason}");
+    assert!(reason.contains("borrowed"), "{reason}");
     // sınıf T& → Pin<&mut T>
     assert_eq!(
         single_param(q(lref(q(record("Point"))))),
@@ -487,4 +500,643 @@ fn type_names_colliding_across_namespaces_are_prefixed() {
         .map(|c| c.type_ref.rust_name.as_str())
         .collect();
     assert_eq!(names, ["GeoVehicle", "PhysicsVehicle"]);
+}
+
+// ---- Sahiplik açıklamaları (Milestone 3) -----------------------------------------------------
+
+fn ptr(pointee: QualType) -> QualType {
+    q(Type::Pointer {
+        pointee: Box::new(pointee),
+    })
+}
+
+fn vector(element: Type) -> Type {
+    Type::Vector {
+        element: Box::new(q(element)),
+    }
+}
+
+fn char_ty() -> Type {
+    int("char", "char", 1, true, false)
+}
+
+fn with_dtor(mut item: Item, destructor: Destructor, polymorphic: bool) -> Item {
+    if let Item::Class(c) = &mut item {
+        c.destructor = destructor;
+        c.is_polymorphic = polymorphic;
+    }
+    item
+}
+
+fn point_ty() -> BridgeType {
+    BridgeType::Class(point_ref())
+}
+
+fn reference(mutable: bool, inner: BridgeType) -> BridgeType {
+    BridgeType::Ref {
+        mutable,
+        inner: Box::new(inner),
+    }
+}
+
+/// `f(x)` serbest fonksiyonu, `x` parametresi `borrowed` açıklamalı.
+fn borrowed_param(ty: QualType) -> Result<ParamPlan, String> {
+    let plan = check_with(
+        &module(vec![
+            class("Point", Vec::new(), Vec::new()),
+            function(&[], "f", vec![param("x", ty)], q(Type::Void)),
+        ]),
+        "[functions.\"f\".params]\nx = \"borrowed\"\n",
+    )
+    .unwrap();
+    match plan.functions.as_slice() {
+        [f] => {
+            assert!(
+                plan.annotation_warnings.is_empty(),
+                "{:?}",
+                plan.annotation_warnings
+            );
+            Ok(f.params[0].clone())
+        }
+        _ => Err(plan.skipped[0].reason.clone()),
+    }
+}
+
+#[test]
+fn borrowed_pointer_params_become_references_passed_by_address() {
+    let cases = [
+        (ptr(konst(record("Point"))), reference(false, point_ty())),
+        (ptr(q(record("Point"))), reference(true, point_ty())),
+        (ptr(konst(f64_ty())), reference(false, BridgeType::F64)),
+        (ptr(q(f64_ty())), reference(true, BridgeType::F64)),
+        (ptr(q(Type::String)), reference(true, BridgeType::String)),
+        (
+            ptr(konst(vector(i32_ty()))),
+            reference(
+                false,
+                BridgeType::Vector(Box::new(BridgeType::Int(IntType::I32))),
+            ),
+        ),
+    ];
+    for (ty, expected) in cases {
+        let bound = borrowed_param(ty.clone()).unwrap();
+        assert_eq!(bound.ty, expected, "{ty:?}");
+        assert_eq!(bound.pass, Pass::AddressOf, "{ty:?}");
+    }
+}
+
+#[test]
+fn borrowed_mutable_primitive_refs_become_mut_refs_without_a_shim() {
+    let bound = borrowed_param(q(lref(q(f64_ty())))).unwrap();
+    assert_eq!(bound.ty, reference(true, BridgeType::F64));
+    assert_eq!(bound.pass, Pass::Direct);
+}
+
+#[test]
+fn some_pointers_stay_rejected_even_when_annotated() {
+    for (ty, needle) in [
+        (ptr(q(Type::Void)), "void*"),
+        (ptr(konst(char_ty())), "C string"),
+        (ptr(ptr(q(i32_ty()))), "T**"),
+        (ptr(q(record("Elsewhere"))), "tanımlı değil"),
+    ] {
+        let reason = borrowed_param(ty).unwrap_err();
+        assert!(reason.contains(needle), "{needle}: {reason}");
+    }
+}
+
+#[test]
+fn unannotated_pointers_produce_suggestions() {
+    let plan = check(&module(vec![
+        class("Point", Vec::new(), Vec::new()),
+        function(
+            &["geo"],
+            "link",
+            vec![
+                param("a", ptr(konst(record("Point")))),
+                param("out", q(lref(q(f64_ty())))),
+            ],
+            q(Type::Void),
+        ),
+    ]));
+    assert!(plan.functions.is_empty());
+    let targets: Vec<&SuggestionTarget> = plan.suggestions.iter().map(|s| &s.target).collect();
+    assert_eq!(
+        targets,
+        [
+            &SuggestionTarget::Param {
+                name: "a".to_owned()
+            },
+            &SuggestionTarget::Param {
+                name: "out".to_owned()
+            },
+        ]
+    );
+    assert_eq!(plan.suggestions[0].key, "geo::link");
+    assert_eq!(plan.suggestions[0].cpp_type, "const geo::Point*");
+    assert_eq!(
+        plan.suggestions[0].signature,
+        "geo::link(const geo::Point* a, double& out)"
+    );
+}
+
+#[test]
+fn no_suggestions_when_an_annotation_would_not_help() {
+    let plan = check(&module(vec![function(
+        &[],
+        "f",
+        vec![
+            param("p", ptr(q(i32_ty()))),
+            param("n", q(int("long", "long", 8, true, false))),
+        ],
+        q(Type::Void),
+    )]));
+    assert!(plan.functions.is_empty());
+    assert!(plan.suggestions.is_empty(), "{:?}", plan.suggestions);
+}
+
+/// `geo::make()` serbest fonksiyonu ya da `Point::get()` metodu, verilen dönüş açıklamasıyla.
+fn annotated_return(
+    ret: QualType,
+    annotation: Option<&str>,
+    method_const: Option<bool>,
+    point: Item,
+) -> Result<FunctionPlan, String> {
+    let (items, key) = match method_const {
+        None => (
+            vec![point, function(&["geo"], "make", Vec::new(), ret)],
+            "geo::make",
+        ),
+        Some(is_const) => {
+            let mut point = point;
+            if let Item::Class(c) = &mut point {
+                c.methods.push(method("get", Vec::new(), ret, is_const));
+            }
+            (vec![point], "geo::Point::get")
+        }
+    };
+    let toml = annotation.map_or_else(String::new, |a| {
+        format!("[functions.\"{key}\"]\nreturns = \"{a}\"\n")
+    });
+    let plan = check_with(&module(items), &toml).unwrap();
+    let bound = plan
+        .functions
+        .first()
+        .or_else(|| plan.classes.first().and_then(|c| c.methods.first()));
+    match bound {
+        Some(f) => Ok(f.clone()),
+        None => Err(plan
+            .skipped
+            .iter()
+            .map(|s| s.reason.clone())
+            .collect::<Vec<_>>()
+            .join(" | ")),
+    }
+}
+
+fn plain_point() -> Item {
+    class("Point", Vec::new(), Vec::new())
+}
+
+#[test]
+fn owned_pointer_returns_become_unique_ptrs() {
+    let bound =
+        annotated_return(ptr(q(record("Point"))), Some("owned"), None, plain_point()).unwrap();
+    assert_eq!(bound.returns, Returns::OwnedPointer(point_ty()));
+    assert!(bound.needs_shim());
+    let bound = annotated_return(ptr(q(Type::String)), Some("owned"), None, plain_point()).unwrap();
+    assert_eq!(bound.returns, Returns::OwnedPointer(BridgeType::String));
+}
+
+#[test]
+fn owned_is_rejected_where_it_cannot_be_honoured() {
+    for (ret, needle) in [
+        (ptr(konst(record("Point"))), "const T*"),
+        (ptr(q(i32_ty())), "UniquePtr<primitif>"),
+        (q(lref(konst(record("Point")))), "Referans"),
+    ] {
+        let reason = annotated_return(ret, Some("owned"), Some(true), plain_point()).unwrap_err();
+        assert!(reason.contains(needle), "{needle}: {reason}");
+    }
+}
+
+#[test]
+fn owned_pointer_returns_check_the_destructor() {
+    let ret = || ptr(q(record("Point")));
+    let cases = [
+        (Destructor::NotPublic, false, Some("public değil")),
+        (Destructor::Deleted, false, Some("silinmiş")),
+        (
+            Destructor::Public { is_virtual: false },
+            true,
+            Some("sanal değil"),
+        ),
+        (Destructor::Public { is_virtual: true }, true, None),
+        (Destructor::Public { is_virtual: false }, false, None),
+    ];
+    for (destructor, polymorphic, rejection) in cases {
+        let point = with_dtor(plain_point(), destructor, polymorphic);
+        let result = annotated_return(ret(), Some("owned"), None, point);
+        match rejection {
+            Some(needle) => {
+                let reason = result.unwrap_err();
+                assert!(reason.contains(needle), "{destructor:?}: {reason}");
+            }
+            None => assert!(result.is_ok(), "{destructor:?}: {result:?}"),
+        }
+    }
+}
+
+#[test]
+fn borrowed_pointer_returns_from_methods_follow_the_receiver() {
+    let cases = [
+        (ptr(q(record("Point"))), false, true),
+        (ptr(q(record("Point"))), true, false),
+        (ptr(konst(record("Point"))), false, false),
+    ];
+    for (ret, method_const, mutable) in cases {
+        let bound =
+            annotated_return(ret, Some("borrowed"), Some(method_const), plain_point()).unwrap();
+        assert_eq!(
+            bound.returns,
+            Returns::BorrowedPointer {
+                mutable,
+                inner: point_ty()
+            }
+        );
+        assert!(bound.fallible, "null kontrolü her zaman `Err` döndürebilir");
+        assert!(bound.needs_shim());
+    }
+}
+
+#[test]
+fn borrowed_returns_are_rejected_for_free_functions() {
+    let reason = annotated_return(
+        ptr(q(record("Point"))),
+        Some("borrowed"),
+        None,
+        plain_point(),
+    )
+    .unwrap_err();
+    assert!(reason.contains("yalnızca metotlarda"), "{reason}");
+}
+
+#[test]
+fn borrowed_mutable_primitive_ref_returns() {
+    let ret = || q(lref(q(f64_ty())));
+    let bound = annotated_return(ret(), Some("borrowed"), Some(false), plain_point()).unwrap();
+    assert_eq!(
+        bound.returns,
+        Returns::Value(reference(true, BridgeType::F64))
+    );
+    assert!(annotated_return(ret(), Some("borrowed"), Some(true), plain_point()).is_err());
+    assert!(annotated_return(ret(), None, Some(false), plain_point()).is_err());
+}
+
+#[test]
+fn return_suggestions_offer_only_meaningful_options() {
+    let options = |ret: QualType, method_const: Option<bool>| {
+        let mut items = vec![plain_point()];
+        match method_const {
+            None => items.push(function(&["geo"], "make", Vec::new(), ret)),
+            Some(is_const) => {
+                if let Item::Class(c) = &mut items[0] {
+                    c.methods.push(method("get", Vec::new(), ret, is_const));
+                }
+            }
+        }
+        let plan = check(&module(items));
+        plan.suggestions
+            .iter()
+            .map(|s| match &s.target {
+                SuggestionTarget::Return { options } => options.clone(),
+                SuggestionTarget::Param { .. } => panic!("parametre önerisi beklenmiyordu"),
+            })
+            .collect::<Vec<_>>()
+    };
+    use ReturnAnnotation::{Borrowed, Owned};
+    assert_eq!(options(ptr(q(record("Point"))), None), [vec![Owned]]);
+    assert_eq!(
+        options(ptr(q(record("Point"))), Some(false)),
+        [vec![Owned, Borrowed]]
+    );
+    assert_eq!(options(ptr(q(f64_ty())), Some(true)), [vec![Borrowed]]);
+    assert!(options(ptr(konst(record("Point"))), None).is_empty());
+}
+
+#[test]
+fn vectors_follow_the_type_table() {
+    let i32_vec = || BridgeType::Vector(Box::new(BridgeType::Int(IntType::I32)));
+    assert_eq!(
+        single_param(q(lref(konst(vector(i32_ty()))))),
+        Ok(reference(false, i32_vec()))
+    );
+    assert_eq!(
+        single_param(q(lref(q(vector(f64_ty()))))),
+        Ok(reference(
+            true,
+            BridgeType::Vector(Box::new(BridgeType::F64))
+        ))
+    );
+    assert_eq!(
+        single_param(q(lref(konst(vector(record("Point")))))),
+        Ok(reference(false, BridgeType::Vector(Box::new(point_ty()))))
+    );
+    assert!(single_param(q(vector(i32_ty()))).is_err());
+    assert_eq!(
+        free_return(q(vector(Type::String))),
+        Ok(Returns::OwnedVector(BridgeType::String))
+    );
+    for (element, needle) in [
+        (Type::Bool, "bit paketli"),
+        (vector(i32_ty()), "eleman"),
+        (char_ty(), "eleman"),
+    ] {
+        let reason = single_param(q(lref(konst(vector(element))))).unwrap_err();
+        assert!(reason.contains(needle), "{needle}: {reason}");
+    }
+}
+
+#[test]
+fn classes_that_cannot_be_deleted_get_no_unique_ptrs() {
+    let guarded = || {
+        with_dtor(
+            class("Point", vec![ctor(Vec::new())], Vec::new()),
+            Destructor::NotPublic,
+            false,
+        )
+    };
+    let plan = check(&module(vec![guarded()]));
+    assert!(plan.classes[0].constructors.is_empty());
+    assert!(
+        plan.skipped
+            .iter()
+            .any(|s| s.reason.contains("public değil")),
+        "{:?}",
+        plan.skipped
+    );
+    for ret in [
+        q(record("Point")),
+        q(Type::UniquePtr {
+            pointee: Box::new(q(record("Point"))),
+        }),
+        q(vector(record("Point"))),
+    ] {
+        let plan = check(&module(vec![
+            guarded(),
+            function(&[], "f", Vec::new(), ret.clone()),
+        ]));
+        assert!(plan.functions.is_empty(), "{ret:?}");
+    }
+    // Referansla kullanmak silmeyi gerektirmez.
+    let plan = check(&module(vec![
+        guarded(),
+        function(
+            &[],
+            "g",
+            vec![param("p", q(lref(konst(record("Point")))))],
+            q(Type::Void),
+        ),
+    ]));
+    assert_eq!(plan.functions.len(), 1);
+}
+
+#[test]
+fn constructor_params_are_annotated_with_the_constructor_name() {
+    let plan = check_with(
+        &module(vec![class(
+            "Point",
+            vec![ctor(vec![param("origin", ptr(konst(record("Point"))))])],
+            Vec::new(),
+        )]),
+        "[functions.\"geo::Point::Point\".params]\norigin = \"borrowed\"\n",
+    )
+    .unwrap();
+    assert_eq!(plan.classes[0].constructors.len(), 1);
+    assert_eq!(
+        plan.classes[0].constructors[0].params[0].pass,
+        Pass::AddressOf
+    );
+}
+
+#[test]
+fn used_annotations_become_assumptions_with_file_name_only() {
+    let plan = check_with(
+        &module(vec![
+            plain_point(),
+            function(
+                &["geo"],
+                "make",
+                vec![param("seed", ptr(konst(record("Point"))))],
+                ptr(q(record("Point"))),
+            ),
+        ]),
+        "[functions.\"geo::make\"]\nreturns = \"owned\"\n\n[functions.\"geo::make\".params]\nseed = \"borrowed\"\n",
+    )
+    .unwrap();
+    let summary: Vec<(&str, &str, &str)> = plan
+        .assumptions
+        .iter()
+        .map(|a| (a.subject.as_str(), a.annotation.as_str(), a.origin.as_str()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("parametre `seed`", "borrowed", "ferrobridge.toml:5"),
+            ("dönüş", "owned", "ferrobridge.toml:2"),
+        ]
+    );
+    assert!(plan.assumptions[1].promise.contains("delete"));
+}
+
+#[test]
+fn annotations_that_match_nothing_are_errors() {
+    let items = || {
+        vec![
+            class("Point", vec![ctor(Vec::new())], Vec::new()),
+            function(&["geo"], "f", vec![param("a", q(i32_ty()))], q(Type::Void)),
+            function(&["geo"], "f", vec![param("b", q(f64_ty()))], q(Type::Void)),
+        ]
+    };
+    let errors = check_with(
+        &module(items()),
+        r#"[functions."geo::g"]
+returns = "owned"
+
+[functions."geo::f".params]
+c = "borrowed"
+
+[functions."geo::Point::Point"]
+returns = "owned"
+"#,
+    )
+    .unwrap_err();
+    let shown: Vec<String> = errors.iter().map(ToString::to_string).collect();
+    assert_eq!(shown.len(), 3, "{shown:#?}");
+    assert!(shown[0].starts_with("ferrobridge.toml:8: "), "{shown:#?}");
+    assert!(shown[0].contains("constructor"), "{shown:#?}");
+    assert!(shown[1].starts_with("ferrobridge.toml:5: "), "{shown:#?}");
+    assert!(shown[1].contains("`a`, `b`"), "{shown:#?}");
+    assert!(shown[2].starts_with("ferrobridge.toml:1: "), "{shown:#?}");
+    assert!(shown[2].contains("bulunamadı"), "{shown:#?}");
+
+    // Bir overload'da bulunan parametre adı hata değildir.
+    assert!(
+        check_with(
+            &module(items()),
+            "[functions.\"geo::f\".params]\nb = \"borrowed\"\n"
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn unnecessary_annotations_are_warnings() {
+    let plan = check_with(
+        &module(vec![function(
+            &["geo"],
+            "f",
+            vec![param("x", q(i32_ty()))],
+            q(f64_ty()),
+        )]),
+        "[functions.\"geo::f\"]\nreturns = \"owned\"\n[functions.\"geo::f\".params]\nx = \"borrowed\"\n",
+    )
+    .unwrap();
+    assert_eq!(plan.functions.len(), 1);
+    assert!(plan.assumptions.is_empty());
+    let shown: Vec<String> = plan
+        .annotation_warnings
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(shown.len(), 2, "{shown:#?}");
+    assert!(
+        shown.iter().all(|w| w.contains("gerektirmiyor")),
+        "{shown:#?}"
+    );
+}
+
+// ---- `suggest` taslağı -------------------------------------------------------------------------
+
+fn uncomment_first_choices(draft: &str) -> String {
+    let mut seen_returns = std::collections::HashSet::new();
+    let mut table = String::new();
+    draft
+        .lines()
+        .map(|line| {
+            if line.starts_with('[') {
+                table = line.to_owned();
+                return line.to_owned();
+            }
+            let Some(value) = line.strip_prefix("# ") else {
+                return line.to_owned();
+            };
+            let is_assignment = value.contains(" = \"");
+            let is_return = value.starts_with("returns");
+            if !is_assignment || (is_return && !seen_returns.insert(table.clone())) {
+                return line.to_owned();
+            }
+            value.to_owned()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn suggestion_draft_is_valid_toml_that_binds_once_uncommented() {
+    let items = || {
+        let mut point = plain_point();
+        if let Item::Class(c) = &mut point {
+            c.methods.push(method(
+                "attach",
+                vec![param("target", ptr(q(record("Point"))))],
+                q(Type::Void),
+                false,
+            ));
+            c.methods.push(method(
+                "attach",
+                vec![
+                    param("target", ptr(q(record("Point")))),
+                    param("weight", q(lref(q(f64_ty())))),
+                ],
+                q(Type::Void),
+                false,
+            ));
+            c.methods
+                .push(method("child", Vec::new(), ptr(q(record("Point"))), false));
+        }
+        vec![point]
+    };
+    let plan = check(&module(items()));
+    assert!(plan.classes[0].methods.is_empty());
+    let draft = render_suggestions(&plan);
+
+    // Değerler yorum satırı: taslak olduğu gibi hiçbir şey vaat etmez.
+    let as_is = Annotations::from_toml_str(&draft, "ferrobridge.toml").unwrap();
+    assert!(
+        as_is
+            .functions
+            .values()
+            .all(|f| f.returns.is_none() && f.params.is_empty())
+    );
+    // Overload'lar tek tabloda birleşir.
+    assert_eq!(
+        draft
+            .matches("[functions.\"geo::Point::attach\".params]")
+            .count(),
+        1,
+        "{draft}"
+    );
+    assert!(draft.contains("# returns = \"owned\""), "{draft}");
+    assert!(draft.contains("# returns = \"borrowed\""), "{draft}");
+
+    let filled = uncomment_first_choices(&draft);
+    let plan = check_with(&module(items()), &filled).unwrap();
+    assert_eq!(plan.classes[0].methods.len(), 3, "{filled}");
+    assert!(plan.suggestions.is_empty());
+}
+
+#[test]
+fn empty_suggestion_draft_says_so() {
+    let plan = check(&module(vec![plain_point()]));
+    assert_eq!(render_suggestions(&plan), "# Açıklama gereken yer yok.\n");
+}
+
+#[test]
+fn an_annotation_shared_by_overloads_is_warned_about() {
+    let items = vec![
+        plain_point(),
+        function(
+            &["geo"],
+            "attach",
+            vec![param("w", ptr(q(record("Point"))))],
+            q(Type::Void),
+        ),
+        function(
+            &["geo"],
+            "attach",
+            vec![
+                param("w", ptr(q(record("Point")))),
+                param("keep", q(Type::Bool)),
+            ],
+            q(Type::Void),
+        ),
+    ];
+    let plan = check_with(
+        &module(items),
+        "[functions.\"geo::attach\".params]\nw = \"borrowed\"\n",
+    )
+    .unwrap();
+    assert_eq!(plan.functions.len(), 2);
+    let shown: Vec<String> = plan
+        .annotation_warnings
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(shown.len(), 1, "{shown:#?}");
+    assert!(shown[0].starts_with("ferrobridge.toml:1: "), "{shown:#?}");
+    assert!(
+        shown[0].contains("geo::attach(geo::Point* w, bool keep)"),
+        "{shown:#?}"
+    );
 }

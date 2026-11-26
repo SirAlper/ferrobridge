@@ -3,13 +3,18 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 2,
+  "format_version": 3,
   "items": [
     {
       "kind": "class",
       "name": "Point",
       "namespace": [],
       "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
       "constructors": [],
       "methods": [],
       "unsupported_members": [
@@ -45,6 +50,11 @@ expression: module
       "name": "Vehicle",
       "namespace": [],
       "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
       "constructors": [],
       "methods": [
         {

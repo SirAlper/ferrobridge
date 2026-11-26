@@ -12,8 +12,8 @@ use std::path::Path;
 
 use clang_sys as cx;
 use ferrobridge_ir::{
-    Class, Constructor, Enum, EnumVariant, Function, Item, Method, Module, Param, QualType,
-    SourceLocation, Type, Unsupported,
+    Class, Constructor, Destructor, Enum, EnumVariant, Function, Item, Method, Module, Param,
+    QualType, SourceLocation, Type, Unsupported,
 };
 
 use crate::clang::{self, Cursor, TranslationUnit};
@@ -37,11 +37,14 @@ const REASON_VARIADIC: &str = "Değişken sayıda argüman alan (`...`) fonksiyo
 const REASON_ENUM_RANGE: &str = "Enum değeri 64 bit işaretli tamsayıya sığmıyor.";
 const REASON_STD_TYPE: &str = "Bu standart kütüphane tipi henüz desteklenmiyor.";
 const REASON_CUSTOM_DELETER: &str = "Özel silicili `std::unique_ptr` desteklenmiyor.";
+const REASON_CUSTOM_ALLOCATOR: &str = "Özel allocator'lı `std::vector` desteklenmiyor.";
 const REASON_UNKNOWN_DECL: &str = "Bu bildirim türü henüz tanınmıyor.";
 const REASON_UNKNOWN_TYPE: &str = "Bu tip henüz desteklenmiyor.";
 
 /// Typedef zincirinde en fazla bu kadar adım izlenir (döngülere karşı güvenlik sınırı).
 const MAX_TYPEDEF_DEPTH: usize = 16;
+/// Taban sınıf zincirinde en fazla bu kadar derine inilir; ötesi bilinmiyor sayılır.
+const MAX_BASE_DEPTH: usize = 32;
 
 /// Translation unit'teki ana dosya bildirimlerini IR modülüne çevirir.
 pub(crate) fn lower(tu: &TranslationUnit<'_>) -> Module {
@@ -144,10 +147,13 @@ impl Lowering {
         }
         let name = cursor.spelling();
         let qualified = self.qualified(&name);
+        let lifetime = record_lifetime(cursor, 0);
         let mut class = Class {
             name,
             namespace: self.namespace.clone(),
             is_abstract: cursor.is_abstract_record(),
+            is_polymorphic: lifetime.polymorphic,
+            destructor: lifetime.destructor(),
             constructors: Vec::new(),
             methods: Vec::new(),
             unsupported_members: Vec::new(),
@@ -208,6 +214,103 @@ impl Lowering {
         }
         path.join("::")
     }
+}
+
+/// Bir sınıfın silinmesiyle ilgili bilgiler (taban sınıflardan gelenler dahil).
+struct RecordLifetime {
+    /// Kendisi ya da bir tabanı sanal fonksiyon bildiriyor.
+    polymorphic: bool,
+    /// Açıkça bildirilmiş destructor (yoksa `None`).
+    declared: Option<DeclaredDestructor>,
+    /// Bir tabanın destructor'ı sanal: bu sınıfınki de sanaldır.
+    base_virtual: bool,
+    /// Bir tabanın destructor'ı private veya silinmiş: örtük destructor silinmiş sayılır.
+    base_blocks_implicit: bool,
+}
+
+/// Açıkça bildirilmiş bir destructor'ın özellikleri.
+#[derive(Clone, Copy)]
+struct DeclaredDestructor {
+    access: cx::CX_CXXAccessSpecifier,
+    deleted: bool,
+    is_virtual: bool,
+}
+
+impl RecordLifetime {
+    /// Tanımı görülemeyen bir taban için en kısıtlayıcı varsayım: polimorfik, sanal
+    /// destructor'ı yok.
+    fn unknown() -> Self {
+        RecordLifetime {
+            polymorphic: true,
+            declared: None,
+            base_virtual: false,
+            base_blocks_implicit: false,
+        }
+    }
+
+    fn destructor(&self) -> Destructor {
+        match self.declared {
+            Some(d) if d.deleted => Destructor::Deleted,
+            Some(d) if d.access != cx::CX_CXXPublic => Destructor::NotPublic,
+            Some(d) => Destructor::Public {
+                is_virtual: d.is_virtual || self.base_virtual,
+            },
+            None if self.base_blocks_implicit => Destructor::Deleted,
+            None => Destructor::Public {
+                is_virtual: self.base_virtual,
+            },
+        }
+    }
+
+    /// Bu sınıfın destructor'ı alt sınıflarda sanallığı devrediyor mu?
+    fn has_virtual_destructor(&self) -> bool {
+        self.declared.is_some_and(|d| d.is_virtual) || self.base_virtual
+    }
+
+    /// Alt sınıfın örtük destructor'ı bu tabanın destructor'ını çağıramaz mı?
+    fn blocks_implicit_in_derived(&self) -> bool {
+        match self.declared {
+            Some(d) => d.deleted || d.access == cx::CX_CXXPrivate,
+            None => self.base_blocks_implicit,
+        }
+    }
+}
+
+/// Bir sınıfın destructor'ını ve polimorfikliğini, taban sınıflarına özyinelemeyle bakarak
+/// bulur. Üyelerin (alanların) destructor'ları dikkate alınmaz: silinmiş bir alan
+/// destructor'ı örtük destructor'ı siler, ama bu UB değil derleme hatasına yol açar.
+fn record_lifetime(record: Cursor<'_>, depth: usize) -> RecordLifetime {
+    if depth > MAX_BASE_DEPTH || !record.is_definition() {
+        return RecordLifetime::unknown();
+    }
+    let mut info = RecordLifetime {
+        polymorphic: false,
+        declared: None,
+        base_virtual: false,
+        base_blocks_implicit: false,
+    };
+    for member in record.children() {
+        match member.kind() {
+            cx::CXCursor_CXXBaseSpecifier => {
+                let base = record_lifetime(member.ty().canonical().declaration(), depth + 1);
+                info.polymorphic |= base.polymorphic;
+                info.base_virtual |= base.has_virtual_destructor();
+                info.base_blocks_implicit |= base.blocks_implicit_in_derived();
+            }
+            cx::CXCursor_Destructor => {
+                let is_virtual = member.is_virtual_method();
+                info.polymorphic |= is_virtual;
+                info.declared = Some(DeclaredDestructor {
+                    access: member.access(),
+                    deleted: member.is_deleted(),
+                    is_virtual,
+                });
+            }
+            cx::CXCursor_CXXMethod => info.polymorphic |= member.is_virtual_method(),
+            _ => {}
+        }
+    }
+    info
 }
 
 /// Bir sınıf üyesini sınıfa ekler. Yalnızca public üyeler dikkate alınır.
@@ -413,6 +516,15 @@ fn lower_record(ty: clang::Type<'_>, canonical: clang::Type<'_>) -> Type {
         };
         return match (name.as_str(), args.as_slice()) {
             ("basic_string", [first, ..]) if namespace.len() == 1 && is_char(first) => Type::String,
+            ("vector", [element, allocator]) if namespace.len() == 1 => {
+                if is_std_decl(allocator.canonical().declaration(), "allocator") {
+                    Type::Vector {
+                        element: Box::new(lower_type(*element)),
+                    }
+                } else {
+                    unsupported_type(ty, REASON_CUSTOM_ALLOCATOR)
+                }
+            }
             ("unique_ptr", [pointee, deleter]) if namespace.len() == 1 => {
                 let deleter = deleter.canonical().declaration();
                 if deleter.spelling() == "default_delete" {
@@ -430,6 +542,12 @@ fn lower_record(ty: clang::Type<'_>, canonical: clang::Type<'_>) -> Type {
         return unsupported_type(ty, REASON_TEMPLATE);
     }
     Type::Record { name, namespace }
+}
+
+/// Bildirim doğrudan `std` namespace'inde (inline namespace'ler hariç) ve bu adda mı?
+fn is_std_decl(declaration: Cursor<'_>, expected: &str) -> bool {
+    scope_path(declaration)
+        .is_some_and(|(namespace, name)| namespace == ["std"] && name == expected)
 }
 
 /// Bir bildirimin namespace yolu ve adı. Inline namespace'ler atlanır. Sınıf veya fonksiyon

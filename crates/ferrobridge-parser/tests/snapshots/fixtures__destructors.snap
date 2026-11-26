@@ -1,0 +1,296 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 3,
+  "items": [
+    {
+      "kind": "class",
+      "name": "Plain",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
+      "constructors": [
+        {
+          "params": [],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 8,
+            "column": 3
+          }
+        }
+      ],
+      "methods": [],
+      "unsupported_members": [],
+      "location": {
+        "file": "input.h",
+        "line": 6,
+        "column": 7
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Leaky",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "is_polymorphic": true,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
+      "constructors": [],
+      "methods": [
+        {
+          "name": "id",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": true,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 15,
+            "column": 15
+          }
+        }
+      ],
+      "unsupported_members": [],
+      "location": {
+        "file": "input.h",
+        "line": 12,
+        "column": 7
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Shape",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": true,
+      "is_polymorphic": true,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": true
+      },
+      "constructors": [],
+      "methods": [
+        {
+          "name": "area",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": true,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 22,
+            "column": 18
+          }
+        }
+      ],
+      "unsupported_members": [],
+      "location": {
+        "file": "input.h",
+        "line": 19,
+        "column": 7
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Circle",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "is_polymorphic": true,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": true
+      },
+      "constructors": [
+        {
+          "params": [
+            {
+              "name": "r",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "double",
+                  "size_bytes": 8
+                }
+              }
+            }
+          ],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 28,
+            "column": 12
+          }
+        }
+      ],
+      "methods": [
+        {
+          "name": "area",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": true,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 29,
+            "column": 10
+          }
+        }
+      ],
+      "unsupported_members": [
+        {
+          "construct": "base_class",
+          "name": "geo::Circle : Shape",
+          "reason": "Kalıtım v0.2 hedefi: base sınıfın metotları bu sınıf üzerinden bağlanmıyor.",
+          "location": {
+            "file": "input.h",
+            "line": 26,
+            "column": 23
+          }
+        }
+      ],
+      "location": {
+        "file": "input.h",
+        "line": 26,
+        "column": 7
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Hidden",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "is_polymorphic": true,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
+      "constructors": [
+        {
+          "params": [],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 35,
+            "column": 3
+          }
+        }
+      ],
+      "methods": [],
+      "unsupported_members": [],
+      "location": {
+        "file": "input.h",
+        "line": 33,
+        "column": 7
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Guarded",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "not_public"
+      },
+      "constructors": [
+        {
+          "params": [],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 44,
+            "column": 3
+          }
+        }
+      ],
+      "methods": [],
+      "unsupported_members": [],
+      "location": {
+        "file": "input.h",
+        "line": 42,
+        "column": 7
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Immortal",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "deleted"
+      },
+      "constructors": [
+        {
+          "params": [],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 52,
+            "column": 3
+          }
+        }
+      ],
+      "methods": [],
+      "unsupported_members": [],
+      "location": {
+        "file": "input.h",
+        "line": 50,
+        "column": 7
+      }
+    }
+  ]
+}

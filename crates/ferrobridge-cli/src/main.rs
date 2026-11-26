@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use ferrobridge_analysis::{Annotations, BridgePlan};
 use ferrobridge_codegen::{CodegenOptions, GeneratedFiles};
 use ferrobridge_parser::{ParseOptions, ParserError};
 
@@ -51,9 +52,28 @@ enum Command {
         /// C++ standardı (clang'a `-std=<değer>` olarak geçer).
         #[arg(long, default_value = "c++17")]
         std: String,
+        /// Sahiplik açıklamaları dosyası (`ferrobridge.toml`). Verilmezse açıklama yok sayılır
+        /// ve sahipliği belirsiz pointer'lar bağlanmaz.
+        #[arg(long)]
+        config: Option<PathBuf>,
         /// ferrobridge'in üretmediği (elle yazılmış görünen) dosyaların da üzerine yaz.
         #[arg(long)]
         force: bool,
+        /// `--` sonrasında clang'a olduğu gibi geçirilecek argümanlar (ör. `-- -I include`).
+        #[arg(last = true)]
+        clang_args: Vec<String>,
+    },
+    /// Açıklama gerektiren her pointer/referans için yorum satırlı bir `ferrobridge.toml`
+    /// taslağı basar. Emin olduğun satırları açıp `generate --config` ile kullan.
+    Suggest {
+        /// Okunacak C++ header dosyası.
+        header: PathBuf,
+        /// Var olan açıklamalar; bunların çözdüğü yerler taslağa girmez.
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// C++ standardı (clang'a `-std=<değer>` olarak geçer).
+        #[arg(long, default_value = "c++17")]
+        std: String,
         /// `--` sonrasında clang'a olduğu gibi geçirilecek argümanlar (ör. `-- -I include`).
         #[arg(last = true)]
         clang_args: Vec<String>,
@@ -83,6 +103,7 @@ fn main() -> ExitCode {
             shim_include,
             shim_namespace,
             std,
+            config,
             force,
             clang_args,
         } => {
@@ -104,23 +125,88 @@ fn main() -> ExitCode {
                 shim_namespace: shim_namespace
                     .unwrap_or_else(|| format!("ferrobridge::{}", identifier_from(&header))),
             };
-            generate(&header, &out_dir, &options, std, clang_args)
+            generate(
+                &header,
+                &out_dir,
+                &options,
+                config.as_deref(),
+                ParseOptions {
+                    std,
+                    extra_args: clang_args,
+                },
+            )
         }
+        Command::Suggest {
+            header,
+            config,
+            std,
+            clang_args,
+        } => suggest(
+            &header,
+            config.as_deref(),
+            ParseOptions {
+                std,
+                extra_args: clang_args,
+            },
+        ),
     }
+}
+
+/// Header'ı okur, açıklamaları yükler ve analizi çalıştırır. Hata olursa basıp çıkış kodunu
+/// döndürür. Gereksiz açıklama uyarıları burada basılır.
+fn analyze(
+    header: &Path,
+    config: Option<&Path>,
+    options: &ParseOptions,
+) -> Result<BridgePlan, ExitCode> {
+    let module = ferrobridge_parser::parse_header(header, options).map_err(|e| report(&e))?;
+    let annotations = match config {
+        Some(path) => Annotations::from_file(path).map_err(|error| {
+            eprintln!("✗ {error}");
+            ExitCode::FAILURE
+        })?,
+        None => Annotations::default(),
+    };
+    let plan = ferrobridge_analysis::check(&module, &annotations).map_err(|issues| {
+        eprintln!("✗ açıklama dosyası header'la uyuşmuyor:");
+        for issue in &issues {
+            eprintln!("  ✗ {issue}");
+        }
+        ExitCode::FAILURE
+    })?;
+    for warning in &plan.annotation_warnings {
+        eprintln!("⚠ {warning}");
+    }
+    Ok(plan)
+}
+
+fn suggest(header: &Path, config: Option<&Path>, options: ParseOptions) -> ExitCode {
+    let plan = match analyze(header, config, &options) {
+        Ok(plan) => plan,
+        Err(code) => return code,
+    };
+    print!("{}", ferrobridge_analysis::render_suggestions(&plan));
+    if !plan.suggestions.is_empty() {
+        eprintln!(
+            "ℹ {} yer açıklama bekliyor. Emin olduğun satırları açıp `generate --config` ile \
+             kullan.",
+            plan.suggestions.len()
+        );
+    }
+    ExitCode::SUCCESS
 }
 
 fn generate(
     header: &Path,
     out_dir: &Path,
     options: &CodegenOptions,
-    std: String,
-    extra_args: Vec<String>,
+    config: Option<&Path>,
+    parse_options: ParseOptions,
 ) -> ExitCode {
-    let module = match ferrobridge_parser::parse_header(header, &ParseOptions { std, extra_args }) {
-        Ok(module) => module,
-        Err(error) => return report(&error),
+    let plan = match analyze(header, config, &parse_options) {
+        Ok(plan) => plan,
+        Err(code) => return code,
     };
-    let plan = ferrobridge_analysis::check(&module);
     let files = match ferrobridge_codegen::generate(&plan, options) {
         Ok(files) => files,
         Err(error) => {
@@ -158,6 +244,19 @@ fn generate(
         plan.enums.len(),
         plan.skipped.len()
     );
+    if !plan.assumptions.is_empty() {
+        println!(
+            "  {} açıklamaya dayanan varsayım (üretilen dosyaların başında listelendi).",
+            plan.assumptions.len()
+        );
+    }
+    if !plan.suggestions.is_empty() {
+        println!(
+            "  {} yer açıklama bekliyor: `ferrobridge suggest {}`",
+            plan.suggestions.len(),
+            header.display()
+        );
+    }
     println!("  {}", out_dir.join("bridge.rs").display());
     println!("  {}", out_dir.join("shim.h").display());
     println!("  {}", out_dir.join("shim.cc").display());

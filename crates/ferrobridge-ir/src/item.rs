@@ -44,6 +44,12 @@ pub struct Class {
     pub namespace: Vec<String>,
     /// Saf sanal metodu olduğu için doğrudan oluşturulamıyor mu?
     pub is_abstract: bool,
+    /// Polimorfik mi: kendisi ya da bir taban sınıfı (erişimi ne olursa olsun) sanal bir
+    /// fonksiyon bildiriyor mu? Polimorfik bir sınıfa işaret eden pointer aslında bir alt
+    /// sınıfı gösteriyor olabilir; böyle bir nesneyi `delete` ile silmek sanal destructor ister.
+    pub is_polymorphic: bool,
+    /// Destructor'ın erişimi ve sanallığı. Açıkça bildirilmemişse örtük destructor kaydedilir.
+    pub destructor: Destructor,
     /// Açıkça bildirilmiş public constructor'lar (`= delete` olanlar hariç).
     pub constructors: Vec<Constructor>,
     /// Public metotlar (statik olanlar dahil).
@@ -52,6 +58,22 @@ pub struct Class {
     pub unsupported_members: Vec<Unsupported>,
     /// Tanımın kaynaktaki yeri.
     pub location: SourceLocation,
+}
+
+/// Bir sınıfın destructor'ı. Rust'ta `UniquePtr<T>` düşünce `delete` çalıştığından, sahipliği
+/// Rust'a geçen her nesne için güvenli olup olmadığı buna bakılarak belirlenir.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Destructor {
+    /// Public ve silinmemiş. Açıkça bildirilmemiş (örtük) destructor da buraya girer.
+    Public {
+        /// Sanal mı (kendisi `virtual` bildirilmiş ya da bir taban sınıfınınki sanal)?
+        is_virtual: bool,
+    },
+    /// `private` veya `protected`: sınıf dışından silinemez.
+    NotPublic,
+    /// `= delete`
+    Deleted,
 }
 
 /// Bir constructor.

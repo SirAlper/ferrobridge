@@ -3,7 +3,8 @@
 //! Üç dosya üretilir:
 //! - `bridge.rs`: `#[cxx::bridge]` modülü (cxx'in derleyeceği Rust tarafı).
 //! - `shim.h` / `shim.cc`: cxx'in doğrudan çağıramadığı şeyler için C++ yardımcıları
-//!   (constructor fabrikaları, statik metotlar, değerle dönen sınıf ve `std::string`'ler) ve
+//!   (constructor fabrikaları, statik metotlar, değerle dönen sınıf, `std::string` ve
+//!   `std::vector`'ler, açıklamalı pointer'lar) ve
 //!   bütün C++ exception'larını yakalayan `rust::behavior::trycatch` (güvenlik kuralı 4).
 //!
 //! Üretilen dosyalar kullanıcı tarafından görülür, incelenir ve commit'lenir (ADR-0004).
@@ -173,6 +174,24 @@ fn header_comment(plan: &BridgePlan, options: &CodegenOptions) -> Vec<String> {
             lines.push(format!(
                 "  - {} ({}:{}): {}",
                 skipped.name, skipped.location.file, skipped.location.line, skipped.reason
+            ));
+        }
+    }
+    if !plan.assumptions.is_empty() {
+        lines.push(String::new());
+        lines.push(format!(
+            "Açıklamaya dayanan varsayımlar ({}). Bunlar `ferrobridge.toml`'daki sözlerdir; biri",
+            plan.assumptions.len()
+        ));
+        lines.push("yanlışsa üretilen kod tanımsız davranışa yol açabilir:".to_owned());
+        for assumption in &plan.assumptions {
+            lines.push(format!(
+                "  - {} {} `{}` ({}): {}",
+                assumption.name,
+                assumption.subject,
+                assumption.annotation,
+                assumption.origin,
+                assumption.promise
             ));
         }
     }

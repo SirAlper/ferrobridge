@@ -82,6 +82,11 @@ pub enum Type {
         /// Sahip olunan tip.
         pointee: Box<QualType>,
     },
+    /// `std::vector<T>` (varsayılan allocator'ıyla).
+    Vector {
+        /// Eleman tipi.
+        element: Box<QualType>,
+    },
     /// Bu sürümde desteklenmeyen bir tip.
     Unsupported {
         /// Kaynakta yazıldığı haliyle tip.

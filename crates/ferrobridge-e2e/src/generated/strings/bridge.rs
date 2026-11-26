@@ -6,6 +6,7 @@
 //   - text::upper (input.h:13): parametre `text`: `std::string`'i değerle almak henüz desteklenmiyor (`const std::string&` kullanın).
 
 #[cxx::bridge]
+#[rustfmt::skip]
 #[allow(non_snake_case, non_camel_case_types, missing_docs)]
 pub mod ffi {
     #[namespace = "ferrobridge::strings"]

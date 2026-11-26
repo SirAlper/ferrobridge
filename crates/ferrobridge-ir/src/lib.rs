@@ -8,15 +8,15 @@ mod item;
 mod types;
 
 pub use item::{
-    Class, Constructor, Enum, EnumVariant, Function, Item, Method, Param, SourceLocation,
-    Unsupported,
+    Class, Constructor, Destructor, Enum, EnumVariant, Function, Item, Method, Param,
+    SourceLocation, Unsupported,
 };
 pub use types::{QualType, Type};
 
 use serde::{Deserialize, Serialize};
 
 /// IR'ın JSON biçiminin sürümü. Biçim uyumsuz şekilde değiştiğinde artırılır.
-pub const IR_FORMAT_VERSION: u32 = 2;
+pub const IR_FORMAT_VERSION: u32 = 3;
 
 /// Bir C++ header'ından okunan sembollerin kökü.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +88,8 @@ mod tests {
                     name: "Vehicle".to_owned(),
                     namespace: vec!["geo".to_owned()],
                     is_abstract: false,
+                    is_polymorphic: true,
+                    destructor: Destructor::Public { is_virtual: true },
                     constructors: vec![Constructor {
                         params: vec![Param {
                             name: Some("wheels".to_owned()),
@@ -147,10 +149,18 @@ mod tests {
                 Item::Function(Function {
                     name: "mode_of".to_owned(),
                     namespace: Vec::new(),
-                    params: vec![Param {
-                        name: None,
-                        ty: plain(vehicle),
-                    }],
+                    params: vec![
+                        Param {
+                            name: None,
+                            ty: plain(vehicle),
+                        },
+                        Param {
+                            name: Some("ids".to_owned()),
+                            ty: plain(Type::Vector {
+                                element: Box::new(int32()),
+                            }),
+                        },
+                    ],
                     return_type: plain(Type::Enum {
                         name: "Mode".to_owned(),
                         namespace: vec!["geo".to_owned()],
@@ -267,5 +277,28 @@ mod tests {
         assert_eq!(json["kind"], "function");
         assert_eq!(json["return_type"]["type"]["kind"], "integer");
         assert_eq!(json["return_type"]["const"], false);
+    }
+
+    #[test]
+    fn destructors_and_vectors_use_readable_tags() {
+        let destructors = [
+            (Destructor::Public { is_virtual: false }, "public"),
+            (Destructor::NotPublic, "not_public"),
+            (Destructor::Deleted, "deleted"),
+        ];
+        for (destructor, tag) in destructors {
+            let json = serde_json::to_value(destructor).unwrap();
+            assert_eq!(json["kind"], tag);
+            assert_eq!(
+                serde_json::from_value::<Destructor>(json).unwrap(),
+                destructor
+            );
+        }
+        let vector = Type::Vector {
+            element: Box::new(int32()),
+        };
+        let json = serde_json::to_value(&vector).unwrap();
+        assert_eq!(json["kind"], "vector");
+        assert_eq!(json["element"]["type"]["kind"], "integer");
     }
 }

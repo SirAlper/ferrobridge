@@ -1,6 +1,10 @@
 //! Analizin çıktısı: kod üretiminin tükettiği bağlama planı.
 
+use std::fmt;
+
 use ferrobridge_ir::{EnumVariant, SourceLocation};
+
+use crate::config::ReturnAnnotation;
 
 /// Bir header için neyin, nasıl bağlanacağı.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -15,6 +19,72 @@ pub struct BridgePlan {
     pub skipped: Vec<Skipped>,
     /// Bağlanan ama kullanıcının bilmesi gereken durumlar.
     pub notes: Vec<Skipped>,
+    /// Üretilen kodun dayandığı, `ferrobridge.toml`'daki sözler (güven noktaları).
+    pub assumptions: Vec<Assumption>,
+    /// Açıklama eklenirse bağlanabilecek yerler (`ferrobridge suggest` bunları basar).
+    pub suggestions: Vec<Suggestion>,
+    /// Gereksiz açıklamalar: hata değil, ama dosyada yanlış bir inanç olabilir.
+    pub annotation_warnings: Vec<AnnotationIssue>,
+}
+
+/// Üretilen kodun dayandığı bir açıklama.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Assumption {
+    /// Öğenin tam C++ adı (ör. `geo::make_widget`).
+    pub name: String,
+    /// Neye uygulandığı (ör. "dönüş", "parametre `out`").
+    pub subject: String,
+    /// Açıklamanın değeri (`owned`, `borrowed`).
+    pub annotation: String,
+    /// Kullanıcının bu açıklamayla verdiği söz.
+    pub promise: String,
+    /// Açıklamanın yeri (`ferrobridge.toml:3`; yalnızca dosya adı).
+    pub origin: String,
+}
+
+/// Açıklama gerektiği için bağlanamayan bir yer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Suggestion {
+    /// `ferrobridge.toml`'daki anahtar (tam C++ adı).
+    pub key: String,
+    /// Okunabilir imza (ör. `geo::Widget::attach(geo::Widget* target)`).
+    pub signature: String,
+    /// Açıklanması gereken yer.
+    pub target: SuggestionTarget,
+    /// Açıklanacak C++ tipi (ör. `geo::Widget*`).
+    pub cpp_type: String,
+    /// Bildirimin kaynaktaki yeri.
+    pub location: SourceLocation,
+}
+
+/// Önerinin hedefi.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SuggestionTarget {
+    /// Dönüş değeri; seçilebilecek açıklamalarla.
+    Return {
+        /// Bu bağlamda anlamlı açıklamalar.
+        options: Vec<ReturnAnnotation>,
+    },
+    /// Bir parametre (adı; isimsizse `argN`). Tek seçenek `borrowed`.
+    Param {
+        /// Parametre adı.
+        name: String,
+    },
+}
+
+/// Açıklama dosyasıyla header arasındaki bir uyumsuzluk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnnotationIssue {
+    /// Açıklamanın yeri (`ferrobridge.toml:3`).
+    pub origin: String,
+    /// Sorun ve çözümü.
+    pub message: String,
+}
+
+impl fmt::Display for AnnotationIssue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.origin, self.message)
+    }
 }
 
 /// Bağlanamayan bir öğe ya da bir not.
@@ -154,7 +224,10 @@ pub enum BridgeType {
     String,
     /// `UniquePtr<T>` / `std::unique_ptr<T>`
     UniquePtr(Box<BridgeType>),
-    /// `&T` (`mutable: false`) ya da `Pin<&mut T>` (`mutable: true`).
+    /// `CxxVector<T>` / `std::vector<T>` (yalnızca referans veya `UniquePtr` arkasında).
+    Vector(Box<BridgeType>),
+    /// `&T` (`mutable: false`). `mutable: true` ise opak tipler (sınıf, `std::string`,
+    /// `std::vector`) için `Pin<&mut T>`, primitif ve enum'lar için `&mut T`.
     Ref {
         /// Değiştirilebilir referans mı?
         mutable: bool,
@@ -174,6 +247,20 @@ pub enum Returns {
     BoxedClass(TypeRef),
     /// C++'ta değerle dönen `std::string`; shim sarar, Rust'a `UniquePtr<CxxString>` gelir.
     OwnedString,
+    /// C++'ta değerle dönen `std::vector<T>` (eleman tipi); shim sarar, Rust'a
+    /// `UniquePtr<CxxVector<T>>` gelir.
+    OwnedVector(BridgeType),
+    /// `"owned"` açıklamalı `T*` (gösterilen tip): shim `std::unique_ptr`'a sarar, Rust'a
+    /// `UniquePtr<T>` gelir. Null gelirse boş `UniquePtr` olur.
+    OwnedPointer(BridgeType),
+    /// `"borrowed"` açıklamalı `T*` (yalnızca metotlar): shim null kontrolü yapıp referansa
+    /// çevirir; null ise exception → `Err`. Referansın ömrü alıcıya bağlıdır.
+    BorrowedPointer {
+        /// Değiştirilebilir referans mı?
+        mutable: bool,
+        /// Gösterilen tip.
+        inner: BridgeType,
+    },
 }
 
 /// Çağrılan C++ öğesi.
@@ -232,7 +319,14 @@ impl FunctionPlan {
         matches!(
             self.callee,
             Callee::Static { .. } | Callee::Constructor { .. }
-        ) || matches!(self.returns, Returns::BoxedClass(_) | Returns::OwnedString)
+        ) || matches!(
+            self.returns,
+            Returns::BoxedClass(_)
+                | Returns::OwnedString
+                | Returns::OwnedVector(_)
+                | Returns::OwnedPointer(_)
+                | Returns::BorrowedPointer { .. }
+        ) || self.params.iter().any(|p| p.pass == Pass::AddressOf)
     }
 }
 
@@ -243,4 +337,15 @@ pub struct ParamPlan {
     pub rust_name: String,
     /// Tipi.
     pub ty: BridgeType,
+    /// C++ fonksiyonuna nasıl geçirildiği.
+    pub pass: Pass,
+}
+
+/// Bir parametrenin C++ fonksiyonuna geçirilişi.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pass {
+    /// Olduğu gibi (cxx doğrudan çağırabilir).
+    Direct,
+    /// C++ pointer bekliyor, Rust referans veriyor: shim adresini alıp geçirir (`&p`).
+    AddressOf,
 }

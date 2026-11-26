@@ -1,0 +1,50 @@
+# Sahiplik açıklamaları (bkz. input.h). Her satır C++ kütüphanesi hakkında bir sözdür.
+
+[functions."own::make_widget"]
+returns = "owned"
+
+[functions."own::make_null_widget"]
+returns = "owned"
+
+[functions."own::make_label"]
+returns = "owned"
+
+[functions."own::make_square"]
+returns = "owned"
+
+# Söz verilse de reddedilir: Leaky'nin destructor'ı sanal değil.
+[functions."own::make_leaky"]
+returns = "owned"
+
+[functions."own::Widget::child"]
+returns = "borrowed"
+
+[functions."own::Widget::child_view"]
+returns = "borrowed"
+
+[functions."own::Widget::child_named"]
+returns = "borrowed"
+
+[functions."own::Widget::weight_slot"]
+returns = "borrowed"
+
+[functions."own::Widget::weight"]
+returns = "borrowed"
+
+[functions."own::Widget::Widget".params]
+prototype = "borrowed"
+
+[functions."own::Widget::copy_id_from".params]
+other = "borrowed"
+
+[functions."own::Widget::swap_ids".params]
+other = "borrowed"
+
+[functions."own::Widget::read_weight".params]
+out = "borrowed"
+
+[functions."own::Widget::read_id".params]
+out = "borrowed"
+
+[functions."own::scale".params]
+value = "borrowed"

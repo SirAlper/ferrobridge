@@ -6,7 +6,9 @@
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "enums/input.h"
 

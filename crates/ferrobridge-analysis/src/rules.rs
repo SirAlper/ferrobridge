@@ -1,31 +1,55 @@
 //! IR tiplerini bridge tiplerine çeviren kurallar (Obsidian `03 Mimari` tip tablosu ve
 //! güvenlik kuralları). Bir tip güvenle ifade edilemiyorsa nedeniyle reddedilir; hiçbir
-//! durumda tahmin yürütülmez.
+//! durumda tahmin yürütülmez. Header'ın söylemediği bilgi (pointer'ların sahipliği) yalnızca
+//! `ferrobridge.toml` açıklamasından gelir.
 
 use std::collections::HashMap;
 
-use ferrobridge_ir::{QualType, Type};
+use ferrobridge_ir::{Destructor, QualType, Type};
 
-use crate::plan::{BridgeType, IntType, Returns, TypeRef};
+use crate::config::{ParamAnnotation, ReturnAnnotation};
+use crate::plan::{BridgeType, IntType, Pass, Returns, TypeRef};
 
-pub(crate) const REASON_POINTER: &str = "Ham pointer'ın sahibi ve ömrü header'dan anlaşılamıyor; \
-     `ferrobridge.toml` açıklaması gerekecek (Milestone 3).";
-pub(crate) const REASON_MUT_PRIMITIVE_REF: &str =
-    "Const olmayan primitif referans (ör. `int&`) için açıklama gerekiyor (Milestone 3).";
+const REASON_POINTER_PARAM: &str = "Ham pointer'ın sahibi ve ömrü header'dan anlaşılamıyor; \
+     `ferrobridge.toml`'da `borrowed` olarak açıklanmalı (`ferrobridge suggest` taslak basar).";
+const REASON_POINTER_RETURN: &str = "Dönen ham pointer'ın sahibi header'dan anlaşılamıyor; \
+     `ferrobridge.toml`'da açıklanmalı (`ferrobridge suggest` taslak basar).";
+const REASON_MUT_PRIMITIVE_REF: &str = "Const olmayan primitif referans (ör. `double&`) \
+     saklanabilir; `ferrobridge.toml`'da `borrowed` olarak açıklanmalı.";
 const REASON_CLASS_BY_VALUE: &str = "Sınıfı değerle almak kopyalama/taşıma gerektiriyor; henüz \
      desteklenmiyor (`const T&` kullanın).";
 const REASON_STRING_BY_VALUE: &str =
     "`std::string`'i değerle almak henüz desteklenmiyor (`const std::string&` kullanın).";
+const REASON_VECTOR_BY_VALUE: &str =
+    "`std::vector`'ü değerle almak henüz desteklenmiyor (`const std::vector<T>&` kullanın).";
 const REASON_RVALUE: &str = "Rvalue referanslar (`T&&`) henüz desteklenmiyor.";
-const REASON_REF_RETURN_FREE: &str = "Serbest veya statik fonksiyonun döndürdüğü referansın ömrü \
-     belirsiz; açıklama gerekecek (Milestone 3).";
+const REASON_REF_RETURN_FREE: &str = "Serbest veya statik fonksiyonun döndürdüğü referansın \
+     ömrü belirsiz (`'static` olmalı); sonraki milestone'da ele alınacak.";
+const REASON_BORROWED_RETURN_FREE: &str = "`borrowed` dönüş yalnızca metotlarda destekleniyor \
+     (referans nesneye bağlanır); serbest/statik fonksiyonlarda ömür `'static` olmalı, sonraki \
+     milestone'da ele alınacak.";
+const REASON_OWNED_REF: &str =
+    "Referans dönüşünün sahipliği devredilemez; `owned` yalnızca pointer dönüşlerinde geçerli.";
+const REASON_OWNED_CONST: &str = "`const T*` dönüşü `owned` olarak bağlanmıyor: Rust tarafı \
+     nesneyi değiştirebilir hale gelirdi.";
+const REASON_OWNED_PRIMITIVE: &str = "`owned` yalnızca sınıf, `std::string` ve `std::vector` \
+     pointer'larında destekleniyor (cxx `UniquePtr<primitif>` desteklemiyor).";
 const REASON_MUT_REF_FROM_CONST: &str =
     "Const metot değiştirilebilir referans döndüremez (Rust ödünç alma kuralları).";
 const REASON_ABSTRACT_BY_VALUE: &str = "Soyut sınıf değerle döndürülemez.";
 const REASON_VOID_PARAM: &str = "`void` parametre olamaz.";
+const REASON_VOID_POINTER: &str = "`void*` tipsiz bir pointer; güvenli bir Rust karşılığı yok.";
+const REASON_C_STRING: &str =
+    "`char*` C string'leri henüz desteklenmiyor (`std::string` kullanın).";
+const REASON_POINTER_TO_POINTER: &str = "Pointer'a pointer (`T**`) desteklenmiyor.";
+const REASON_UNSUPPORTED_POINTEE: &str = "Bu tipe pointer henüz desteklenmiyor.";
 const REASON_UNSUPPORTED_REF: &str = "Bu tipe referans henüz desteklenmiyor.";
-const REASON_UNSUPPORTED_UNIQUE: &str =
-    "`std::unique_ptr` yalnızca bu header'daki sınıflar ve `std::string` için destekleniyor.";
+const REASON_UNSUPPORTED_UNIQUE: &str = "`std::unique_ptr` yalnızca bu header'daki sınıflar, \
+     `std::string` ve `std::vector` için destekleniyor.";
+const REASON_VECTOR_BOOL: &str =
+    "`std::vector<bool>` C++'ta bit paketli özel bir tip; cxx desteklemiyor.";
+const REASON_VECTOR_ELEMENT: &str = "`std::vector` elemanı yalnızca sabit genişlikli tamsayı, \
+     `float`/`double`, `std::string` ya da bu header'daki bir sınıf olabilir.";
 const REASON_FLOAT_SIZE: &str = "Yalnızca `float` ve `double` destekleniyor.";
 
 /// Her platformda aynı genişlikte olan C++ temel tamsayı tipleri. `long` (Windows'ta 32,
@@ -39,24 +63,119 @@ const PORTABLE_BUILTINS: [&str; 6] = [
     "unsigned int",
 ];
 
+/// Bridge'de adı geçebilecek bir sınıf.
+#[derive(Clone)]
+pub(crate) struct KnownClass {
+    pub(crate) type_ref: TypeRef,
+    pub(crate) is_abstract: bool,
+    pub(crate) is_polymorphic: bool,
+    pub(crate) destructor: Destructor,
+}
+
 /// Bridge'de adı geçebilecek sınıf ve enum'lar: (namespace, ad) → bilgi.
 #[derive(Default)]
 pub(crate) struct Known {
-    pub(crate) classes: HashMap<(Vec<String>, String), (TypeRef, bool)>,
+    pub(crate) classes: HashMap<(Vec<String>, String), KnownClass>,
     pub(crate) enums: HashMap<(Vec<String>, String), TypeRef>,
 }
 
+/// Açıklama eklenince çözülebilecek bir reddin türü.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Need {
+    /// Parametreye `borrowed` açıklaması.
+    Param,
+    /// Dönüşe bu açıklamalardan biri.
+    Return(Vec<ReturnAnnotation>),
+}
+
+/// Bir tipin reddedilme nedeni.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Rejection {
+    pub(crate) reason: String,
+    /// Açıklama eklenirse bağlanabilir mi?
+    pub(crate) need: Option<Need>,
+}
+
+impl From<String> for Rejection {
+    fn from(reason: String) -> Self {
+        Rejection { reason, need: None }
+    }
+}
+
+impl From<&str> for Rejection {
+    fn from(reason: &str) -> Self {
+        Rejection::from(reason.to_owned())
+    }
+}
+
+/// Bağlanabilen bir parametre.
+#[derive(Debug)]
+pub(crate) struct ParamRule {
+    pub(crate) ty: BridgeType,
+    pub(crate) pass: Pass,
+    /// Verilen açıklama gerçekten kullanıldı mı (kullanılmadıysa gereksizdir)?
+    pub(crate) applied: bool,
+}
+
+/// Bağlanabilen bir dönüş.
+#[derive(Debug)]
+pub(crate) struct ReturnRule {
+    pub(crate) returns: Returns,
+    /// Verilen açıklama gerçekten kullanıldı mı?
+    pub(crate) applied: bool,
+}
+
 /// Bir parametre tipini çevirir.
-pub(crate) fn param_type(qt: &QualType, known: &Known) -> Result<BridgeType, String> {
+pub(crate) fn param_type(
+    qt: &QualType,
+    known: &Known,
+    annotation: Option<ParamAnnotation>,
+) -> Result<ParamRule, Rejection> {
+    let borrowed = annotation == Some(ParamAnnotation::Borrowed);
+    let direct = |ty| ParamRule {
+        ty,
+        pass: Pass::Direct,
+        applied: false,
+    };
     match &qt.ty {
-        Type::Void => Err(REASON_VOID_PARAM.to_owned()),
-        Type::Record { .. } => Err(REASON_CLASS_BY_VALUE.to_owned()),
-        Type::String => Err(REASON_STRING_BY_VALUE.to_owned()),
-        Type::UniquePtr { pointee } => Ok(BridgeType::UniquePtr(Box::new(unique_inner(
+        Type::Void => Err(REASON_VOID_PARAM.into()),
+        Type::Record { .. } => Err(REASON_CLASS_BY_VALUE.into()),
+        Type::String => Err(REASON_STRING_BY_VALUE.into()),
+        Type::Vector { .. } => Err(REASON_VECTOR_BY_VALUE.into()),
+        Type::UniquePtr { pointee } => Ok(direct(BridgeType::UniquePtr(Box::new(unique_inner(
             pointee, known,
-        )?))),
-        Type::LValueRef { referent } => ref_type(referent, known),
-        other => non_ref(other, known),
+        )?)))),
+        Type::LValueRef { referent } if is_mut_primitive(referent) => {
+            if !borrowed {
+                return Err(Rejection {
+                    reason: REASON_MUT_PRIMITIVE_REF.to_owned(),
+                    need: Some(Need::Param),
+                });
+            }
+            Ok(ParamRule {
+                applied: true,
+                ..direct(mutable_ref(non_ref(&referent.ty, known)?))
+            })
+        }
+        Type::LValueRef { referent } => Ok(direct(ref_type(referent, known)?)),
+        Type::Pointer { pointee } => {
+            let inner = pointee_type(pointee, known)?;
+            if !borrowed {
+                return Err(Rejection {
+                    reason: REASON_POINTER_PARAM.to_owned(),
+                    need: Some(Need::Param),
+                });
+            }
+            Ok(ParamRule {
+                ty: BridgeType::Ref {
+                    mutable: !pointee.is_const,
+                    inner: Box::new(inner),
+                },
+                pass: Pass::AddressOf,
+                applied: true,
+            })
+        }
+        other => Ok(direct(non_ref(other, known)?)),
     }
 }
 
@@ -66,32 +185,178 @@ pub(crate) fn return_type(
     qt: &QualType,
     known: &Known,
     receiver_mutable: Option<bool>,
-) -> Result<Returns, String> {
+    annotation: Option<ReturnAnnotation>,
+) -> Result<ReturnRule, Rejection> {
+    let plain = |returns| ReturnRule {
+        returns,
+        applied: false,
+    };
     match &qt.ty {
-        Type::Void => Ok(Returns::Unit),
+        Type::Void => Ok(plain(Returns::Unit)),
         Type::Record { name, namespace } => {
-            let (type_ref, is_abstract) = class(namespace, name, known)?;
-            if is_abstract {
-                Err(REASON_ABSTRACT_BY_VALUE.to_owned())
-            } else {
-                Ok(Returns::BoxedClass(type_ref))
+            let class = class(namespace, name, known)?;
+            if class.is_abstract {
+                return Err(REASON_ABSTRACT_BY_VALUE.into());
             }
+            deletable(&class, false)?;
+            Ok(plain(Returns::BoxedClass(class.type_ref)))
         }
-        Type::String => Ok(Returns::OwnedString),
-        Type::UniquePtr { pointee } => Ok(Returns::Value(BridgeType::UniquePtr(Box::new(
+        Type::String => Ok(plain(Returns::OwnedString)),
+        Type::Vector { element } => {
+            Ok(plain(Returns::OwnedVector(vector_element(element, known)?)))
+        }
+        Type::UniquePtr { pointee } => Ok(plain(Returns::Value(BridgeType::UniquePtr(Box::new(
             unique_inner(pointee, known)?,
-        )))),
-        Type::LValueRef { referent } => {
-            let Some(receiver_mutable) = receiver_mutable else {
-                return Err(REASON_REF_RETURN_FREE.to_owned());
-            };
-            let reference = ref_type(referent, known)?;
-            if matches!(reference, BridgeType::Ref { mutable: true, .. }) && !receiver_mutable {
-                return Err(REASON_MUT_REF_FROM_CONST.to_owned());
-            }
-            Ok(Returns::Value(reference))
+        ))))),
+        Type::LValueRef { referent } => ref_return(referent, known, receiver_mutable, annotation)
+            .map(|(ty, applied)| ReturnRule {
+                returns: Returns::Value(ty),
+                applied,
+            }),
+        Type::Pointer { pointee } => pointer_return(pointee, known, receiver_mutable, annotation),
+        other => Ok(plain(Returns::Value(non_ref(other, known)?))),
+    }
+}
+
+/// Metodun döndürdüğü `T&`. Primitif `T&` açıklama ister; diğerleri tip tablosuna uyar.
+fn ref_return(
+    referent: &QualType,
+    known: &Known,
+    receiver_mutable: Option<bool>,
+    annotation: Option<ReturnAnnotation>,
+) -> Result<(BridgeType, bool), Rejection> {
+    let Some(receiver_mutable) = receiver_mutable else {
+        return Err(REASON_REF_RETURN_FREE.into());
+    };
+    if annotation == Some(ReturnAnnotation::Owned) {
+        return Err(REASON_OWNED_REF.into());
+    }
+    if is_mut_primitive(referent) {
+        if annotation != Some(ReturnAnnotation::Borrowed) {
+            return Err(Rejection {
+                reason: REASON_MUT_PRIMITIVE_REF.to_owned(),
+                need: Some(Need::Return(vec![ReturnAnnotation::Borrowed])),
+            });
         }
-        other => non_ref(other, known).map(Returns::Value),
+        if !receiver_mutable {
+            return Err(REASON_MUT_REF_FROM_CONST.into());
+        }
+        return Ok((mutable_ref(non_ref(&referent.ty, known)?), true));
+    }
+    let reference = ref_type(referent, known)?;
+    if matches!(reference, BridgeType::Ref { mutable: true, .. }) && !receiver_mutable {
+        return Err(REASON_MUT_REF_FROM_CONST.into());
+    }
+    Ok((reference, false))
+}
+
+/// Dönen `T*`: açıklama olmadan bağlanmaz.
+fn pointer_return(
+    pointee: &QualType,
+    known: &Known,
+    receiver_mutable: Option<bool>,
+    annotation: Option<ReturnAnnotation>,
+) -> Result<ReturnRule, Rejection> {
+    let inner = pointee_type(pointee, known)?;
+    let ownable = matches!(
+        inner,
+        BridgeType::Class(_) | BridgeType::String | BridgeType::Vector(_)
+    ) && !pointee.is_const;
+    match annotation {
+        None => {
+            let mut options = Vec::new();
+            if ownable {
+                options.push(ReturnAnnotation::Owned);
+            }
+            if receiver_mutable.is_some() {
+                options.push(ReturnAnnotation::Borrowed);
+            }
+            if options.is_empty() {
+                // Serbest/statik fonksiyon ve sahiplenilemeyen pointer: hiçbir açıklama
+                // işe yaramıyor.
+                let owned = if pointee.is_const {
+                    REASON_OWNED_CONST
+                } else {
+                    REASON_OWNED_PRIMITIVE
+                };
+                return Err(format!("{owned} {REASON_BORROWED_RETURN_FREE}").into());
+            }
+            Err(Rejection {
+                reason: REASON_POINTER_RETURN.to_owned(),
+                need: Some(Need::Return(options)),
+            })
+        }
+        Some(ReturnAnnotation::Owned) => {
+            if pointee.is_const {
+                return Err(REASON_OWNED_CONST.into());
+            }
+            match &inner {
+                BridgeType::Class(_) => {
+                    if let Type::Record { name, namespace } = &pointee.ty {
+                        deletable(&class(namespace, name, known)?, true)?;
+                    }
+                }
+                BridgeType::String | BridgeType::Vector(_) => {}
+                _ => return Err(REASON_OWNED_PRIMITIVE.into()),
+            }
+            Ok(ReturnRule {
+                returns: Returns::OwnedPointer(inner),
+                applied: true,
+            })
+        }
+        Some(ReturnAnnotation::Borrowed) => {
+            let Some(receiver_mutable) = receiver_mutable else {
+                return Err(REASON_BORROWED_RETURN_FREE.into());
+            };
+            Ok(ReturnRule {
+                returns: Returns::BorrowedPointer {
+                    mutable: !pointee.is_const && receiver_mutable,
+                    inner,
+                },
+                applied: true,
+            })
+        }
+    }
+}
+
+/// `const` olmayan primitif ya da enum mu (`double&` gibi)?
+fn is_mut_primitive(referent: &QualType) -> bool {
+    !referent.is_const
+        && matches!(
+            referent.ty,
+            Type::Bool | Type::Integer { .. } | Type::Float { .. } | Type::Enum { .. }
+        )
+}
+
+fn mutable_ref(inner: BridgeType) -> BridgeType {
+    BridgeType::Ref {
+        mutable: true,
+        inner: Box::new(inner),
+    }
+}
+
+/// Bir pointer'ın gösterebileceği (açıklamayla referansa çevrilebilecek) tipler.
+fn pointee_type(pointee: &QualType, known: &Known) -> Result<BridgeType, Rejection> {
+    match &pointee.ty {
+        Type::Record { name, namespace } => {
+            Ok(BridgeType::Class(class(namespace, name, known)?.type_ref))
+        }
+        Type::String => Ok(BridgeType::String),
+        Type::Vector { element } => Ok(BridgeType::Vector(Box::new(vector_element(
+            element, known,
+        )?))),
+        Type::Integer {
+            builtin,
+            fixed_width: false,
+            ..
+        } if builtin == "char" => Err(REASON_C_STRING.into()),
+        Type::Bool | Type::Integer { .. } | Type::Float { .. } | Type::Enum { .. } => {
+            Ok(non_ref(&pointee.ty, known)?)
+        }
+        Type::Void => Err(REASON_VOID_POINTER.into()),
+        Type::Pointer { .. } => Err(REASON_POINTER_TO_POINTER.into()),
+        Type::Unsupported { spelling, reason } => Err(format!("`{spelling}`: {reason}").into()),
+        _ => Err(REASON_UNSUPPORTED_POINTEE.into()),
     }
 }
 
@@ -130,32 +395,41 @@ fn non_ref(ty: &Type, known: &Known) -> Result<BridgeType, String> {
             .cloned()
             .map(BridgeType::Enum)
             .ok_or_else(|| not_defined(namespace, name)),
-        Type::Pointer { .. } => Err(REASON_POINTER.to_owned()),
+        Type::Pointer { .. } => Err(REASON_POINTER_PARAM.to_owned()),
         Type::RValueRef { .. } => Err(REASON_RVALUE.to_owned()),
         Type::Unsupported { spelling, reason } => Err(format!("`{spelling}`: {reason}")),
         Type::Void
         | Type::Record { .. }
         | Type::String
         | Type::UniquePtr { .. }
+        | Type::Vector { .. }
         | Type::LValueRef { .. } => Err(REASON_UNSUPPORTED_REF.to_owned()),
     }
 }
 
-/// `T&` / `const T&` için tip tablosu.
-fn ref_type(referent: &QualType, known: &Known) -> Result<BridgeType, String> {
+/// `T&` / `const T&` için tip tablosu (const olmayan primitifler hariç; onlar açıklama ister).
+fn ref_type(referent: &QualType, known: &Known) -> Result<BridgeType, Rejection> {
     let mutable = !referent.is_const;
     let inner = match &referent.ty {
-        Type::Record { name, namespace } => BridgeType::Class(class(namespace, name, known)?.0),
+        Type::Record { name, namespace } => {
+            BridgeType::Class(class(namespace, name, known)?.type_ref)
+        }
         Type::String => BridgeType::String,
+        Type::Vector { element } => BridgeType::Vector(Box::new(vector_element(element, known)?)),
         Type::Bool | Type::Integer { .. } | Type::Float { .. } | Type::Enum { .. } => {
             if mutable {
-                return Err(REASON_MUT_PRIMITIVE_REF.to_owned());
+                return Err(Rejection {
+                    reason: REASON_MUT_PRIMITIVE_REF.to_owned(),
+                    need: Some(Need::Param),
+                });
             }
             non_ref(&referent.ty, known)?
         }
-        Type::Pointer { .. } => return Err(REASON_POINTER.to_owned()),
-        Type::Unsupported { spelling, reason } => return Err(format!("`{spelling}`: {reason}")),
-        _ => return Err(REASON_UNSUPPORTED_REF.to_owned()),
+        Type::Pointer { .. } => return Err(REASON_POINTER_PARAM.into()),
+        Type::Unsupported { spelling, reason } => {
+            return Err(format!("`{spelling}`: {reason}").into());
+        }
+        _ => return Err(REASON_UNSUPPORTED_REF.into()),
     };
     Ok(BridgeType::Ref {
         mutable,
@@ -163,15 +437,68 @@ fn ref_type(referent: &QualType, known: &Known) -> Result<BridgeType, String> {
     })
 }
 
+/// `std::vector` eleman tipi: cxx'in `CxxVector<T>` için kabul ettikleri.
+fn vector_element(element: &QualType, known: &Known) -> Result<BridgeType, String> {
+    match &element.ty {
+        Type::Bool => Err(REASON_VECTOR_BOOL.to_owned()),
+        Type::Integer { .. } | Type::Float { .. } => match non_ref(&element.ty, known)? {
+            ty @ (BridgeType::Int(_) | BridgeType::F32 | BridgeType::F64) => Ok(ty),
+            _ => Err(REASON_VECTOR_ELEMENT.to_owned()),
+        },
+        Type::String => Ok(BridgeType::String),
+        Type::Record { name, namespace } => {
+            let class = class(namespace, name, known)?;
+            // `std::vector<T>`'nin kendi destructor'ı elemanları siler.
+            deletable(&class, false)?;
+            Ok(BridgeType::Class(class.type_ref))
+        }
+        Type::Unsupported { spelling, reason } => Err(format!("`{spelling}`: {reason}")),
+        _ => Err(REASON_VECTOR_ELEMENT.to_owned()),
+    }
+}
+
 fn unique_inner(pointee: &QualType, known: &Known) -> Result<BridgeType, String> {
     match &pointee.ty {
-        Type::Record { name, namespace } => Ok(BridgeType::Class(class(namespace, name, known)?.0)),
+        Type::Record { name, namespace } => {
+            let class = class(namespace, name, known)?;
+            deletable(&class, false)?;
+            Ok(BridgeType::Class(class.type_ref))
+        }
         Type::String => Ok(BridgeType::String),
+        Type::Vector { element } => Ok(BridgeType::Vector(Box::new(vector_element(
+            element, known,
+        )?))),
         _ => Err(REASON_UNSUPPORTED_UNIQUE.to_owned()),
     }
 }
 
-fn class(namespace: &[String], name: &str, known: &Known) -> Result<(TypeRef, bool), String> {
+/// Rust tarafının (`UniquePtr` düşünce) nesneyi `delete` ile silmesi güvenli mi?
+///
+/// `through_base_pointer`: nesne bir pointer'dan geliyor ve gerçek tipi bir alt sınıf
+/// olabilir. O zaman polimorfik sınıfın destructor'ı sanal olmalı; değilse `delete` UB'dir.
+pub(crate) fn deletable(class: &KnownClass, through_base_pointer: bool) -> Result<(), String> {
+    let path = class.type_ref.cpp_path.trim_start_matches("::");
+    match class.destructor {
+        Destructor::NotPublic => Err(format!(
+            "`{path}`'ın destructor'ı public değil; Rust tarafı nesneyi silemez, `UniquePtr` \
+             üretilmiyor."
+        )),
+        Destructor::Deleted => Err(format!(
+            "`{path}`'ın destructor'ı silinmiş (`= delete`); `UniquePtr` üretilmiyor."
+        )),
+        Destructor::Public { is_virtual: false }
+            if through_base_pointer && class.is_polymorphic =>
+        {
+            Err(format!(
+                "`{path}` polimorfik ama destructor'ı sanal değil: dönen pointer bir alt sınıfı \
+                 gösteriyorsa `delete` tanımsız davranış olur, `UniquePtr` üretilmiyor."
+            ))
+        }
+        Destructor::Public { .. } => Ok(()),
+    }
+}
+
+fn class(namespace: &[String], name: &str, known: &Known) -> Result<KnownClass, String> {
     known
         .classes
         .get(&(namespace.to_vec(), name.to_owned()))
@@ -194,5 +521,38 @@ pub(crate) fn enum_repr(underlying: &Type) -> Result<IntType, String> {
         BridgeType::Int(int) => Ok(int),
         BridgeType::Char => Err("`char` tabanlı enum'lar desteklenmiyor.".to_owned()),
         _ => Err("Enum'un altta yatan tipi tamsayı değil.".to_owned()),
+    }
+}
+
+/// Bir tipin okunabilir C++ yazımı (öneri ve uyarılarda kullanılır).
+pub(crate) fn spell(qt: &QualType) -> String {
+    let base = match &qt.ty {
+        Type::Void => "void".to_owned(),
+        Type::Bool => "bool".to_owned(),
+        Type::Integer { spelling, .. } | Type::Float { spelling, .. } => spelling.clone(),
+        Type::Pointer { pointee } => {
+            let star = format!("{}*", spell(pointee));
+            return if qt.is_const {
+                format!("{star} const")
+            } else {
+                star
+            };
+        }
+        Type::LValueRef { referent } => return format!("{}&", spell(referent)),
+        Type::RValueRef { referent } => return format!("{}&&", spell(referent)),
+        Type::Record { name, namespace } | Type::Enum { name, namespace } => {
+            let mut path = namespace.clone();
+            path.push(name.clone());
+            path.join("::")
+        }
+        Type::String => "std::string".to_owned(),
+        Type::UniquePtr { pointee } => format!("std::unique_ptr<{}>", spell(pointee)),
+        Type::Vector { element } => format!("std::vector<{}>", spell(element)),
+        Type::Unsupported { spelling, .. } => spelling.clone(),
+    };
+    if qt.is_const {
+        format!("const {base}")
+    } else {
+        base
     }
 }

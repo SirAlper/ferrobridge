@@ -2,6 +2,7 @@
 // Kaynak header: enums/input.h
 
 #[cxx::bridge]
+#[rustfmt::skip]
 #[allow(non_snake_case, non_camel_case_types, missing_docs)]
 pub mod ffi {
     #[namespace = "io"]

@@ -18,7 +18,13 @@ fn generated(name: &str) -> GeneratedFiles {
         .join(name)
         .join("input.h");
     let module = parse_header(&header, &ParseOptions::default()).unwrap();
-    let plan = ferrobridge_analysis::check(&module);
+    let config = header.with_file_name("ferrobridge.toml");
+    let annotations = if config.exists() {
+        ferrobridge_analysis::Annotations::from_file(&config).unwrap()
+    } else {
+        ferrobridge_analysis::Annotations::default()
+    };
+    let plan = ferrobridge_analysis::check(&module, &annotations).unwrap();
     generate(
         &plan,
         &CodegenOptions {
@@ -53,11 +59,24 @@ fn strings() {
 }
 
 #[test]
+fn ownership() {
+    snapshot("ownership");
+}
+
+#[test]
+fn vectors() {
+    snapshot("vectors");
+}
+
+#[test]
 fn generated_bridge_is_valid_rust() {
     for name in [
         "classes",
         "enums",
         "strings",
+        "ownership",
+        "vectors",
+        "destructors",
         "free_functions",
         "namespaces",
     ] {
@@ -75,4 +94,25 @@ fn skipped_items_are_listed_in_the_generated_files() {
         assert!(files.bridge_rs.contains(needle), "bridge.rs: {needle}");
         assert!(files.shim_h.contains(needle), "shim.h: {needle}");
     }
+}
+
+#[test]
+fn assumptions_are_listed_in_every_generated_file() {
+    let files = generated("ownership");
+    for (name, text) in [
+        ("bridge.rs", &files.bridge_rs),
+        ("shim.h", &files.shim_h),
+        ("shim.cc", &files.shim_cc),
+    ] {
+        assert!(
+            text.contains("Açıklamaya dayanan varsayımlar"),
+            "{name}: varsayımlar bloğu yok"
+        );
+        assert!(
+            text.contains("own::make_widget dönüş `owned` (ferrobridge.toml:4)"),
+            "{name}"
+        );
+    }
+    // Açıklaması olmayan dosyada blok yok.
+    assert!(!generated("classes").bridge_rs.contains("varsayımlar"));
 }

@@ -1,0 +1,546 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 3,
+  "items": [
+    {
+      "kind": "class",
+      "name": "Sample",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
+      "constructors": [
+        {
+          "params": [
+            {
+              "name": "value",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "integer",
+                  "spelling": "std::int32_t",
+                  "builtin": "int",
+                  "size_bytes": 4,
+                  "signed": true,
+                  "fixed_width": true
+                }
+              }
+            }
+          ],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 12,
+            "column": 12
+          }
+        }
+      ],
+      "methods": [
+        {
+          "name": "value",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "std::int32_t",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": true
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 13,
+            "column": 16
+          }
+        }
+      ],
+      "unsupported_members": [],
+      "location": {
+        "file": "input.h",
+        "line": 10,
+        "column": 7
+      }
+    },
+    {
+      "kind": "function",
+      "name": "sum",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "values",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "vector",
+                  "element": {
+                    "const": false,
+                    "type": {
+                      "kind": "integer",
+                      "spelling": "int",
+                      "builtin": "int",
+                      "size_bytes": 4,
+                      "signed": true,
+                      "fixed_width": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "integer",
+          "spelling": "std::int32_t",
+          "builtin": "int",
+          "size_bytes": 4,
+          "signed": true,
+          "fixed_width": true
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 20,
+        "column": 14
+      }
+    },
+    {
+      "kind": "function",
+      "name": "append_halves",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "values",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": false,
+                "type": {
+                  "kind": "vector",
+                  "element": {
+                    "const": false,
+                    "type": {
+                      "kind": "float",
+                      "spelling": "double",
+                      "size_bytes": 8
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "void"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 21,
+        "column": 6
+      }
+    },
+    {
+      "kind": "function",
+      "name": "split_words",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "text",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "vector",
+          "element": {
+            "const": false,
+            "type": {
+              "kind": "string"
+            }
+          }
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 22,
+        "column": 26
+      }
+    },
+    {
+      "kind": "function",
+      "name": "count_words",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "words",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "vector",
+                  "element": {
+                    "const": false,
+                    "type": {
+                      "kind": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "integer",
+          "spelling": "std::int32_t",
+          "builtin": "int",
+          "size_bytes": 4,
+          "signed": true,
+          "fixed_width": true
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 23,
+        "column": 14
+      }
+    },
+    {
+      "kind": "function",
+      "name": "make_samples",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "count",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "std::int32_t",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": true
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "vector",
+          "element": {
+            "const": false,
+            "type": {
+              "kind": "record",
+              "name": "Sample",
+              "namespace": [
+                "geo"
+              ]
+            }
+          }
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 24,
+        "column": 21
+      }
+    },
+    {
+      "kind": "function",
+      "name": "first_value",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "samples",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "vector",
+                  "element": {
+                    "const": false,
+                    "type": {
+                      "kind": "record",
+                      "name": "Sample",
+                      "namespace": [
+                        "geo"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "integer",
+          "spelling": "std::int32_t",
+          "builtin": "int",
+          "size_bytes": 4,
+          "signed": true,
+          "fixed_width": true
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 25,
+        "column": 14
+      }
+    },
+    {
+      "kind": "function",
+      "name": "flags",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "bits",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "vector",
+                  "element": {
+                    "const": false,
+                    "type": {
+                      "kind": "bool"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "void"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 28,
+        "column": 6
+      }
+    },
+    {
+      "kind": "function",
+      "name": "nested",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "grid",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "vector",
+                  "element": {
+                    "const": false,
+                    "type": {
+                      "kind": "vector",
+                      "element": {
+                        "const": false,
+                        "type": {
+                          "kind": "integer",
+                          "spelling": "int",
+                          "builtin": "int",
+                          "size_bytes": 4,
+                          "signed": true,
+                          "fixed_width": false
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "void"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 29,
+        "column": 6
+      }
+    },
+    {
+      "kind": "function",
+      "name": "by_value",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "values",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "vector",
+              "element": {
+                "const": false,
+                "type": {
+                  "kind": "integer",
+                  "spelling": "int",
+                  "builtin": "int",
+                  "size_bytes": 4,
+                  "signed": true,
+                  "fixed_width": false
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "void"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 30,
+        "column": 6
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "class_template",
+      "name": "geo::Arena",
+      "reason": "Template'ler MVP kapsamı dışında (v0.2 hedefi).",
+      "location": {
+        "file": "input.h",
+        "line": 33,
+        "column": 8
+      }
+    },
+    {
+      "kind": "function",
+      "name": "custom",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "values",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "unsupported",
+                  "spelling": "std::vector<int, Arena<int>>",
+                  "reason": "Özel allocator'lı `std::vector` desteklenmiyor."
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "void"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 38,
+        "column": 6
+      }
+    }
+  ]
+}

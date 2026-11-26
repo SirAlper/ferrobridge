@@ -105,6 +105,7 @@ fn type_token(ty: &BridgeType) -> String {
         BridgeType::Class(r) | BridgeType::Enum(r) => r.rust_name.clone(),
         BridgeType::String => "string".to_owned(),
         BridgeType::UniquePtr(inner) => format!("uptr_{}", type_token(inner)),
+        BridgeType::Vector(inner) => format!("vec_{}", type_token(inner)),
         BridgeType::Ref { mutable, inner } => {
             if *mutable {
                 format!("mut_{}", type_token(inner))

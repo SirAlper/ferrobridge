@@ -6,7 +6,7 @@ use ferrobridge_analysis::{
 use proc_macro2::{Literal, TokenStream};
 use quote::quote;
 
-use crate::spelling::{ident, rust_return, rust_type};
+use crate::spelling::{ident, returns_reference, rust_return, rust_type};
 use crate::{CodegenError, CodegenOptions, ShimFn};
 
 /// Shim fonksiyonlarında alıcının (C++'taki `this`) parametre adı. C++ anahtar kelimesi
@@ -53,8 +53,11 @@ pub(crate) fn generate(
         .collect::<Result<Vec<_>, _>>()?;
     let namespace_blocks = blocks.into_tokens();
 
+    // `#[rustfmt::skip]`: dosya commit'lenir (ADR-0004); `cargo fmt` onu prettyplease'ten farklı
+    // biçimlendirip üreticinin çıktısıyla uyumsuz hale getirmesin.
     let module = quote! {
         #[cxx::bridge]
+        #[rustfmt::skip]
         #[allow(non_snake_case, non_camel_case_types, missing_docs)]
         pub mod ffi {
             #(#enums)*
@@ -170,6 +173,13 @@ fn function_decl(
 ) -> Result<TokenStream, CodegenError> {
     let name = ident(rust_name)?;
     let rename = cpp_name.map(|cpp| cxx_name_attr(rust_name, cpp));
+    // Shim'ler serbest fonksiyondur; `self` ömür kuralı işlemez. Dönen referans alıcıya açık
+    // bir ömürle bağlanır (başka referans parametresi varsa cxx bunu zorunlu tutar).
+    let lifetime = receiver
+        .as_ref()
+        .filter(|r| r.name != "self" && returns_reference(plan))
+        .map(|_| quote!('a));
+    let generics = lifetime.as_ref().map(|lt| quote!(<#lt>));
     let mut inputs = Vec::new();
     if let Some(receiver) = receiver {
         let self_name = if receiver.name == "self" {
@@ -180,17 +190,17 @@ fn function_decl(
         };
         let class = ident(&receiver.class.rust_name)?;
         inputs.push(if receiver.mutable {
-            quote!(#self_name: Pin<&mut #class>)
+            quote!(#self_name: Pin<&#lifetime mut #class>)
         } else {
-            quote!(#self_name: &#class)
+            quote!(#self_name: &#lifetime #class)
         });
     }
-    for ParamPlan { rust_name, ty } in &plan.params {
+    for ParamPlan { rust_name, ty, .. } in &plan.params {
         let param = ident(rust_name)?;
         let ty = rust_type(ty)?;
         inputs.push(quote!(#param: #ty));
     }
-    let output = match (rust_return(plan)?, plan.fallible) {
+    let output = match (rust_return(plan, lifetime.as_ref())?, plan.fallible) {
         (None, false) => quote!(),
         (None, true) => quote!(-> Result<()>),
         (Some(ty), false) => quote!(-> #ty),
@@ -198,7 +208,7 @@ fn function_decl(
     };
     Ok(quote! {
         #rename
-        fn #name(#(#inputs),*) #output;
+        fn #name #generics(#(#inputs),*) #output;
     })
 }
 

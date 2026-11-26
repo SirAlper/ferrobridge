@@ -1,6 +1,6 @@
 //! Üretilmiş bridge'leri, shim'leri ve fixture'ların C++ gerçeklemelerini derler.
 
-const FIXTURES: [&str; 3] = ["classes", "enums", "strings"];
+const FIXTURES: [&str; 5] = ["classes", "enums", "strings", "ownership", "vectors"];
 
 fn main() {
     let bridges: Vec<String> = FIXTURES
