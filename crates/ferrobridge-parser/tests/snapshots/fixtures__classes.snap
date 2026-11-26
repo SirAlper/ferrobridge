@@ -1,0 +1,864 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 2,
+  "items": [
+    {
+      "kind": "class",
+      "name": "Point",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "constructors": [],
+      "methods": [],
+      "unsupported_members": [
+        {
+          "construct": "field",
+          "name": "geo::Point::x",
+          "reason": "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.",
+          "location": {
+            "file": "input.h",
+            "line": 9,
+            "column": 9
+          }
+        },
+        {
+          "construct": "field",
+          "name": "geo::Point::y",
+          "reason": "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.",
+          "location": {
+            "file": "input.h",
+            "line": 10,
+            "column": 9
+          }
+        }
+      ],
+      "location": {
+        "file": "input.h",
+        "line": 8,
+        "column": 8
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Vehicle",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "constructors": [
+        {
+          "params": [
+            {
+              "name": "wheels",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "integer",
+                  "spelling": "int",
+                  "builtin": "int",
+                  "size_bytes": 4,
+                  "signed": true,
+                  "fixed_width": false
+                }
+              }
+            }
+          ],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 15,
+            "column": 12
+          }
+        },
+        {
+          "params": [
+            {
+              "name": "wheels",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "integer",
+                  "spelling": "int",
+                  "builtin": "int",
+                  "size_bytes": 4,
+                  "signed": true,
+                  "fixed_width": false
+                }
+              }
+            },
+            {
+              "name": "odometer",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "double",
+                  "size_bytes": 8
+                }
+              }
+            }
+          ],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 16,
+            "column": 3
+          }
+        }
+      ],
+      "methods": [
+        {
+          "name": "wheels",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 21,
+            "column": 7
+          }
+        },
+        {
+          "name": "odometer",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": true,
+          "location": {
+            "file": "input.h",
+            "line": 22,
+            "column": 10
+          }
+        },
+        {
+          "name": "drive",
+          "params": [
+            {
+              "name": "km",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "double",
+                  "size_bytes": 8
+                }
+              }
+            }
+          ],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "void"
+            }
+          },
+          "is_const": false,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 23,
+            "column": 8
+          }
+        },
+        {
+          "name": "honk",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": true,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 24,
+            "column": 15
+          }
+        },
+        {
+          "name": "max_wheels",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          },
+          "is_const": false,
+          "is_static": true,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 25,
+            "column": 14
+          }
+        },
+        {
+          "name": "break_down",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "void"
+            }
+          },
+          "is_const": false,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 28,
+            "column": 8
+          }
+        },
+        {
+          "name": "throw_unknown",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "void"
+            }
+          },
+          "is_const": false,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 29,
+            "column": 8
+          }
+        },
+        {
+          "name": "position",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "record",
+              "name": "Point",
+              "namespace": [
+                "geo"
+              ]
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 32,
+            "column": 9
+          }
+        },
+        {
+          "name": "home",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "record",
+                  "name": "Point",
+                  "namespace": [
+                    "geo"
+                  ]
+                }
+              }
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 33,
+            "column": 16
+          }
+        },
+        {
+          "name": "move_to",
+          "params": [
+            {
+              "name": "target",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "lvalue_ref",
+                  "referent": {
+                    "const": true,
+                    "type": {
+                      "kind": "record",
+                      "name": "Point",
+                      "namespace": [
+                        "geo"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "void"
+            }
+          },
+          "is_const": false,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 34,
+            "column": 8
+          }
+        },
+        {
+          "name": "move_to",
+          "params": [
+            {
+              "name": "x",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "float",
+                  "size_bytes": 4
+                }
+              }
+            },
+            {
+              "name": "y",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "float",
+                  "size_bytes": 4
+                }
+              }
+            }
+          ],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "void"
+            }
+          },
+          "is_const": false,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 35,
+            "column": 8
+          }
+        },
+        {
+          "name": "total_km",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "long",
+              "builtin": "long",
+              "size_bytes": 8,
+              "signed": true,
+              "fixed_width": false
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 39,
+            "column": 8
+          }
+        },
+        {
+          "name": "raw_handle",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "pointer",
+              "pointee": {
+                "const": false,
+                "type": {
+                  "kind": "void"
+                }
+              }
+            }
+          },
+          "is_const": false,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 40,
+            "column": 9
+          }
+        },
+        {
+          "name": "read_odometer",
+          "params": [
+            {
+              "name": "out",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "lvalue_ref",
+                  "referent": {
+                    "const": false,
+                    "type": {
+                      "kind": "float",
+                      "spelling": "double",
+                      "size_bytes": 8
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "void"
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 41,
+            "column": 8
+          }
+        }
+      ],
+      "unsupported_members": [
+        {
+          "construct": "operator",
+          "name": "geo::Vehicle::operator==",
+          "reason": "Operatörler v0.2 hedefi.",
+          "location": {
+            "file": "input.h",
+            "line": 38,
+            "column": 8
+          }
+        },
+        {
+          "construct": "field",
+          "name": "geo::Vehicle::public_counter",
+          "reason": "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.",
+          "location": {
+            "file": "input.h",
+            "line": 42,
+            "column": 7
+          }
+        }
+      ],
+      "location": {
+        "file": "input.h",
+        "line": 13,
+        "column": 7
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Shape",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": true,
+      "constructors": [],
+      "methods": [
+        {
+          "name": "area",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": true,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 54,
+            "column": 18
+          }
+        }
+      ],
+      "unsupported_members": [],
+      "location": {
+        "file": "input.h",
+        "line": 51,
+        "column": 7
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Square",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "constructors": [
+        {
+          "params": [
+            {
+              "name": "side",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "double",
+                  "size_bytes": 8
+                }
+              }
+            }
+          ],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 59,
+            "column": 12
+          }
+        }
+      ],
+      "methods": [
+        {
+          "name": "area",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": true,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 60,
+            "column": 10
+          }
+        }
+      ],
+      "unsupported_members": [
+        {
+          "construct": "base_class",
+          "name": "geo::Square : Shape",
+          "reason": "Kalıtım v0.2 hedefi: base sınıfın metotları bu sınıf üzerinden bağlanmıyor.",
+          "location": {
+            "file": "input.h",
+            "line": 57,
+            "column": 23
+          }
+        }
+      ],
+      "location": {
+        "file": "input.h",
+        "line": 57,
+        "column": 7
+      }
+    },
+    {
+      "kind": "function",
+      "name": "make_unit_square",
+      "namespace": [
+        "geo"
+      ],
+      "params": [],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "unique_ptr",
+          "pointee": {
+            "const": false,
+            "type": {
+              "kind": "record",
+              "name": "Shape",
+              "namespace": [
+                "geo"
+              ]
+            }
+          }
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 66,
+        "column": 24
+      }
+    },
+    {
+      "kind": "function",
+      "name": "clamp",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "value",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          }
+        },
+        {
+          "name": "lo",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          }
+        },
+        {
+          "name": "hi",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "integer",
+          "spelling": "int",
+          "builtin": "int",
+          "size_bytes": 4,
+          "signed": true,
+          "fixed_width": false
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 67,
+        "column": 5
+      }
+    },
+    {
+      "kind": "function",
+      "name": "clamp",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "value",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          }
+        },
+        {
+          "name": "lo",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          }
+        },
+        {
+          "name": "hi",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "double",
+          "size_bytes": 8
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 68,
+        "column": 8
+      }
+    },
+    {
+      "kind": "function",
+      "name": "length",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "p",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "record",
+                  "name": "Point",
+                  "namespace": [
+                    "geo"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "double",
+          "size_bytes": 8
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 69,
+        "column": 8
+      }
+    },
+    {
+      "kind": "function",
+      "name": "length",
+      "namespace": [
+        "physics"
+      ],
+      "params": [
+        {
+          "name": "meters",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "double",
+          "size_bytes": 8
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 75,
+        "column": 8
+      }
+    }
+  ]
+}

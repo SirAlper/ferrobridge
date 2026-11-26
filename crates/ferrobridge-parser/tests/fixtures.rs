@@ -43,6 +43,21 @@ fn unsupported() {
 }
 
 #[test]
+fn classes() {
+    snapshot("classes");
+}
+
+#[test]
+fn enums() {
+    snapshot("enums");
+}
+
+#[test]
+fn strings() {
+    snapshot("strings");
+}
+
+#[test]
 fn syntax_error_reports_diagnostics_with_line_numbers() {
     let error = parse_header(&fixture("syntax_error"), &ParseOptions::default()).unwrap_err();
     let ParserError::ParseFailed { diagnostics } = &error else {

@@ -302,6 +302,87 @@ impl<'tu> Cursor<'tu> {
         // SAFETY: `self.raw` geçerli; typedef değilse geçersiz tip döner.
         Type::new(unsafe { cx::clang_getTypedefDeclUnderlyingType(self.raw) })
     }
+
+    /// Bildirimi içeren anlamsal üst düğüm (namespace, sınıf veya translation unit).
+    pub(crate) fn semantic_parent(&self) -> Cursor<'tu> {
+        // SAFETY: `self.raw` geçerli; üstü yoksa null cursor döner.
+        Cursor::new(unsafe { cx::clang_getCursorSemanticParent(self.raw) })
+    }
+
+    /// Bu bir tanım mı (yalnızca ileri bildirim değil)?
+    pub(crate) fn is_definition(&self) -> bool {
+        // SAFETY: `self.raw` geçerli.
+        unsafe { cx::clang_isCursorDefinition(self.raw) != 0 }
+    }
+
+    /// İsimsiz bir namespace, struct veya enum mu?
+    pub(crate) fn is_anonymous(&self) -> bool {
+        // SAFETY: `self.raw` geçerli.
+        unsafe { cx::clang_Cursor_isAnonymous(self.raw) != 0 }
+    }
+
+    /// `inline namespace` mi (ör. libc++'ın `std::__1`'i)?
+    pub(crate) fn is_inline_namespace(&self) -> bool {
+        // SAFETY: `self.raw` geçerli; namespace değilse 0 döner.
+        unsafe { cx::clang_Cursor_isInlineNamespace(self.raw) != 0 }
+    }
+
+    /// Sınıf üyesinin erişim belirteci (`CX_CXXPublic` ...).
+    pub(crate) fn access(&self) -> cx::CX_CXXAccessSpecifier {
+        // SAFETY: `self.raw` geçerli; üye değilse `CX_CXXInvalidAccessSpecifier` döner.
+        unsafe { cx::clang_getCXXAccessSpecifier(self.raw) }
+    }
+
+    /// `= delete` ile silinmiş bir fonksiyon mu?
+    pub(crate) fn is_deleted(&self) -> bool {
+        // SAFETY: `self.raw` geçerli; fonksiyon değilse 0 döner.
+        unsafe { cx::clang_CXXMethod_isDeleted(self.raw) != 0 }
+    }
+
+    pub(crate) fn is_const_method(&self) -> bool {
+        // SAFETY: `self.raw` geçerli; metot değilse 0 döner.
+        unsafe { cx::clang_CXXMethod_isConst(self.raw) != 0 }
+    }
+
+    pub(crate) fn is_static_method(&self) -> bool {
+        // SAFETY: `self.raw` geçerli; metot değilse 0 döner.
+        unsafe { cx::clang_CXXMethod_isStatic(self.raw) != 0 }
+    }
+
+    pub(crate) fn is_virtual_method(&self) -> bool {
+        // SAFETY: `self.raw` geçerli; metot değilse 0 döner.
+        unsafe { cx::clang_CXXMethod_isVirtual(self.raw) != 0 }
+    }
+
+    /// Saf sanal metodu olduğu için doğrudan oluşturulamayan bir sınıf mı?
+    pub(crate) fn is_abstract_record(&self) -> bool {
+        // SAFETY: `self.raw` geçerli; sınıf değilse 0 döner.
+        unsafe { cx::clang_CXXRecord_isAbstract(self.raw) != 0 }
+    }
+
+    /// `enum class` mı?
+    pub(crate) fn is_scoped_enum(&self) -> bool {
+        // SAFETY: `self.raw` geçerli; enum değilse 0 döner.
+        unsafe { cx::clang_EnumDecl_isScoped(self.raw) != 0 }
+    }
+
+    /// Enum'un altta yatan tamsayı tipi.
+    pub(crate) fn enum_integer_type(&self) -> Type<'tu> {
+        // SAFETY: `self.raw` geçerli; enum değilse geçersiz tip döner.
+        Type::new(unsafe { cx::clang_getEnumDeclIntegerType(self.raw) })
+    }
+
+    /// Enum değerinin işaretli sayısal karşılığı.
+    pub(crate) fn enum_value(&self) -> i64 {
+        // SAFETY: `self.raw` geçerli; enum değeri değilse `LLONG_MIN` döner.
+        unsafe { cx::clang_getEnumConstantDeclValue(self.raw) }
+    }
+
+    /// Enum değerinin işaretsiz sayısal karşılığı.
+    pub(crate) fn enum_unsigned_value(&self) -> u64 {
+        // SAFETY: `self.raw` geçerli; enum değeri değilse `ULLONG_MAX` döner.
+        unsafe { cx::clang_getEnumConstantDeclUnsignedValue(self.raw) }
+    }
 }
 
 /// Bir C++ tipi.
@@ -363,5 +444,17 @@ impl<'tu> Type<'tu> {
     pub(crate) fn is_variadic(&self) -> bool {
         // SAFETY: `self.raw` geçerli; fonksiyon tipi değilse 0 döner.
         unsafe { cx::clang_isFunctionTypeVariadic(self.raw) != 0 }
+    }
+
+    /// Template özelleştirmesinin tip argümanları (ör. `std::unique_ptr<T, D>` için `[T, D]`).
+    /// Template değilse boş.
+    pub(crate) fn template_args(&self) -> Vec<Type<'tu>> {
+        // SAFETY: `self.raw` geçerli; template değilse -1 döner.
+        let count = unsafe { cx::clang_Type_getNumTemplateArguments(self.raw) };
+        let count = u32::try_from(count).unwrap_or(0);
+        (0..count)
+            // SAFETY: `i < count`, yani geçerli bir argüman indeksi.
+            .map(|i| Type::new(unsafe { cx::clang_Type_getTemplateArgumentAsType(self.raw, i) }))
+            .collect()
     }
 }

@@ -1,0 +1,217 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 2,
+  "items": [
+    {
+      "kind": "enum",
+      "name": "Mode",
+      "namespace": [
+        "io"
+      ],
+      "scoped": true,
+      "underlying": {
+        "kind": "integer",
+        "spelling": "int",
+        "builtin": "int",
+        "size_bytes": 4,
+        "signed": true,
+        "fixed_width": false
+      },
+      "variants": [
+        {
+          "name": "Manual",
+          "value": 0
+        },
+        {
+          "name": "Auto",
+          "value": 1
+        },
+        {
+          "name": "Hybrid",
+          "value": 10
+        }
+      ],
+      "location": {
+        "file": "input.h",
+        "line": 7,
+        "column": 12
+      }
+    },
+    {
+      "kind": "enum",
+      "name": "Level",
+      "namespace": [
+        "io"
+      ],
+      "scoped": true,
+      "underlying": {
+        "kind": "integer",
+        "spelling": "std::uint8_t",
+        "builtin": "unsigned char",
+        "size_bytes": 1,
+        "signed": false,
+        "fixed_width": true
+      },
+      "variants": [
+        {
+          "name": "Low",
+          "value": 1
+        },
+        {
+          "name": "High",
+          "value": 200
+        }
+      ],
+      "location": {
+        "file": "input.h",
+        "line": 8,
+        "column": 12
+      }
+    },
+    {
+      "kind": "enum",
+      "name": "Color",
+      "namespace": [
+        "io"
+      ],
+      "scoped": false,
+      "underlying": {
+        "kind": "integer",
+        "spelling": "unsigned int",
+        "builtin": "unsigned int",
+        "size_bytes": 4,
+        "signed": false,
+        "fixed_width": false
+      },
+      "variants": [
+        {
+          "name": "Red",
+          "value": 0
+        },
+        {
+          "name": "Green",
+          "value": 5
+        },
+        {
+          "name": "Blue",
+          "value": 6
+        }
+      ],
+      "location": {
+        "file": "input.h",
+        "line": 9,
+        "column": 6
+      }
+    },
+    {
+      "kind": "enum",
+      "name": "Offset",
+      "namespace": [
+        "io"
+      ],
+      "scoped": true,
+      "underlying": {
+        "kind": "integer",
+        "spelling": "short",
+        "builtin": "short",
+        "size_bytes": 2,
+        "signed": true,
+        "fixed_width": false
+      },
+      "variants": [
+        {
+          "name": "Minus",
+          "value": -3
+        },
+        {
+          "name": "Zero",
+          "value": 0
+        }
+      ],
+      "location": {
+        "file": "input.h",
+        "line": 10,
+        "column": 12
+      }
+    },
+    {
+      "kind": "function",
+      "name": "next",
+      "namespace": [
+        "io"
+      ],
+      "params": [
+        {
+          "name": "current",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "enum",
+              "name": "Mode",
+              "namespace": [
+                "io"
+              ]
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "enum",
+          "name": "Mode",
+          "namespace": [
+            "io"
+          ]
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 12,
+        "column": 6
+      }
+    },
+    {
+      "kind": "function",
+      "name": "level_for",
+      "namespace": [
+        "io"
+      ],
+      "params": [
+        {
+          "name": "color",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "enum",
+              "name": "Color",
+              "namespace": [
+                "io"
+              ]
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "enum",
+          "name": "Level",
+          "namespace": [
+            "io"
+          ]
+        }
+      },
+      "noexcept": true,
+      "location": {
+        "file": "input.h",
+        "line": 13,
+        "column": 7
+      }
+    }
+  ]
+}

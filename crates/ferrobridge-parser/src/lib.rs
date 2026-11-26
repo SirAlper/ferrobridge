@@ -129,9 +129,10 @@ pub fn parse_header(header: &Path, options: &ParseOptions) -> Result<Module, Par
         .to_str()
         .ok_or_else(|| ParserError::InvalidArgument(header.display().to_string()))
         .and_then(to_c_string)?;
+    // Kaynak dizini yüklenen kütüphanenin yolundan bulunduğu için önce yükle.
+    ensure_loaded()?;
     let args = clang_args(options)?;
 
-    ensure_loaded()?;
     let index = clang::Index::new().ok_or(ParserError::ClangFailed(clang_sys::CXError_Failure))?;
     let tu =
         clang::TranslationUnit::parse(&index, &file, &args).map_err(ParserError::ClangFailed)?;
@@ -171,8 +172,54 @@ fn clang_args(options: &ParseOptions) -> Result<Vec<CString>, ParserError> {
         args.push("-isysroot".to_owned());
         args.push(sysroot);
     }
+    if let Some(resource_dir) = default_resource_dir(&options.extra_args) {
+        args.push("-resource-dir".to_owned());
+        args.push(resource_dir);
+    }
     args.extend(options.extra_args.iter().cloned());
     args.iter().map(|arg| to_c_string(arg)).collect()
+}
+
+/// Derleyicinin yerleşik header'larını (`stdarg.h`, `stddef.h`...) içeren kaynak dizini.
+///
+/// Çalışma anında yüklenen libclang (ör. Homebrew'unki) bu dizini kendisi bulamayabilir; o
+/// zaman `<string>`, `<memory>` gibi header'lar derlenemez. Dizin, yüklenen kütüphanenin
+/// yanındaki `clang/<sürüm>/` klasörüdür (macOS'ta ve Linux dağıtımlarında aynı düzen).
+/// Kullanıcı `-resource-dir` verdiyse ya da dizin bulunamazsa `None`.
+fn default_resource_dir(extra_args: &[String]) -> Option<String> {
+    if extra_args
+        .iter()
+        .any(|arg| arg.starts_with("-resource-dir"))
+    {
+        return None;
+    }
+    let library = clang_sys::get_library()?;
+    resource_dir_near(library.path())
+}
+
+/// `.../lib/libclang.dylib` için `.../lib/clang/<en yüksek sürüm>/`; `include/stdarg.h`
+/// içermeyen klasörler yok sayılır.
+fn resource_dir_near(library: &Path) -> Option<String> {
+    let clang_dir = library.parent()?.join("clang");
+    let mut candidates: Vec<(u32, PathBuf)> = std::fs::read_dir(clang_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.join("include").join("stdarg.h").is_file())
+        .filter_map(|path| {
+            let major = path
+                .file_name()?
+                .to_str()?
+                .split('.')
+                .next()?
+                .parse()
+                .ok()?;
+            Some((major, path))
+        })
+        .collect();
+    candidates.sort();
+    let (_, best) = candidates.pop()?;
+    best.to_str().map(str::to_owned)
 }
 
 /// macOS'ta, kullanıcı kendisi vermediyse SDK yolunu `xcrun` ile bulur. Homebrew libclang

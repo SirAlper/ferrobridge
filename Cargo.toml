@@ -13,14 +13,16 @@ publish = false
 # İç bağımlılık grafiği (Obsidian `03 Mimari`). Bir crate diğerini gerçekten kullanmaya
 # başladığında buraya ve o crate'in [dependencies] bölümüne `<ad>.workspace = true` eklenir:
 #   parser   -> ir          (bağlı)
-#   analysis -> ir
-#   codegen  -> ir
+#   analysis -> ir          (bağlı)
+#   codegen  -> analysis    (bağlı; plan tipleri analizde)
 #   build    -> parser, analysis, codegen
-#   cli      -> parser (şimdilik), ileride build
+#   cli      -> parser, analysis, codegen (bağlı); ileride build
 # Kural: ir hiçbir ferrobridge crate'ine bağımlı olamaz.
 [workspace.dependencies]
 ferrobridge-ir = { path = "crates/ferrobridge-ir" }
 ferrobridge-parser = { path = "crates/ferrobridge-parser" }
+ferrobridge-analysis = { path = "crates/ferrobridge-analysis" }
+ferrobridge-codegen = { path = "crates/ferrobridge-codegen" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

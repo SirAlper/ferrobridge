@@ -1,0 +1,274 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 2,
+  "items": [
+    {
+      "kind": "function",
+      "name": "greet",
+      "namespace": [
+        "text"
+      ],
+      "params": [
+        {
+          "name": "name",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "string"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 8,
+        "column": 13
+      }
+    },
+    {
+      "kind": "function",
+      "name": "append_exclamation",
+      "namespace": [
+        "text"
+      ],
+      "params": [
+        {
+          "name": "text",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": false,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "void"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 9,
+        "column": 6
+      }
+    },
+    {
+      "kind": "function",
+      "name": "count_vowels",
+      "namespace": [
+        "text"
+      ],
+      "params": [
+        {
+          "name": "text",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "integer",
+          "spelling": "std::size_t",
+          "builtin": "unsigned long",
+          "size_bytes": 8,
+          "signed": false,
+          "fixed_width": false
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 12,
+        "column": 13
+      }
+    },
+    {
+      "kind": "function",
+      "name": "upper",
+      "namespace": [
+        "text"
+      ],
+      "params": [
+        {
+          "name": "text",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "string"
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "string"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 13,
+        "column": 13
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Label",
+      "namespace": [
+        "text"
+      ],
+      "is_abstract": false,
+      "constructors": [
+        {
+          "params": [
+            {
+              "name": "text",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "lvalue_ref",
+                  "referent": {
+                    "const": true,
+                    "type": {
+                      "kind": "string"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 17,
+            "column": 12
+          }
+        }
+      ],
+      "methods": [
+        {
+          "name": "text",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "string"
+                }
+              }
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 18,
+            "column": 22
+          }
+        },
+        {
+          "name": "shout",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "string"
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 19,
+            "column": 15
+          }
+        },
+        {
+          "name": "set_text",
+          "params": [
+            {
+              "name": "text",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "lvalue_ref",
+                  "referent": {
+                    "const": true,
+                    "type": {
+                      "kind": "string"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "void"
+            }
+          },
+          "is_const": false,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 20,
+            "column": 8
+          }
+        }
+      ],
+      "unsupported_members": [],
+      "location": {
+        "file": "input.h",
+        "line": 15,
+        "column": 7
+      }
+    }
+  ]
+}

@@ -5,11 +5,12 @@ libclang ile header okur → ara model (IR) → ownership çıkarımı + `ferrob
 
 Açık kaynak: `MIT OR Apache-2.0` (bkz. `docs/adr/0003-open-source-dual-license.md`).
 
-Durum: **Milestone 1 (header okuma) tamamlandı**: `ferrobridge parse <header>` serbest fonksiyonları IR olarak JSON basıyor. Sırada Milestone 2: ilk köprü (`/ecc:plan .claude/prds/ferrobridge.prd.md`).
+Durum: **Milestone 2 (ilk köprü) tamamlandı**: `ferrobridge generate <header> --out-dir <dizin>` sınıflar, metotlar, enum'lar ve `std::string` için cxx bridge + C++ shim üretiyor; `crates/ferrobridge-e2e` bunu gerçek C++ ile test ediyor. Sırada Milestone 3: sahiplik açıklamaları (`/ecc:plan .claude/prds/ferrobridge.prd.md`).
 
 ## Belgeler
 - Gereksinimler (PRD): `.claude/prds/ferrobridge.prd.md`. Planlama komutu `/ecc:plan .claude/prds/ferrobridge.prd.md` bu dosyayı okur.
-- Mimari kararlar: `docs/adr/` (dizin: `docs/adr/README.md`, şablon: `docs/adr/template.md`). Kabul edilmiş ADR'ler: 0001 (libclang via `clang-sys`), 0002 (cxx üstüne inşa), 0003 (açık kaynak çift lisans).
+- Mimari kararlar: `docs/adr/` (dizin: `docs/adr/README.md`, şablon: `docs/adr/template.md`). Kabul edilmiş ADR'ler: 0001 (libclang via `clang-sys`), 0002 (cxx üstüne inşa), 0003 (açık kaynak çift lisans), 0004 (üretilen kod commit'lenir), 0005 (overload/çakışma adlandırma).
+- Milestone planları: `.claude/plans/` (her planın sonunda uygulama notları ve sapmalar).
 - Kişisel notlar ve yerel yollar repoya girmez; proje sahibi bunları Git'e girmeyen `CLAUDE.local.md` dosyasında tutar.
 
 ## Çalışma kuralları
@@ -30,11 +31,17 @@ export LIBCLANG_PATH="$(brew --prefix llvm)/lib"   # macOS'ta ayarlanmazsa Apple
 cargo run -p ferrobridge-cli -- doctor              # hangi libclang'ın yüklendiğini gösterir
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo test --workspace                              # e2e için C++17 derleyicisi gerekir
 ```
+
+Üretici veya fixture'lar değişince `crates/ferrobridge-e2e/src/generated/` yeniden üretilmeli (komut: `crates/ferrobridge-e2e/README.md`); aksi halde `generated_files_match_the_committed_e2e_files` testi başarısız olur. Snapshot değişikliklerini `cargo insta review` ile **elle inceleyip** kabul et.
+
+## Mimari (kısa)
+`parser` (libclang → IR) → `analysis` (neyin güvenle bağlanacağı + Rust adları → `BridgePlan`) → `codegen` (`bridge.rs`, `shim.h`, `shim.cc`) → `cli`. Bütün `unsafe` `crates/ferrobridge-parser/src/clang.rs`'de.
 
 ## Kod kuralları (workspace lint'leriyle zorlanır)
 - Testler dışında `unwrap()` / `expect()` yasak (`clippy.toml` testlerde izin verir).
-- Her `unsafe` bloğun üstünde `// SAFETY:` gerekçesi zorunlu.
+- Her `unsafe` bloğun üstünde `// SAFETY:` gerekçesi zorunlu. Yeni libclang çağrıları yalnızca `clang.rs`'e eklenir.
+- Integration test dosyalarında `#![allow(clippy::unwrap_used)]` gerekir (`clippy.toml` istisnası yardımcı fonksiyonları kapsamıyor).
 - Public öğelerde doküman yorumu beklenir (`missing_docs`).
 - `ferrobridge-ir` başka hiçbir ferrobridge crate'ine bağımlı olamaz. İç bağımlılıklar ancak kullanılınca eklenir; hedef grafik kök `Cargo.toml`'da yorum olarak yazılı.

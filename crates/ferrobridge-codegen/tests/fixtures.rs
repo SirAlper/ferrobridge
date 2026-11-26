@@ -1,0 +1,78 @@
+//! Fixture header'larından üretilen üç dosyanın snapshot testleri.
+//!
+//! Zincir: `ferrobridge-parser` → `ferrobridge-analysis::check` → `ferrobridge-codegen::generate`.
+//! Snapshot'lar `tests/snapshots/` altında; değişiklikleri `cargo insta review` ile inceleyin.
+
+// Bu dosya yalnızca test kodu; `clippy.toml`'daki test istisnası yardımcı fonksiyonları
+// kapsamadığı için burada açıkça izin veriliyor.
+#![allow(clippy::unwrap_used)]
+
+use std::path::PathBuf;
+
+use ferrobridge_codegen::{CodegenOptions, GeneratedFiles, generate};
+use ferrobridge_parser::{ParseOptions, parse_header};
+
+fn generated(name: &str) -> GeneratedFiles {
+    let header = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures")
+        .join(name)
+        .join("input.h");
+    let module = parse_header(&header, &ParseOptions::default()).unwrap();
+    let plan = ferrobridge_analysis::check(&module);
+    generate(
+        &plan,
+        &CodegenOptions {
+            header_include: format!("{name}/input.h"),
+            shim_include: format!("{name}/shim.h"),
+            shim_namespace: format!("ferrobridge::{name}"),
+        },
+    )
+    .unwrap()
+}
+
+fn snapshot(name: &str) {
+    let files = generated(name);
+    insta::assert_snapshot!(format!("{name}__bridge.rs"), files.bridge_rs);
+    insta::assert_snapshot!(format!("{name}__shim.h"), files.shim_h);
+    insta::assert_snapshot!(format!("{name}__shim.cc"), files.shim_cc);
+}
+
+#[test]
+fn classes() {
+    snapshot("classes");
+}
+
+#[test]
+fn enums() {
+    snapshot("enums");
+}
+
+#[test]
+fn strings() {
+    snapshot("strings");
+}
+
+#[test]
+fn generated_bridge_is_valid_rust() {
+    for name in [
+        "classes",
+        "enums",
+        "strings",
+        "free_functions",
+        "namespaces",
+    ] {
+        let files = generated(name);
+        if let Err(error) = syn::parse_file(&files.bridge_rs) {
+            panic!("{name}: geçersiz Rust: {error}\n{}", files.bridge_rs);
+        }
+    }
+}
+
+#[test]
+fn skipped_items_are_listed_in_the_generated_files() {
+    let files = generated("classes");
+    for needle in ["geo::Vehicle::total_km", "geo::Vehicle::raw_handle"] {
+        assert!(files.bridge_rs.contains(needle), "bridge.rs: {needle}");
+        assert!(files.shim_h.contains(needle), "shim.h: {needle}");
+    }
+}

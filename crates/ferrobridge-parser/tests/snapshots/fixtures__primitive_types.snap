@@ -3,7 +3,7 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 1,
+  "format_version": 2,
   "items": [
     {
       "kind": "function",
@@ -17,6 +17,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "std::int8_t",
+              "builtin": "signed char",
               "size_bytes": 1,
               "signed": true,
               "fixed_width": true
@@ -30,6 +31,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "std::uint16_t",
+              "builtin": "unsigned short",
               "size_bytes": 2,
               "signed": false,
               "fixed_width": true
@@ -43,6 +45,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "std::int32_t",
+              "builtin": "int",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -56,6 +59,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "std::uint64_t",
+              "builtin": "unsigned long long",
               "size_bytes": 8,
               "signed": false,
               "fixed_width": true
@@ -88,6 +92,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "char",
+              "builtin": "char",
               "size_bytes": 1,
               "signed": true,
               "fixed_width": false
@@ -101,6 +106,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "signed char",
+              "builtin": "signed char",
               "size_bytes": 1,
               "signed": true,
               "fixed_width": false
@@ -114,6 +120,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "unsigned char",
+              "builtin": "unsigned char",
               "size_bytes": 1,
               "signed": false,
               "fixed_width": false
@@ -127,6 +134,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "short",
+              "builtin": "short",
               "size_bytes": 2,
               "signed": true,
               "fixed_width": false
@@ -140,6 +148,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "unsigned int",
+              "builtin": "unsigned int",
               "size_bytes": 4,
               "signed": false,
               "fixed_width": false
@@ -153,6 +162,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "long long",
+              "builtin": "long long",
               "size_bytes": 8,
               "signed": true,
               "fixed_width": false
@@ -189,6 +199,7 @@ expression: module
                 "type": {
                   "kind": "integer",
                   "spelling": "int",
+                  "builtin": "int",
                   "size_bytes": 4,
                   "signed": true,
                   "fixed_width": false
@@ -225,6 +236,7 @@ expression: module
                 "type": {
                   "kind": "integer",
                   "spelling": "char",
+                  "builtin": "char",
                   "size_bytes": 1,
                   "signed": true,
                   "fixed_width": false
@@ -280,6 +292,7 @@ expression: module
                 "type": {
                   "kind": "integer",
                   "spelling": "int",
+                  "builtin": "int",
                   "size_bytes": 4,
                   "signed": true,
                   "fixed_width": false
@@ -299,6 +312,7 @@ expression: module
                 "type": {
                   "kind": "integer",
                   "spelling": "std::int64_t",
+                  "builtin": "long long",
                   "size_bytes": 8,
                   "signed": true,
                   "fixed_width": true
@@ -333,6 +347,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "my_id",
+              "builtin": "int",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -345,6 +360,7 @@ expression: module
         "type": {
           "kind": "integer",
           "spelling": "my_id",
+          "builtin": "int",
           "size_bytes": 4,
           "signed": true,
           "fixed_width": true

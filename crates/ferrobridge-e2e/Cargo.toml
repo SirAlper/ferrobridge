@@ -1,0 +1,17 @@
+[package]
+name = "ferrobridge-e2e"
+description = "Uçtan uca testler: ferrobridge'in ürettiği bridge'ler gerçek C++ koduyla derlenip Rust'tan çağrılır."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cxx = "1.0.198"
+
+[build-dependencies]
+cxx-build = "1.0.198"

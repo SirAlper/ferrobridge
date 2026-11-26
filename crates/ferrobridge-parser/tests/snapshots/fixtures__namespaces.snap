@@ -3,7 +3,7 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 1,
+  "format_version": 2,
   "items": [
     {
       "kind": "function",
@@ -140,6 +140,7 @@ expression: module
         "type": {
           "kind": "integer",
           "spelling": "int",
+          "builtin": "int",
           "size_bytes": 4,
           "signed": true,
           "fixed_width": false

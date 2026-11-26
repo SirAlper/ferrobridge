@@ -7,13 +7,16 @@
 mod item;
 mod types;
 
-pub use item::{Function, Item, Param, SourceLocation, Unsupported};
+pub use item::{
+    Class, Constructor, Enum, EnumVariant, Function, Item, Method, Param, SourceLocation,
+    Unsupported,
+};
 pub use types::{QualType, Type};
 
 use serde::{Deserialize, Serialize};
 
 /// IR'ın JSON biçiminin sürümü. Biçim uyumsuz şekilde değiştiğinde artırılır.
-pub const IR_FORMAT_VERSION: u32 = 1;
+pub const IR_FORMAT_VERSION: u32 = 2;
 
 /// Bir C++ header'ından okunan sembollerin kökü.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,11 +60,107 @@ mod tests {
             is_const: false,
             ty: Type::Integer {
                 spelling: "std::int32_t".to_owned(),
+                builtin: "int".to_owned(),
                 size_bytes: 4,
                 signed: true,
                 fixed_width: true,
             },
         }
+    }
+
+    fn plain(ty: Type) -> QualType {
+        QualType {
+            is_const: false,
+            ty,
+        }
+    }
+
+    #[test]
+    fn classes_enums_and_std_types_round_trip_through_json() {
+        let vehicle = Type::Record {
+            name: "Vehicle".to_owned(),
+            namespace: vec!["geo".to_owned()],
+        };
+        let module = Module {
+            format_version: IR_FORMAT_VERSION,
+            items: vec![
+                Item::Class(Class {
+                    name: "Vehicle".to_owned(),
+                    namespace: vec!["geo".to_owned()],
+                    is_abstract: false,
+                    constructors: vec![Constructor {
+                        params: vec![Param {
+                            name: Some("wheels".to_owned()),
+                            ty: int32(),
+                        }],
+                        noexcept: false,
+                        location: location(4),
+                    }],
+                    methods: vec![Method {
+                        name: "rename".to_owned(),
+                        params: vec![Param {
+                            name: Some("name".to_owned()),
+                            ty: QualType {
+                                is_const: false,
+                                ty: Type::LValueRef {
+                                    referent: Box::new(QualType {
+                                        is_const: true,
+                                        ty: Type::String,
+                                    }),
+                                },
+                            },
+                        }],
+                        return_type: plain(Type::UniquePtr {
+                            pointee: Box::new(plain(vehicle.clone())),
+                        }),
+                        is_const: false,
+                        is_static: false,
+                        is_virtual: true,
+                        noexcept: false,
+                        location: location(5),
+                    }],
+                    unsupported_members: vec![Unsupported {
+                        construct: "field".to_owned(),
+                        name: "geo::Vehicle::count".to_owned(),
+                        reason: "alan".to_owned(),
+                        location: location(6),
+                    }],
+                    location: location(3),
+                }),
+                Item::Enum(Enum {
+                    name: "Mode".to_owned(),
+                    namespace: vec!["geo".to_owned()],
+                    scoped: true,
+                    underlying: int32().ty,
+                    variants: vec![
+                        EnumVariant {
+                            name: "Manual".to_owned(),
+                            value: 0,
+                        },
+                        EnumVariant {
+                            name: "Auto".to_owned(),
+                            value: -5,
+                        },
+                    ],
+                    location: location(8),
+                }),
+                Item::Function(Function {
+                    name: "mode_of".to_owned(),
+                    namespace: Vec::new(),
+                    params: vec![Param {
+                        name: None,
+                        ty: plain(vehicle),
+                    }],
+                    return_type: plain(Type::Enum {
+                        name: "Mode".to_owned(),
+                        namespace: vec!["geo".to_owned()],
+                    }),
+                    noexcept: true,
+                    location: location(9),
+                }),
+            ],
+        };
+        assert_eq!(round_trip(&module), module);
     }
 
     fn round_trip(module: &Module) -> Module {

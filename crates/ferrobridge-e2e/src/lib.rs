@@ -1,0 +1,19 @@
+//! Uçtan uca testler için üretilmiş bridge'ler.
+//!
+//! `src/generated/` altındaki dosyalar `ferrobridge generate` çıktısıdır; elle düzenlemeyin.
+//! Yeniden üretme komutu `README.md`'de. `ferrobridge-cli`'deki bir test, commit'li dosyaların
+//! üreticinin güncel çıktısıyla birebir aynı olduğunu doğrular.
+//!
+//! C++ tarafı `tests/fixtures/<ad>/input.h` ve `impl.cc`; `build.rs` hepsini derler.
+
+/// `tests/fixtures/classes`: sınıflar, constructor'lar, metotlar, overload'lar, exception'lar.
+#[path = "generated/classes/bridge.rs"]
+pub mod classes;
+
+/// `tests/fixtures/enums`: scoped/unscoped enum'lar, farklı alt tipler, negatif değerler.
+#[path = "generated/enums/bridge.rs"]
+pub mod enums;
+
+/// `tests/fixtures/strings`: `std::string` parametreleri ve dönüşleri.
+#[path = "generated/strings/bridge.rs"]
+pub mod strings;

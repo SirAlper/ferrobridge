@@ -40,7 +40,7 @@ Elinde büyük C++ kod tabanı olan ve yeni kodu Rust'ta yazmak isteyen ekiplerd
 **MVP:**
 - Yön: Rust → C++ (C++'ı Rust'tan çağırmak)
 - Desteklenen yapılar: serbest fonksiyonlar, sınıflar ve metotlar, enum'lar
-- Desteklenen standart tipler: `std::string`, `std::vector`, `std::unique_ptr`
+- Desteklenen standart tipler: `std::string`, `std::unique_ptr` (Milestone 2); `std::vector` Milestone 3'e kaydırıldı (27.11.2026)
 - C++ exception'ları Rust'ta `Result` olarak dönecek
 - Sahiplik bilgisi kullanıcının yazdığı bir açıklama dosyasından alınacak
 - Cargo build entegrasyonu
@@ -60,7 +60,7 @@ Elinde büyük C++ kod tabanı olan ve yeni kodu Rust'ta yazmak isteyen ekiplerd
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
 | 1 | Header'ı okuma | Kullanıcı bir C++ header'ını verir, araç içinde ne gördüğünü (fonksiyonlar, tipler) okunabilir biçimde gösterir | complete | `.claude/plans/m1-header-okuma.plan.md` |
-| 2 | İlk köprü | Basit bir C++ sınıfı, elle bridge yazılmadan Rust testinden çağrılabilir | pending | — |
+| 2 | İlk köprü | Basit bir C++ sınıfı, elle bridge yazılmadan Rust testinden çağrılabilir | complete | `.claude/plans/m2-ilk-kopru.plan.md` |
 | 3 | Sahiplik açıklamaları | Kullanıcı belirsiz pointer'lar için açıklama yazar; araç belirsiz durumda kod üretmek yerine soru sorar | pending | — |
 | 4 | Güvenli API | Kullanıcı hiç `unsafe` yazmadan C++ nesnesi oluşturup kullanabilir; exception'lar `Result` olarak gelir | pending | — |
 | 5 | Gerçek dünya demosu | `AP_Math` API'sinin ≥ %80'i Rust'tan kullanılabilir | pending | — |
@@ -69,7 +69,7 @@ Elinde büyük C++ kod tabanı olan ve yeni kodu Rust'ta yazmak isteyen ekiplerd
 ## Open Questions
 - [ ] Exception'ı kapalı derlenen kodlar (`-fno-exceptions`, ArduPilot gibi gömülü projelerde yaygın): "exception → `Result`" eşlemesi nasıl davranacak?
 - [ ] Sahiplik açıklamaları yalnızca ayrı dosyada mı tutulacak, yoksa header içinde C++ attribute'u olarak da yazılabilecek mi? (Üçüncü taraf header'lar düzenlenemediği için ayrı dosya şart.)
-- [ ] Minimum desteklenecek LLVM/libclang sürümü ne olacak?
+- [x] Minimum libclang sürümü: **16** (`= delete` tespiti için gereken fonksiyon 16 ile geldi; CI 21–23'ü test edecek). Karar: 27.11.2026, Milestone 2 planı.
 - [ ] Proje adı kesinleşecek mi? (crates.io'da müsaitlik kontrolü)
 - [x] Lisans: **MIT OR Apache-2.0**, proje tamamen açık kaynak (karar 26.11.2026, ADR-0003)
 

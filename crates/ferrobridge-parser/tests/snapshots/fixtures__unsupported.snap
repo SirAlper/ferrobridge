@@ -3,13 +3,37 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 1,
+  "format_version": 2,
   "items": [
     {
-      "kind": "unsupported",
-      "construct": "struct",
+      "kind": "class",
       "name": "Point",
-      "reason": "Sınıf ve struct'lar Milestone 2'de desteklenecek.",
+      "namespace": [],
+      "is_abstract": false,
+      "constructors": [],
+      "methods": [],
+      "unsupported_members": [
+        {
+          "construct": "field",
+          "name": "Point::x",
+          "reason": "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.",
+          "location": {
+            "file": "input.h",
+            "line": 4,
+            "column": 9
+          }
+        },
+        {
+          "construct": "field",
+          "name": "Point::y",
+          "reason": "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.",
+          "location": {
+            "file": "input.h",
+            "line": 5,
+            "column": 9
+          }
+        }
+      ],
       "location": {
         "file": "input.h",
         "line": 3,
@@ -17,10 +41,33 @@ expression: module
       }
     },
     {
-      "kind": "unsupported",
-      "construct": "class",
+      "kind": "class",
       "name": "Vehicle",
-      "reason": "Sınıf ve struct'lar Milestone 2'de desteklenecek.",
+      "namespace": [],
+      "is_abstract": false,
+      "constructors": [],
+      "methods": [
+        {
+          "name": "drive",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "void"
+            }
+          },
+          "is_const": false,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 10,
+            "column": 8
+          }
+        }
+      ],
+      "unsupported_members": [],
       "location": {
         "file": "input.h",
         "line": 8,
@@ -28,10 +75,28 @@ expression: module
       }
     },
     {
-      "kind": "unsupported",
-      "construct": "enum",
+      "kind": "enum",
       "name": "Mode",
-      "reason": "Enum'lar Milestone 2'de desteklenecek.",
+      "namespace": [],
+      "scoped": true,
+      "underlying": {
+        "kind": "integer",
+        "spelling": "int",
+        "builtin": "int",
+        "size_bytes": 4,
+        "signed": true,
+        "fixed_width": false
+      },
+      "variants": [
+        {
+          "name": "Manual",
+          "value": 0
+        },
+        {
+          "name": "Auto",
+          "value": 1
+        }
+      ],
       "location": {
         "file": "input.h",
         "line": 13,
@@ -53,7 +118,7 @@ expression: module
       "kind": "unsupported",
       "construct": "variable",
       "name": "global_counter",
-      "reason": "Global değişkenler henüz desteklenmiyor.",
+      "reason": "Global ve statik değişkenler henüz desteklenmiyor.",
       "location": {
         "file": "input.h",
         "line": 18,
@@ -70,9 +135,9 @@ expression: module
           "type": {
             "const": false,
             "type": {
-              "kind": "unsupported",
-              "spelling": "Point",
-              "reason": "Sınıf ve struct'lar Milestone 2'de desteklenecek."
+              "kind": "record",
+              "name": "Point",
+              "namespace": []
             }
           }
         }

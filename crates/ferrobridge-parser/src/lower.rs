@@ -1,26 +1,42 @@
 //! libclang AST'sini IR'a çevirme.
 //!
 //! Yalnızca ayrıştırılan ana dosyadaki bildirimler alınır; `#include` edilen dosyalar alınmaz.
-//! Desteklenmeyen hiçbir yapı sessizce atlanmaz: `Item::Unsupported` ya da
-//! `Type::Unsupported` olarak nedeniyle kaydedilir.
+//! Desteklenmeyen hiçbir yapı sessizce atlanmaz: `Item::Unsupported`,
+//! `Class::unsupported_members` ya da `Type::Unsupported` olarak nedeniyle kaydedilir.
+//!
+//! Bilerek kaydedilmeyenler (bağlanacak bir API olmadıkları için): ileri bildirimler
+//! (`class Foo;`), typedef/using'ler (kullanıldıkları tipte çözülür), `= delete` ile silinmiş
+//! fonksiyonlar, destructor'lar (`UniquePtr` tarafından çağrılır), private/protected üyeler.
 
 use std::path::Path;
 
 use clang_sys as cx;
-use ferrobridge_ir::{Function, Item, Module, Param, QualType, SourceLocation, Type, Unsupported};
+use ferrobridge_ir::{
+    Class, Constructor, Enum, EnumVariant, Function, Item, Method, Module, Param, QualType,
+    SourceLocation, Type, Unsupported,
+};
 
 use crate::clang::{self, Cursor, TranslationUnit};
 
 /// Anonim namespace'in IR'daki adı.
 const ANONYMOUS_NAMESPACE: &str = "(anonim)";
 
-const REASON_RECORD: &str = "Sınıf ve struct'lar Milestone 2'de desteklenecek.";
-const REASON_ENUM: &str = "Enum'lar Milestone 2'de desteklenecek.";
+const REASON_UNION: &str = "Union'lar henüz desteklenmiyor.";
+const REASON_ANONYMOUS: &str = "İsimsiz sınıf ve enum'lar Rust'tan adlandırılamaz.";
+const REASON_NESTED: &str = "İç içe tipler (sınıf içinde tanımlı sınıf/enum) v0.2 hedefi.";
 const REASON_TEMPLATE: &str = "Template'ler MVP kapsamı dışında (v0.2 hedefi).";
-const REASON_VARIABLE: &str = "Global değişkenler henüz desteklenmiyor.";
+const REASON_VARIABLE: &str = "Global ve statik değişkenler henüz desteklenmiyor.";
+const REASON_FIELD: &str = "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.";
+const REASON_OPERATOR: &str = "Operatörler v0.2 hedefi.";
+const REASON_CONVERSION: &str = "Dönüşüm operatörleri v0.2 hedefi.";
+const REASON_INHERITANCE: &str =
+    "Kalıtım v0.2 hedefi: base sınıfın metotları bu sınıf üzerinden bağlanmıyor.";
 const REASON_INTERNAL: &str =
     "İç bağlantılı fonksiyonlar (static veya anonim namespace içinde) header dışından çağrılamaz.";
 const REASON_VARIADIC: &str = "Değişken sayıda argüman alan (`...`) fonksiyonlar desteklenmiyor.";
+const REASON_ENUM_RANGE: &str = "Enum değeri 64 bit işaretli tamsayıya sığmıyor.";
+const REASON_STD_TYPE: &str = "Bu standart kütüphane tipi henüz desteklenmiyor.";
+const REASON_CUSTOM_DELETER: &str = "Özel silicili `std::unique_ptr` desteklenmiyor.";
 const REASON_UNKNOWN_DECL: &str = "Bu bildirim türü henüz tanınmıyor.";
 const REASON_UNKNOWN_TYPE: &str = "Bu tip henüz desteklenmiyor.";
 
@@ -66,10 +82,13 @@ impl Lowering {
             }
             cx::CXCursor_LinkageSpec => self.visit_children(cursor),
             cx::CXCursor_FunctionDecl => self.function(cursor),
-            cx::CXCursor_StructDecl => self.unsupported(cursor, "struct", REASON_RECORD),
-            cx::CXCursor_ClassDecl => self.unsupported(cursor, "class", REASON_RECORD),
-            cx::CXCursor_UnionDecl => self.unsupported(cursor, "union", REASON_RECORD),
-            cx::CXCursor_EnumDecl => self.unsupported(cursor, "enum", REASON_ENUM),
+            cx::CXCursor_StructDecl | cx::CXCursor_ClassDecl if cursor.is_definition() => {
+                self.class(cursor);
+            }
+            cx::CXCursor_EnumDecl if cursor.is_definition() => self.enumeration(cursor),
+            cx::CXCursor_UnionDecl if cursor.is_definition() => {
+                self.unsupported(cursor, "union", REASON_UNION);
+            }
             cx::CXCursor_FunctionTemplate => {
                 self.unsupported(cursor, "function_template", REASON_TEMPLATE);
             }
@@ -80,9 +99,12 @@ impl Lowering {
                 self.unsupported(cursor, "alias_template", REASON_TEMPLATE);
             }
             cx::CXCursor_VarDecl => self.unsupported(cursor, "variable", REASON_VARIABLE),
-            // Bunlar tek başına bağlanacak bir API değil: typedef ve alias'lar kullanıldıkları
-            // tipte çözülür, diğerleri yalnızca derleme zamanında anlam taşır.
-            cx::CXCursor_TypedefDecl
+            // Bağlanacak bir API değil (modül belgesine bakın).
+            cx::CXCursor_StructDecl
+            | cx::CXCursor_ClassDecl
+            | cx::CXCursor_EnumDecl
+            | cx::CXCursor_UnionDecl
+            | cx::CXCursor_TypedefDecl
             | cx::CXCursor_TypeAliasDecl
             | cx::CXCursor_UsingDirective
             | cx::CXCursor_UsingDeclaration
@@ -96,6 +118,9 @@ impl Lowering {
     }
 
     fn function(&mut self, cursor: Cursor<'_>) {
+        if cursor.is_deleted() {
+            return;
+        }
         let linkage = cursor.linkage();
         if linkage == cx::CXLinkage_Internal || linkage == cx::CXLinkage_UniqueExternal {
             return self.unsupported(cursor, "function", REASON_INTERNAL);
@@ -103,40 +128,207 @@ impl Lowering {
         if cursor.ty().is_variadic() {
             return self.unsupported(cursor, "variadic_function", REASON_VARIADIC);
         }
-        let params = cursor
-            .arguments()
-            .into_iter()
-            .map(|arg| {
-                let name = arg.spelling();
-                Param {
-                    name: (!name.is_empty()).then_some(name),
-                    ty: lower_type(arg.ty()),
-                }
-            })
-            .collect();
         self.items.push(Item::Function(Function {
             name: cursor.spelling(),
             namespace: self.namespace.clone(),
-            params,
+            params: params(cursor),
             return_type: lower_type(cursor.result_type()),
             noexcept: is_noexcept(cursor.exception_spec()),
             location: location(cursor),
         }));
     }
 
-    fn unsupported(&mut self, cursor: Cursor<'_>, construct: &str, reason: &str) {
-        let mut path = self.namespace.clone();
-        let name = cursor.spelling();
-        if !name.is_empty() {
-            path.push(name);
+    fn class(&mut self, cursor: Cursor<'_>) {
+        if cursor.is_anonymous() {
+            return self.unsupported(cursor, "class", REASON_ANONYMOUS);
         }
-        self.items.push(Item::Unsupported(Unsupported {
-            construct: construct.to_owned(),
-            name: path.join("::"),
-            reason: reason.to_owned(),
+        let name = cursor.spelling();
+        let qualified = self.qualified(&name);
+        let mut class = Class {
+            name,
+            namespace: self.namespace.clone(),
+            is_abstract: cursor.is_abstract_record(),
+            constructors: Vec::new(),
+            methods: Vec::new(),
+            unsupported_members: Vec::new(),
+            location: location(cursor),
+        };
+        for member in cursor.children() {
+            class_member(&mut class, &qualified, member);
+        }
+        self.items.push(Item::Class(class));
+    }
+
+    fn enumeration(&mut self, cursor: Cursor<'_>) {
+        if cursor.is_anonymous() {
+            return self.unsupported(cursor, "enum", REASON_ANONYMOUS);
+        }
+        let underlying = lower_type(cursor.enum_integer_type()).ty;
+        let unsigned = matches!(underlying, Type::Integer { signed: false, .. });
+        let mut variants = Vec::new();
+        for constant in cursor.children() {
+            if constant.kind() != cx::CXCursor_EnumConstantDecl {
+                continue;
+            }
+            let value = if unsigned {
+                i64::try_from(constant.enum_unsigned_value()).ok()
+            } else {
+                Some(constant.enum_value())
+            };
+            let Some(value) = value else {
+                return self.unsupported(cursor, "enum", REASON_ENUM_RANGE);
+            };
+            variants.push(EnumVariant {
+                name: constant.spelling(),
+                value,
+            });
+        }
+        self.items.push(Item::Enum(Enum {
+            name: cursor.spelling(),
+            namespace: self.namespace.clone(),
+            scoped: cursor.is_scoped_enum(),
+            underlying,
+            variants,
             location: location(cursor),
         }));
     }
+
+    fn unsupported(&mut self, cursor: Cursor<'_>, construct: &str, reason: &str) {
+        let name = self.qualified(&cursor.spelling());
+        self.items.push(Item::Unsupported(unsupported(
+            cursor, construct, name, reason,
+        )));
+    }
+
+    /// Geçerli namespace'le birlikte tam ad (`geo::detail::f`).
+    fn qualified(&self, name: &str) -> String {
+        let mut path = self.namespace.clone();
+        if !name.is_empty() {
+            path.push(name.to_owned());
+        }
+        path.join("::")
+    }
+}
+
+/// Bir sınıf üyesini sınıfa ekler. Yalnızca public üyeler dikkate alınır.
+fn class_member(class: &mut Class, class_name: &str, member: Cursor<'_>) {
+    let kind = member.kind();
+    // Kalıtımın erişimi (public/private base) değil, varlığı önemli: bildirilir.
+    if kind == cx::CXCursor_CXXBaseSpecifier {
+        let name = format!("{class_name} : {}", member.spelling());
+        class
+            .unsupported_members
+            .push(unsupported(member, "base_class", name, REASON_INHERITANCE));
+        return;
+    }
+    if member.access() != cx::CX_CXXPublic {
+        return;
+    }
+    let member_name = format!("{class_name}::{}", member.spelling());
+    match kind {
+        cx::CXCursor_Constructor if !member.is_deleted() => {
+            class.constructors.push(Constructor {
+                params: params(member),
+                noexcept: is_noexcept(member.exception_spec()),
+                location: location(member),
+            });
+        }
+        cx::CXCursor_CXXMethod if !member.is_deleted() => {
+            if member.spelling().starts_with("operator") {
+                class.unsupported_members.push(unsupported(
+                    member,
+                    "operator",
+                    member_name,
+                    REASON_OPERATOR,
+                ));
+                return;
+            }
+            class.methods.push(Method {
+                name: member.spelling(),
+                params: params(member),
+                return_type: lower_type(member.result_type()),
+                is_const: member.is_const_method(),
+                is_static: member.is_static_method(),
+                is_virtual: member.is_virtual_method(),
+                noexcept: is_noexcept(member.exception_spec()),
+                location: location(member),
+            });
+        }
+        cx::CXCursor_ConversionFunction => class.unsupported_members.push(unsupported(
+            member,
+            "conversion_operator",
+            member_name,
+            REASON_CONVERSION,
+        )),
+        cx::CXCursor_FieldDecl => {
+            class
+                .unsupported_members
+                .push(unsupported(member, "field", member_name, REASON_FIELD))
+        }
+        cx::CXCursor_VarDecl => class.unsupported_members.push(unsupported(
+            member,
+            "static_variable",
+            member_name,
+            REASON_VARIABLE,
+        )),
+        cx::CXCursor_StructDecl
+        | cx::CXCursor_ClassDecl
+        | cx::CXCursor_UnionDecl
+        | cx::CXCursor_EnumDecl => class.unsupported_members.push(unsupported(
+            member,
+            "nested_type",
+            member_name,
+            REASON_NESTED,
+        )),
+        cx::CXCursor_FunctionTemplate => class.unsupported_members.push(unsupported(
+            member,
+            "method_template",
+            member_name,
+            REASON_TEMPLATE,
+        )),
+        // Bağlanacak bir API değil (modül belgesine bakın).
+        cx::CXCursor_Constructor
+        | cx::CXCursor_CXXMethod
+        | cx::CXCursor_Destructor
+        | cx::CXCursor_CXXAccessSpecifier
+        | cx::CXCursor_FriendDecl
+        | cx::CXCursor_TypedefDecl
+        | cx::CXCursor_TypeAliasDecl
+        | cx::CXCursor_UsingDeclaration
+        | cx::CXCursor_StaticAssert => {}
+        _ => {
+            let construct = member.kind_spelling();
+            class.unsupported_members.push(unsupported(
+                member,
+                &construct,
+                member_name,
+                REASON_UNKNOWN_DECL,
+            ));
+        }
+    }
+}
+
+fn unsupported(cursor: Cursor<'_>, construct: &str, name: String, reason: &str) -> Unsupported {
+    Unsupported {
+        construct: construct.to_owned(),
+        name,
+        reason: reason.to_owned(),
+        location: location(cursor),
+    }
+}
+
+fn params(cursor: Cursor<'_>) -> Vec<Param> {
+    cursor
+        .arguments()
+        .into_iter()
+        .map(|arg| {
+            let name = arg.spelling();
+            Param {
+                name: (!name.is_empty()).then_some(name),
+                ty: lower_type(arg.ty()),
+            }
+        })
+        .collect()
 }
 
 /// `noexcept`, `noexcept(true)` ve `throw()` exception fırlatmama garantisi verir.
@@ -165,12 +357,14 @@ fn lower_type(ty: clang::Type<'_>) -> QualType {
     let lowered = match kind {
         cx::CXType_Void => Type::Void,
         cx::CXType_Bool => Type::Bool,
-        _ if integer_signedness(kind).is_some() => {
+        _ if integer_info(kind).is_some() => {
+            let (builtin, signed) = integer_info(kind).unwrap_or(("", false));
             let size_bytes = canonical.size_of().unwrap_or(0);
             Type::Integer {
                 spelling: unqualified_spelling(ty),
+                builtin: builtin.to_owned(),
                 size_bytes,
-                signed: integer_signedness(kind).unwrap_or(false),
+                signed,
                 fixed_width: is_fixed_width(ty, size_bytes),
             }
         }
@@ -187,8 +381,11 @@ fn lower_type(ty: clang::Type<'_>) -> QualType {
         cx::CXType_RValueReference => Type::RValueRef {
             referent: Box::new(lower_type(pointee_of(ty, canonical))),
         },
-        cx::CXType_Record => unsupported_type(ty, REASON_RECORD),
-        cx::CXType_Enum => unsupported_type(ty, REASON_ENUM),
+        cx::CXType_Record => lower_record(ty, canonical),
+        cx::CXType_Enum => match scope_path(canonical.declaration()) {
+            Some((namespace, name)) => Type::Enum { name, namespace },
+            None => unsupported_type(ty, REASON_NESTED),
+        },
         _ => unsupported_type(ty, REASON_UNKNOWN_TYPE),
     };
     QualType {
@@ -197,22 +394,93 @@ fn lower_type(ty: clang::Type<'_>) -> QualType {
     }
 }
 
-/// Tamsayı tipiyse işaretli olup olmadığı; tamsayı değilse `None`.
+/// Sınıf tiplerini çevirir: `std::string` ve `std::unique_ptr<T>` özel olarak tanınır.
+///
+/// Tanıma ad metniyle değil, bildirimin namespace zinciri ve template argümanlarıyla yapılır;
+/// libc++'ın `std::__1` gibi inline namespace'leri yok sayılır.
+fn lower_record(ty: clang::Type<'_>, canonical: clang::Type<'_>) -> Type {
+    let declaration = canonical.declaration();
+    if declaration.kind() == cx::CXCursor_UnionDecl {
+        return unsupported_type(ty, REASON_UNION);
+    }
+    let Some((namespace, name)) = scope_path(declaration) else {
+        return unsupported_type(ty, REASON_NESTED);
+    };
+    let args = canonical.template_args();
+    if namespace.first().is_some_and(|ns| ns == "std") {
+        let is_char = |t: &clang::Type<'_>| {
+            matches!(t.canonical().kind(), cx::CXType_Char_S | cx::CXType_Char_U)
+        };
+        return match (name.as_str(), args.as_slice()) {
+            ("basic_string", [first, ..]) if namespace.len() == 1 && is_char(first) => Type::String,
+            ("unique_ptr", [pointee, deleter]) if namespace.len() == 1 => {
+                let deleter = deleter.canonical().declaration();
+                if deleter.spelling() == "default_delete" {
+                    Type::UniquePtr {
+                        pointee: Box::new(lower_type(*pointee)),
+                    }
+                } else {
+                    unsupported_type(ty, REASON_CUSTOM_DELETER)
+                }
+            }
+            _ => unsupported_type(ty, REASON_STD_TYPE),
+        };
+    }
+    if !args.is_empty() {
+        return unsupported_type(ty, REASON_TEMPLATE);
+    }
+    Type::Record { name, namespace }
+}
+
+/// Bir bildirimin namespace yolu ve adı. Inline namespace'ler atlanır. Sınıf veya fonksiyon
+/// içinde tanımlıysa ya da isimsizse `None`.
+fn scope_path(declaration: Cursor<'_>) -> Option<(Vec<String>, String)> {
+    let name = declaration.spelling();
+    if name.is_empty() || declaration.is_anonymous() {
+        return None;
+    }
+    let mut namespace = Vec::new();
+    let mut parent = declaration.semantic_parent();
+    for _ in 0..MAX_TYPEDEF_DEPTH * 4 {
+        match parent.kind() {
+            cx::CXCursor_TranslationUnit => {
+                namespace.reverse();
+                return Some((namespace, name));
+            }
+            cx::CXCursor_Namespace => {
+                if !parent.is_inline_namespace() {
+                    let segment = parent.spelling();
+                    namespace.push(if segment.is_empty() {
+                        ANONYMOUS_NAMESPACE.to_owned()
+                    } else {
+                        segment
+                    });
+                }
+            }
+            cx::CXCursor_LinkageSpec => {}
+            _ => return None,
+        }
+        parent = parent.semantic_parent();
+    }
+    None
+}
+
+/// Tamsayı tipiyse C++ temel tip adı ve işaretli olup olmadığı; tamsayı değilse `None`.
 /// `char16_t`, `wchar_t` ve 128 bitlik tipler bilerek dışarıda.
-fn integer_signedness(kind: cx::CXTypeKind) -> Option<bool> {
+fn integer_info(kind: cx::CXTypeKind) -> Option<(&'static str, bool)> {
     match kind {
-        cx::CXType_Char_S
-        | cx::CXType_SChar
-        | cx::CXType_Short
-        | cx::CXType_Int
-        | cx::CXType_Long
-        | cx::CXType_LongLong => Some(true),
-        cx::CXType_Char_U
-        | cx::CXType_UChar
-        | cx::CXType_UShort
-        | cx::CXType_UInt
-        | cx::CXType_ULong
-        | cx::CXType_ULongLong => Some(false),
+        cx::CXType_Char_S => Some(("char", true)),
+        cx::CXType_Char_U => Some(("char", false)),
+        cx::CXType_SChar => Some(("signed char", true)),
+        cx::CXType_UChar => Some(("unsigned char", false)),
+        cx::CXType_Short => Some(("short", true)),
+        cx::CXType_UShort => Some(("unsigned short", false)),
+        cx::CXType_Int => Some(("int", true)),
+        cx::CXType_UInt => Some(("unsigned int", false)),
+        cx::CXType_Long => Some(("long", true)),
+        cx::CXType_ULong => Some(("unsigned long", false)),
+        cx::CXType_LongLong => Some(("long long", true)),
+        cx::CXType_ULongLong => Some(("unsigned long long", false)),
         _ => None,
     }
 }
