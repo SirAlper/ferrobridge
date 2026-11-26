@@ -5,7 +5,7 @@ libclang ile header okur → ara model (IR) → ownership çıkarımı + `ferrob
 
 Açık kaynak: `MIT OR Apache-2.0` (bkz. `docs/adr/0003-open-source-dual-license.md`).
 
-Durum: **Faz 0 tamamlandı** (rakip analizi, PRD, ADR-0001–0003, Cargo workspace iskeleti). Sırada Milestone 1: header okuma (`/ecc:plan .claude/prds/ferrobridge.prd.md`).
+Durum: **Milestone 1 (header okuma) tamamlandı**: `ferrobridge parse <header>` serbest fonksiyonları IR olarak JSON basıyor. Sırada Milestone 2: ilk köprü (`/ecc:plan .claude/prds/ferrobridge.prd.md`).
 
 ## Belgeler
 - Gereksinimler (PRD): `.claude/prds/ferrobridge.prd.md`. Planlama komutu `/ecc:plan .claude/prds/ferrobridge.prd.md` bu dosyayı okur.

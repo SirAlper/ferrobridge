@@ -59,7 +59,7 @@ Elinde büyük C++ kod tabanı olan ve yeni kodu Rust'ta yazmak isteyen ekiplerd
 ## Delivery Milestones
 | # | Milestone | Outcome | Status | Plan |
 |---|---|---|---|---|
-| 1 | Header'ı okuma | Kullanıcı bir C++ header'ını verir, araç içinde ne gördüğünü (fonksiyonlar, tipler) okunabilir biçimde gösterir | pending | — |
+| 1 | Header'ı okuma | Kullanıcı bir C++ header'ını verir, araç içinde ne gördüğünü (fonksiyonlar, tipler) okunabilir biçimde gösterir | complete | `.claude/plans/m1-header-okuma.plan.md` |
 | 2 | İlk köprü | Basit bir C++ sınıfı, elle bridge yazılmadan Rust testinden çağrılabilir | pending | — |
 | 3 | Sahiplik açıklamaları | Kullanıcı belirsiz pointer'lar için açıklama yazar; araç belirsiz durumda kod üretmek yerine soru sorar | pending | — |
 | 4 | Güvenli API | Kullanıcı hiç `unsafe` yazmadan C++ nesnesi oluşturup kullanabilir; exception'lar `Result` olarak gelir | pending | — |

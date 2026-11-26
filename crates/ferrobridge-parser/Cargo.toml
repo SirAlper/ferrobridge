@@ -7,8 +7,12 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-clang-sys = { version = "1.9.1", features = ["runtime"] }
+clang-sys = { version = "1.9.1", features = ["clang_10_0", "runtime"] }
+ferrobridge-ir.workspace = true
 thiserror = "2.0.21"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+insta = { version = "1.49.0", features = ["json"] }

@@ -1,0 +1,178 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 1,
+  "items": [
+    {
+      "kind": "function",
+      "name": "length",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "x",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          }
+        },
+        {
+          "name": "y",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "float",
+          "size_bytes": 4
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 4,
+        "column": 7
+      }
+    },
+    {
+      "kind": "function",
+      "name": "hypot2",
+      "namespace": [
+        "geo",
+        "detail"
+      ],
+      "params": [
+        {
+          "name": "x",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          }
+        },
+        {
+          "name": "y",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "float",
+          "size_bytes": 4
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 7,
+        "column": 7
+      }
+    },
+    {
+      "kind": "function",
+      "name": "length",
+      "namespace": [
+        "physics"
+      ],
+      "params": [
+        {
+          "name": "meters",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "float",
+          "size_bytes": 4
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 13,
+        "column": 7
+      }
+    },
+    {
+      "kind": "function",
+      "name": "c_api_version",
+      "namespace": [],
+      "params": [],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "integer",
+          "spelling": "int",
+          "size_bytes": 4,
+          "signed": true,
+          "fixed_width": false
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 17,
+        "column": 5
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "function",
+      "name": "(anonim)::hidden",
+      "reason": "İç bağlantılı fonksiyonlar (static veya anonim namespace içinde) header dışından çağrılamaz.",
+      "location": {
+        "file": "input.h",
+        "line": 22,
+        "column": 5
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "function",
+      "name": "internal_helper",
+      "reason": "İç bağlantılı fonksiyonlar (static veya anonim namespace içinde) header dışından çağrılamaz.",
+      "location": {
+        "file": "input.h",
+        "line": 24,
+        "column": 12
+      }
+    }
+  ]
+}

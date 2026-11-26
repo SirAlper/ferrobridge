@@ -1,0 +1,361 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 1,
+  "items": [
+    {
+      "kind": "function",
+      "name": "takes_fixed",
+      "namespace": [],
+      "params": [
+        {
+          "name": "a",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "std::int8_t",
+              "size_bytes": 1,
+              "signed": true,
+              "fixed_width": true
+            }
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "std::uint16_t",
+              "size_bytes": 2,
+              "signed": false,
+              "fixed_width": true
+            }
+          }
+        },
+        {
+          "name": "c",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "std::int32_t",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": true
+            }
+          }
+        },
+        {
+          "name": "d",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "std::uint64_t",
+              "size_bytes": 8,
+              "signed": false,
+              "fixed_width": true
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "void"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 5,
+        "column": 6
+      }
+    },
+    {
+      "kind": "function",
+      "name": "takes_plain",
+      "namespace": [],
+      "params": [
+        {
+          "name": "a",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "char",
+              "size_bytes": 1,
+              "signed": true,
+              "fixed_width": false
+            }
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "signed char",
+              "size_bytes": 1,
+              "signed": true,
+              "fixed_width": false
+            }
+          }
+        },
+        {
+          "name": "c",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "unsigned char",
+              "size_bytes": 1,
+              "signed": false,
+              "fixed_width": false
+            }
+          }
+        },
+        {
+          "name": "d",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "short",
+              "size_bytes": 2,
+              "signed": true,
+              "fixed_width": false
+            }
+          }
+        },
+        {
+          "name": "e",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "unsigned int",
+              "size_bytes": 4,
+              "signed": false,
+              "fixed_width": false
+            }
+          }
+        },
+        {
+          "name": "f",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "long long",
+              "size_bytes": 8,
+              "signed": true,
+              "fixed_width": false
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "void"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 6,
+        "column": 6
+      }
+    },
+    {
+      "kind": "function",
+      "name": "takes_pointers",
+      "namespace": [],
+      "params": [
+        {
+          "name": "in",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "pointer",
+              "pointee": {
+                "const": true,
+                "type": {
+                  "kind": "integer",
+                  "spelling": "int",
+                  "size_bytes": 4,
+                  "signed": true,
+                  "fixed_width": false
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "out",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "pointer",
+              "pointee": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "float",
+                  "size_bytes": 4
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "name",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "pointer",
+              "pointee": {
+                "const": true,
+                "type": {
+                  "kind": "integer",
+                  "spelling": "char",
+                  "size_bytes": 1,
+                  "signed": true,
+                  "fixed_width": false
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "void"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 7,
+        "column": 6
+      }
+    },
+    {
+      "kind": "function",
+      "name": "takes_refs",
+      "namespace": [],
+      "params": [
+        {
+          "name": "in",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "float",
+                  "spelling": "double",
+                  "size_bytes": 8
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "out",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": false,
+                "type": {
+                  "kind": "integer",
+                  "spelling": "int",
+                  "size_bytes": 4,
+                  "signed": true,
+                  "fixed_width": false
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "moved",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "rvalue_ref",
+              "referent": {
+                "const": false,
+                "type": {
+                  "kind": "integer",
+                  "spelling": "std::int64_t",
+                  "size_bytes": 8,
+                  "signed": true,
+                  "fixed_width": true
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "void"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 8,
+        "column": 6
+      }
+    },
+    {
+      "kind": "function",
+      "name": "next_id",
+      "namespace": [],
+      "params": [
+        {
+          "name": "current",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "my_id",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": true
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "integer",
+          "spelling": "my_id",
+          "size_bytes": 4,
+          "signed": true,
+          "fixed_width": true
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 12,
+        "column": 7
+      }
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 1,
+  "items": [
+    {
+      "kind": "unsupported",
+      "construct": "struct",
+      "name": "Point",
+      "reason": "Sınıf ve struct'lar Milestone 2'de desteklenecek.",
+      "location": {
+        "file": "input.h",
+        "line": 3,
+        "column": 8
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "class",
+      "name": "Vehicle",
+      "reason": "Sınıf ve struct'lar Milestone 2'de desteklenecek.",
+      "location": {
+        "file": "input.h",
+        "line": 8,
+        "column": 7
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "enum",
+      "name": "Mode",
+      "reason": "Enum'lar Milestone 2'de desteklenecek.",
+      "location": {
+        "file": "input.h",
+        "line": 13,
+        "column": 12
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "function_template",
+      "name": "identity",
+      "reason": "Template'ler MVP kapsamı dışında (v0.2 hedefi).",
+      "location": {
+        "file": "input.h",
+        "line": 16,
+        "column": 3
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "variable",
+      "name": "global_counter",
+      "reason": "Global değişkenler henüz desteklenmiyor.",
+      "location": {
+        "file": "input.h",
+        "line": 18,
+        "column": 12
+      }
+    },
+    {
+      "kind": "function",
+      "name": "move_to",
+      "namespace": [],
+      "params": [
+        {
+          "name": "target",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "unsupported",
+              "spelling": "Point",
+              "reason": "Sınıf ve struct'lar Milestone 2'de desteklenecek."
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "void"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 21,
+        "column": 6
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "variadic_function",
+      "name": "sum",
+      "reason": "Değişken sayıda argüman alan (`...`) fonksiyonlar desteklenmiyor.",
+      "location": {
+        "file": "input.h",
+        "line": 23,
+        "column": 5
+      }
+    }
+  ]
+}
