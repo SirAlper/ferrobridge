@@ -1,0 +1,13 @@
+[package]
+name = "ferrobridge-parser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+clang-sys = { version = "1.9.1", features = ["runtime"] }
+thiserror = "2.0.21"
+
+[lints]
+workspace = true

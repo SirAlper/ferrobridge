@@ -1,0 +1,5 @@
+/target
+.DS_Store
+*.snap.new
+.claude/settings.local.json
+CLAUDE.local.md
