@@ -71,7 +71,7 @@ Elinde büyük C++ kod tabanı olan ve yeni kodu Rust'ta yazmak isteyen ekiplerd
 - [ ] Sahiplik açıklamaları yalnızca ayrı dosyada mı tutulacak, yoksa header içinde C++ attribute'u olarak da yazılabilecek mi? (Üçüncü taraf header'lar düzenlenemediği için ayrı dosya şart.)
 - [ ] Minimum desteklenecek LLVM/libclang sürümü ne olacak?
 - [ ] Proje adı kesinleşecek mi? (crates.io'da müsaitlik kontrolü)
-- [ ] Lisans: MIT/Apache-2.0 çift lisansı mı?
+- [x] Lisans: **MIT OR Apache-2.0**, proje tamamen açık kaynak (karar 26.11.2026, ADR-0003)
 
 ## Risks
 | Risk | Olasılık | Etki | Önlem |

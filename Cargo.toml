@@ -6,7 +6,8 @@ members = ["crates/*"]
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.85"
-# Lisans henüz karara bağlanmadı (PRD açık sorusu). Karar verilene kadar yayın kapalı.
+license = "MIT OR Apache-2.0"
+# Açık kaynak (ADR-0003). crates.io yayını v0.1'de (Milestone 6) açılacak; o zamana kadar kapalı.
 publish = false
 
 # İç bağımlılık grafiği (Obsidian `03 Mimari`). Bir crate diğerini gerçekten kullanmaya
