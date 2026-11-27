@@ -245,14 +245,14 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "ferrobridge"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "cxx",
 ]
 
 [[package]]
 name = "ferrobridge-analysis"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "ferrobridge-ir",
  "serde",
@@ -262,7 +262,7 @@ dependencies = [
 
 [[package]]
 name = "ferrobridge-build"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "cxx-build",
  "ferrobridge-analysis",
@@ -273,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "ferrobridge-cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "clap",
  "ferrobridge-analysis",
@@ -284,7 +284,7 @@ dependencies = [
 
 [[package]]
 name = "ferrobridge-codegen"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "ferrobridge-analysis",
  "ferrobridge-parser",
@@ -298,7 +298,7 @@ dependencies = [
 
 [[package]]
 name = "ferrobridge-e2e"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "cxx",
  "ferrobridge",
@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "ferrobridge-ir"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -315,7 +315,7 @@ dependencies = [
 
 [[package]]
 name = "ferrobridge-parser"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "clang-sys",
  "ferrobridge-ir",

@@ -1,10 +1,16 @@
 [package]
 name = "ferrobridge-cli"
+description = "The `ferrobridge` command: generates safe, idiomatic Rust bindings for C++ headers (on top of cxx), with ownership taken from an annotation file."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+# The tests read the fixtures at the repository root; they run from the repository, not from the package.
+exclude = ["tests/"]
 
 [dependencies]
 clap = { version = "4.6.10", features = ["derive"] }

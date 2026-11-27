@@ -25,6 +25,10 @@
 //! All bridges, the user's C++ sources and the shims are compiled into a single static library, with
 //! the same include paths, defines and C++ standard. In `generate` mode the same settings are also
 //! passed to the libclang that reads the header.
+//!
+//! The crate using the bridge depends on `cxx` and the `ferrobridge` runtime at the same minor
+//! version as this crate (ADR-0012). Getting started: the
+//! [ferrobridge README](https://github.com/SirAlper/ferrobridge#readme).
 
 use std::path::{Path, PathBuf};
 

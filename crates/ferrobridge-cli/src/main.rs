@@ -11,7 +11,7 @@ use ferrobridge_parser::{ParseOptions, ParserError};
 
 /// Generates safe Rust bindings from C++ headers.
 #[derive(Parser)]
-#[command(name = "ferrobridge", version, about)]
+#[command(name = "ferrobridge", version)]
 struct Cli {
     #[command(subcommand)]
     command: Command,

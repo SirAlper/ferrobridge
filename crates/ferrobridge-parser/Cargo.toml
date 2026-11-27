@@ -1,10 +1,16 @@
 [package]
 name = "ferrobridge-parser"
+description = "Reads C++ headers with libclang into the ferrobridge IR. An implementation detail of ferrobridge; no stability guarantee."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+# The tests read the fixtures at the repository root; they run from the repository, not from the package.
+exclude = ["tests/"]
 
 [dependencies]
 clang-sys = { version = "1.9.1", features = ["clang_16_0", "runtime"] }

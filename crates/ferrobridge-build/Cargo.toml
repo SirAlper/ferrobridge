@@ -5,10 +5,18 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories = ["development-tools::ffi", "development-tools::build-utils"]
+readme = "README.md"
+# The tests read the fixtures at the repository root; they run from the repository, not from the package.
+exclude = ["tests/"]
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 # Reads the header with libclang inside `build.rs` and generates the bridge into `OUT_DIR`. Needs libclang.

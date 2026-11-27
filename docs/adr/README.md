@@ -15,3 +15,4 @@ The record of architecture decisions. For a new ADR, copy `template.md` and incr
 | [0009](0009-multi-header-bridges-and-template-instantiation.md) | Multi-header bridges and template instantiation | accepted | 2026-11-27 |
 | [0010](0010-trivially-copyable-classes-as-rust-value-types.md) | Trivially copyable classes become Rust value types | accepted | 2026-11-27 |
 | [0011](0011-libraries-without-exceptions.md) | Libraries without exceptions (`[library] exceptions = false`) | accepted | 2026-11-27 |
+| [0012](0012-release-and-versioning.md) | Release and versioning policy | accepted | 2026-11-27 |
