@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+pub use ferrobridge_ir::ConstantValue;
 use ferrobridge_ir::{EnumVariant, SourceLocation};
 
 use crate::config::ReturnAnnotation;
@@ -15,6 +16,8 @@ pub struct BridgePlan {
     pub classes: Vec<ClassPlan>,
     /// Bağlanan serbest fonksiyonlar.
     pub functions: Vec<FunctionPlan>,
+    /// Rust `const` olarak üretilen sabitler.
+    pub constants: Vec<ConstantPlan>,
     /// Bağlanamayan öğeler ve nedenleri.
     pub skipped: Vec<Skipped>,
     /// Bağlanan ama kullanıcının bilmesi gereken durumlar.
@@ -65,10 +68,13 @@ pub enum SuggestionTarget {
         /// Bu bağlamda anlamlı açıklamalar.
         options: Vec<ReturnAnnotation>,
     },
-    /// Bir parametre (adı; isimsizse `argN`). Tek seçenek `borrowed`.
+    /// Bir parametre (adı; isimsizse `argN`). `borrowed` her zaman seçenektir.
     Param {
         /// Parametre adı.
         name: String,
+        /// Pointer sayı dizisi olabiliyorsa `{ slice = "..." }` için aday uzunluk parametreleri
+        /// (aynı fonksiyondaki tamsayı parametreleri); yoksa boş.
+        slice_lengths: Vec<String>,
     },
 }
 
@@ -137,6 +143,25 @@ pub struct EnumPlan {
     pub variants: Vec<EnumVariant>,
 }
 
+/// Rust `const` olarak üretilen bir C++ sabiti. Değer üretim anında yazılır; C++ tarafı
+/// çağrılmaz.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConstantPlan {
+    /// Rust'taki adı.
+    pub rust_name: String,
+    /// C++'taki adı.
+    pub cpp_name: String,
+    /// C++ namespace yolu.
+    pub namespace: Vec<String>,
+    /// Tipi: [`BridgeType::Bool`], [`BridgeType::Char`], [`BridgeType::Int`],
+    /// [`BridgeType::F32`] ya da [`BridgeType::F64`].
+    pub ty: BridgeType,
+    /// Değeri; tipe sığdığı analizde doğrulandı.
+    pub value: ConstantValue,
+    /// Bildirimin kaynaktaki yeri.
+    pub location: SourceLocation,
+}
+
 /// Rust ile C++ arasında her platformda aynı olan tamsayı tipleri.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntType {
@@ -188,6 +213,20 @@ impl IntType {
         }
     }
 
+    /// Alabileceği en küçük ve en büyük değer.
+    pub fn range(self) -> (i128, i128) {
+        match self {
+            Self::I8 => (i8::MIN.into(), i8::MAX.into()),
+            Self::U8 => (0, u8::MAX.into()),
+            Self::I16 => (i16::MIN.into(), i16::MAX.into()),
+            Self::U16 => (0, u16::MAX.into()),
+            Self::I32 => (i32::MIN.into(), i32::MAX.into()),
+            Self::U32 => (0, u32::MAX.into()),
+            Self::I64 => (i64::MIN.into(), i64::MAX.into()),
+            Self::U64 => (0, u64::MAX.into()),
+        }
+    }
+
     /// cxx'in kullandığı C++ adı (`"::std::int32_t"`).
     pub fn cpp_name(self) -> &'static str {
         match self {
@@ -226,6 +265,14 @@ pub enum BridgeType {
     UniquePtr(Box<BridgeType>),
     /// `CxxVector<T>` / `std::vector<T>` (yalnızca referans veya `UniquePtr` arkasında).
     Vector(Box<BridgeType>),
+    /// `&[T]` / `&mut [T]` (`rust::Slice<const T>` / `rust::Slice<T>`); `T` bir sayı tipi.
+    /// Yalnızca `slice` açıklamalı pointer parametrelerinde.
+    Slice {
+        /// `&mut [T]` mi?
+        mutable: bool,
+        /// Eleman tipi.
+        element: Box<BridgeType>,
+    },
     /// `&T` (`mutable: false`). `mutable: true` ise opak tipler (sınıf, `std::string`,
     /// `std::vector`) için `Pin<&mut T>`, primitif ve enum'lar için `&mut T`.
     Ref {
@@ -309,6 +356,9 @@ pub struct FunctionPlan {
     pub returns: Returns,
     /// `noexcept` değilse `true`: Rust tarafında `Result<T>` döner.
     pub fallible: bool,
+    /// Rust imzasından çıkarılan uzunluk parametreleri (`slice` açıklamaları); shim bunları
+    /// slice'ın boyundan doldurur.
+    pub lengths: Vec<LengthParam>,
     /// Bildirimin kaynaktaki yeri.
     pub location: SourceLocation,
 }
@@ -326,8 +376,28 @@ impl FunctionPlan {
                 | Returns::OwnedVector(_)
                 | Returns::OwnedPointer(_)
                 | Returns::BorrowedPointer { .. }
-        ) || self.params.iter().any(|p| p.pass == Pass::AddressOf)
+        ) || self
+            .params
+            .iter()
+            .any(|p| matches!(p.pass, Pass::AddressOf | Pass::Slice))
     }
+
+    /// C++ fonksiyonunun parametre sayısı (Rust'a görünmeyen uzunluklar dahil).
+    pub fn cpp_arity(&self) -> usize {
+        self.params.len() + self.lengths.len()
+    }
+}
+
+/// Rust imzasında olmayan, slice'ın boyundan doldurulan bir C++ parametresi.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LengthParam {
+    /// C++ parametre listesindeki yeri (0'dan başlar).
+    pub position: usize,
+    /// Boyu kullanılan slice'ın [`FunctionPlan::params`] içindeki yeri.
+    pub slice: usize,
+    /// C++ temel tamsayı tipi (`"unsigned short"`); shim bu tipe sığıp sığmadığını kontrol
+    /// eder.
+    pub cpp_type: String,
 }
 
 /// Bir parametre.
@@ -348,4 +418,7 @@ pub enum Pass {
     Direct,
     /// C++ pointer bekliyor, Rust referans veriyor: shim adresini alıp geçirir (`&p`).
     AddressOf,
+    /// C++ pointer + uzunluk bekliyor, Rust slice veriyor: shim `s.data()` ve (bkz.
+    /// [`LengthParam`]) `s.size()`'ı geçirir.
+    Slice,
 }

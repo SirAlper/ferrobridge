@@ -1,0 +1,8 @@
+# `AP_Math/SCurve.h`: `calculate_path`'in `*_out` parametreleri yalnızca çıkış değeri.
+
+[functions."SCurve::calculate_path".params]
+Jm_out = "borrowed"
+tj_out = "borrowed"
+t2_out = "borrowed"
+t4_out = "borrowed"
+t6_out = "borrowed"

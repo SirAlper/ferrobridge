@@ -1,0 +1,27 @@
+[package]
+name = "ferrobridge-demo-ap-math"
+description = "ArduPilot AP_Math'i ferrobridge ile Rust'tan kullanan demo (ADR-0008)."
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+# ArduPilot (GPL-3.0) ile bağlandığı için bu dizin GPL-3.0-or-later; ferrobridge'in kendisi
+# MIT OR Apache-2.0 kalır (ADR-0003, ADR-0008).
+license = "GPL-3.0-or-later"
+publish = false
+
+# Kök workspace'in parçası değil: `cargo test --workspace` ArduPilot istemez.
+[workspace]
+
+[dependencies]
+cxx = "1.0.198"
+ferrobridge = { path = "../../crates/ferrobridge" }
+
+[build-dependencies]
+ferrobridge-build = { path = "../../crates/ferrobridge-build", features = ["generate"] }
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

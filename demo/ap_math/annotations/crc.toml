@@ -1,0 +1,78 @@
+# `AP_Math/crc.h` için sahiplik açıklamaları. Her satır ArduPilot'un `crc.cpp`'si okunarak
+# yazıldı (commit 437a3301cc): pointer, yanındaki uzunluk kadar elemanlık bir diziyi gösteriyor,
+# yalnızca okunuyor ve saklanmıyor.
+#
+# Bilerek açıklanmayanlar:
+# - `crc_crc4(uint16_t* data)`: uzunluk parametresi yok, sabit 8 kelime okunuyor; `slice`
+#   olamaz, `borrowed` ("tek nesne") da yanlış olurdu.
+# - `crc8_dvb_s2_update(..., const void* data, ...)`: `void*`, tipi bilinmiyor.
+
+[functions.crc_crc8.params]
+p = { slice = "len" }
+
+[functions.crc8_generic.params]
+buf = { slice = "buf_len" }
+
+[functions.crc8_dvb_update.params]
+buf = { slice = "buf_len" }
+
+[functions.crc8_maxim.params]
+data = { slice = "length" }
+
+[functions.crc8_sae.params]
+data = { slice = "length" }
+
+[functions.crc8_rds02uf.params]
+data = { slice = "length" }
+
+[functions.crc_xor_of_bytes.params]
+data = { slice = "length" }
+
+[functions.crc_xmodem.params]
+data = { slice = "len" }
+
+[functions.crc_crc32.params]
+buf = { slice = "size" }
+
+[functions.crc32_small.params]
+buf = { slice = "size" }
+
+[functions.crc_crc24.params]
+bytes = { slice = "len" }
+
+# Pointer `const` değil ama dizi yalnızca okunuyor; Rust'ta gereğinden kısıtlayıcı `&mut [u8]`.
+[functions.crc_crc16_ibm.params]
+data_blk_ptr = { slice = "data_blk_size" }
+
+[functions.crc_sum8_with_carry.params]
+p = { slice = "len" }
+
+[functions.crc16_ccitt.params]
+buf = { slice = "len" }
+
+[functions.crc16_ccitt_r.params]
+buf = { slice = "len" }
+
+[functions.crc16_ccitt_GDL90.params]
+buf = { slice = "len" }
+
+[functions.calc_crc_modbus.params]
+buf = { slice = "len" }
+
+[functions.crc_fletcher16.params]
+buffer = { slice = "len" }
+
+# `hash` tek bir giriş-çıkış değeri: `*hash` okunup yazılıyor.
+[functions.hash_fnv_1a.params]
+buf = { slice = "len" }
+hash = "borrowed"
+
+# `num_words`: `uint32_t` eleman sayısı.
+[functions.crc_crc64.params]
+data = { slice = "num_words" }
+
+[functions.crc_sum_of_bytes.params]
+data = { slice = "count" }
+
+[functions.crc_sum_of_bytes_16.params]
+data = { slice = "count" }

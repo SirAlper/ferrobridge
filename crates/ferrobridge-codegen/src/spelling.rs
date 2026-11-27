@@ -53,6 +53,14 @@ pub(crate) fn rust_type_with(
             let inner = rust_type(inner)?;
             quote!(CxxVector<#inner>)
         }
+        BridgeType::Slice { mutable, element } => {
+            let element = rust_type(element)?;
+            if *mutable {
+                quote!(&#lifetime mut [#element])
+            } else {
+                quote!(&#lifetime [#element])
+            }
+        }
         BridgeType::Ref {
             mutable: false,
             inner,
@@ -126,6 +134,14 @@ pub(crate) fn cpp_type(ty: &BridgeType) -> String {
         BridgeType::String => "::std::string".to_owned(),
         BridgeType::UniquePtr(inner) => format!("::std::unique_ptr<{}>", cpp_type(inner)),
         BridgeType::Vector(inner) => format!("::std::vector<{}>", cpp_type(inner)),
+        BridgeType::Slice {
+            mutable: false,
+            element,
+        } => format!("::rust::Slice<const {}>", cpp_type(element)),
+        BridgeType::Slice {
+            mutable: true,
+            element,
+        } => format!("::rust::Slice<{}>", cpp_type(element)),
         BridgeType::Ref {
             mutable: false,
             inner,

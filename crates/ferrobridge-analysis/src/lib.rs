@@ -19,14 +19,17 @@ mod suggest;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use ferrobridge_ir::{Class, Enum, Function, Item, Module, Param, QualType, SourceLocation};
+use ferrobridge_ir::{
+    Class, Constant, Enum, Function, Item, Module, Param, QualType, SourceLocation,
+};
 
 pub use config::{
     Annotations, ConfigError, FunctionAnnotation, Located, ParamAnnotation, ReturnAnnotation,
 };
 pub use plan::{
-    AnnotationIssue, Assumption, BridgePlan, BridgeType, Callee, ClassPlan, EnumPlan, FunctionPlan,
-    IntType, ParamPlan, Pass, Returns, Skipped, Suggestion, SuggestionTarget, TypeRef,
+    AnnotationIssue, Assumption, BridgePlan, BridgeType, Callee, ClassPlan, ConstantPlan,
+    ConstantValue, EnumPlan, FunctionPlan, IntType, LengthParam, ParamPlan, Pass, Returns, Skipped,
+    Suggestion, SuggestionTarget, TypeRef,
 };
 pub use suggest::render_suggestions;
 
@@ -37,6 +40,8 @@ const NOTE_NO_CONSTRUCTOR: &str = "Açıkça bildirilmiş public constructor yok
      başka fonksiyonların döndürdüğü nesnelerle kullanılabilir.";
 const REASON_ANONYMOUS_NAMESPACE: &str =
     "Anonim namespace'teki tipler header dışından kullanılamaz.";
+const REASON_ANONYMOUS_CONSTANT: &str =
+    "Anonim namespace'teki sabitlerin Rust'tan yazılabilecek bir adı yok.";
 
 const PROMISE_BORROWED_POINTER: &str = "pointer tek bir nesneyi gösteriyor (dizi değil), null \
      değil, yalnızca çağrı süresince kullanılıyor ve saklanmıyor";
@@ -47,6 +52,8 @@ const PROMISE_BORROWED_RETURN: &str = "pointer nesnenin sahip olduğu bir şeyi 
      nesne yaşadıkça geçerli; silinmez (null gelirse `Err` döner)";
 const PROMISE_BORROWED_REF_RETURN: &str =
     "referans nesnenin sahip olduğu bir şeyi gösteriyor ve nesne yaşadıkça geçerli";
+const REASON_INVALID_SLICE: &str =
+    "`ferrobridge.toml`'daki `slice` açıklaması bu imzaya uymuyor (hatalara bakın).";
 
 /// IR modülünün bağlama planını çıkarır.
 ///
@@ -63,6 +70,7 @@ pub fn check(
         seen: BTreeMap::new(),
         returns_seen: BTreeSet::new(),
         applied_overloads: BTreeMap::new(),
+        slice_errors: Vec::new(),
     };
     checker.known = known_types(module, &mut checker.plan);
 
@@ -79,6 +87,14 @@ pub fn check(
                 }
             }
             Item::Enum(_) => {} // `known_types` içinde işlendi.
+            Item::Constant(constant) => match constant_plan(constant) {
+                Ok(bound) => checker.plan.constants.push(bound),
+                Err(reason) => checker.plan.skipped.push(skipped(
+                    &qualified(&constant.namespace, &constant.name),
+                    &reason,
+                    &constant.location,
+                )),
+            },
             Item::Unsupported(unsupported) => checker.plan.skipped.push(Skipped {
                 name: unsupported.name.clone(),
                 reason: unsupported.reason.clone(),
@@ -87,7 +103,8 @@ pub fn check(
         }
     }
 
-    let errors = checker.unmatched_annotations();
+    let mut errors = checker.unmatched_annotations();
+    errors.append(&mut checker.slice_errors);
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -109,6 +126,21 @@ struct Checker<'a> {
     returns_seen: BTreeSet<String>,
     /// Açıklaması gerçekten uygulanan overload'ların imzaları, anahtara göre.
     applied_overloads: BTreeMap<String, Vec<String>>,
+    /// İmzaya uymayan `slice` açıklamaları.
+    slice_errors: Vec<AnnotationIssue>,
+}
+
+/// Bir `slice` açıklamasının bir overload'a uygulanışı.
+struct SliceBinding {
+    /// Uzunluk parametresinin C++ parametre listesindeki yeri.
+    len_index: usize,
+    len_name: String,
+    /// Uzunluğun C++ temel tipi.
+    len_type: String,
+    element: BridgeType,
+    mutable: bool,
+    /// Açıklamanın satırı.
+    line: usize,
 }
 
 /// Bağlanmaya çalışılan bir fonksiyon, metot ya da constructor.
@@ -271,20 +303,91 @@ impl Checker<'_> {
         let mut all_annotatable = true;
         let mut assumptions = Vec::new();
         let mut warnings = Vec::new();
-        let mut fail = |message: String, rejection_need: Option<Need>, target, cpp_type| {
+        // `fix`: sorun bir açıklamayla çözülebilir mi? `Some(Some(_))` ise bu yer için öneri
+        // yazılır; `Some(None)` ise başka bir yerin açıklaması çözer (ör. slice uzunluğu).
+        let mut fail = |message: String, fix: Option<Option<Need>>, target, cpp_type| {
             first_failure.get_or_insert(message);
-            match rejection_need {
-                Some(_) => suggestions.push((target, cpp_type)),
+            match fix {
+                Some(Some(_)) => suggestions.push((target, cpp_type)),
+                Some(None) => {}
                 None => all_annotatable = false,
             }
         };
 
+        let shown_names: Vec<String> = params
+            .iter()
+            .enumerate()
+            .map(|(index, p)| {
+                p.name
+                    .clone()
+                    .unwrap_or_else(|| naming::param_name(None, index))
+            })
+            .collect();
+        let slices = match annotation {
+            Some(annotation) => {
+                let (slices, errors) = self.slice_bindings(&key, params, &shown_names, annotation);
+                if !errors.is_empty() {
+                    self.slice_errors.extend(errors);
+                    self.plan
+                        .skipped
+                        .push(skipped(&display, REASON_INVALID_SLICE, location));
+                    return None;
+                }
+                slices
+            }
+            None => BTreeMap::new(),
+        };
+        let length_positions: BTreeSet<usize> = slices.values().map(|s| s.len_index).collect();
+        let has_slice_candidate = params
+            .iter()
+            .any(|p| rules::could_be_slice(&p.ty, &self.known));
+        let slice_length_candidates: BTreeSet<usize> = if has_slice_candidate {
+            (0..params.len())
+                .filter(|&i| rules::slice_length(&params[i].ty).is_ok())
+                .collect()
+        } else {
+            BTreeSet::new()
+        };
+
         let mut bound_params = Vec::with_capacity(params.len());
+        let mut lengths = Vec::new();
         for (index, param) in params.iter().enumerate() {
+            if length_positions.contains(&index) {
+                continue; // Slice'ın boyundan doldurulur (aşağıda `lengths`).
+            }
             let rust_name = naming::param_name(param.name.as_deref(), index);
-            let shown = param.name.clone().unwrap_or_else(|| rust_name.clone());
+            let shown = shown_names[index].clone();
+            if let Some(binding) = slices.get(&index) {
+                let given = format!("{{ slice = \"{}\" }}", binding.len_name);
+                assumptions.push(Assumption {
+                    name: key.clone(),
+                    subject: format!("parametre `{shown}`"),
+                    annotation: given,
+                    promise: format!(
+                        "pointer `{}` elemanlık bir diziyi gösteriyor; dizi yalnızca çağrı \
+                         süresince kullanılıyor ve saklanmıyor; uzunluk 0 iken pointer okunmuyor \
+                         (Rust boş slice için null olmayan bir pointer verir)",
+                        binding.len_name
+                    ),
+                    origin: origin(binding.line),
+                });
+                lengths.push(LengthParam {
+                    position: binding.len_index,
+                    slice: bound_params.len(),
+                    cpp_type: binding.len_type.clone(),
+                });
+                bound_params.push(ParamPlan {
+                    rust_name,
+                    ty: BridgeType::Slice {
+                        mutable: binding.mutable,
+                        element: Box::new(binding.element.clone()),
+                    },
+                    pass: Pass::Slice,
+                });
+                continue;
+            }
             let given = annotation.and_then(|a| a.params.get(&shown));
-            match rules::param_type(&param.ty, &self.known, given.map(|l| l.value)) {
+            match rules::param_type(&param.ty, &self.known, given.map(|l| &l.value)) {
                 Ok(rule) => {
                     if let Some(given) = given {
                         let subject = format!("parametre `{shown}`");
@@ -312,12 +415,34 @@ impl Checker<'_> {
                         pass: rule.pass,
                     });
                 }
-                Err(rejection) => fail(
-                    format!("parametre `{shown}`: {}", rejection.reason),
-                    rejection.need,
-                    SuggestionTarget::Param { name: shown },
-                    rules::spell(&param.ty),
-                ),
+                Err(rejection) => {
+                    let slice_lengths = if rules::could_be_slice(&param.ty, &self.known) {
+                        params
+                            .iter()
+                            .zip(&shown_names)
+                            .filter(|(p, _)| rules::slice_length(&p.ty).is_ok())
+                            .map(|(_, name)| name.clone())
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    // Değerle alınan bir tamsayı (ör. `size_t`), aynı fonksiyondaki bir sayı
+                    // pointer'ının `slice` uzunluğu yapılırsa Rust imzasından çıkar.
+                    let fix = match rejection.need {
+                        Some(need) => Some(Some(need)),
+                        None if slice_length_candidates.contains(&index) => Some(None),
+                        None => None,
+                    };
+                    fail(
+                        format!("parametre `{shown}`: {}", rejection.reason),
+                        fix,
+                        SuggestionTarget::Param {
+                            name: shown,
+                            slice_lengths,
+                        },
+                        rules::spell(&param.ty),
+                    );
+                }
             }
         }
 
@@ -369,7 +494,7 @@ impl Checker<'_> {
                     };
                     fail(
                         format!("dönüş tipi: {}", rejection.reason),
-                        rejection.need,
+                        rejection.need.map(Some),
                         target,
                         rules::spell(return_type),
                     );
@@ -405,14 +530,101 @@ impl Checker<'_> {
                 .push(signature(&key, params));
         }
         self.plan.assumptions.extend(assumptions);
+        lengths.sort_by_key(|l| l.position);
         Some(FunctionPlan {
             rust_name: String::new(),
             callee,
             params: bound_params,
             returns,
-            fallible: !noexcept || always_fallible,
+            // Uzunluk kontrolü (slice C++ uzunluk tipine sığmıyorsa) exception fırlatır.
+            fallible: !noexcept || always_fallible || !lengths.is_empty(),
+            lengths,
             location: location.clone(),
         })
+    }
+
+    /// Bu overload'a uygulanan `slice` açıklamaları: slice parametresinin yeri → uygulanış.
+    /// Açıklama imzaya uymuyorsa hatalar döner. Açıklanan parametre bu overload'da yoksa
+    /// açıklama bu overload'ı ilgilendirmez (hiç yoksa `unmatched_annotations` yakalar).
+    fn slice_bindings(
+        &self,
+        key: &str,
+        params: &[Param],
+        shown_names: &[String],
+        annotation: &FunctionAnnotation,
+    ) -> (BTreeMap<usize, SliceBinding>, Vec<AnnotationIssue>) {
+        let mut bindings = BTreeMap::new();
+        let mut errors = Vec::new();
+        let mut used_lengths: BTreeMap<usize, String> = BTreeMap::new();
+        let position = |name: &str| shown_names.iter().position(|n| n == name);
+        for (name, located) in &annotation.params {
+            let ParamAnnotation::Slice { len } = &located.value else {
+                continue;
+            };
+            let Some(index) = position(name) else {
+                continue;
+            };
+            let mut error = |message: String| {
+                errors.push(AnnotationIssue {
+                    origin: self.origin(located.line),
+                    message: format!("`{key}` parametre `{name}`: {message}"),
+                });
+            };
+            if len == name {
+                error("`slice` uzunluğu parametrenin kendisi olamaz.".to_owned());
+                continue;
+            }
+            let Some(len_index) = position(len) else {
+                let known: Vec<String> = shown_names.iter().map(|n| format!("`{n}`")).collect();
+                error(format!(
+                    "`{key}`'in `{len}` adında parametresi yok (`slice` uzunluğu; parametreler: \
+                     {}).",
+                    known.join(", ")
+                ));
+                continue;
+            };
+            let element = rules::slice_element(&params[index].ty, &self.known);
+            let len_type = rules::slice_length(&params[len_index].ty);
+            let (element, mutable) = match element {
+                Ok(found) => found,
+                Err(reason) => {
+                    error(reason);
+                    continue;
+                }
+            };
+            let len_type = match len_type {
+                Ok(found) => found,
+                Err(reason) => {
+                    error(format!("`{len}`: {reason}"));
+                    continue;
+                }
+            };
+            if annotation.params.contains_key(len) {
+                error(format!(
+                    "`{len}` slice'ın uzunluk parametresi; ona ayrıca açıklama verilemez."
+                ));
+                continue;
+            }
+            if let Some(other) = used_lengths.insert(len_index, name.clone()) {
+                error(format!(
+                    "`{other}` ve `{name}` iki ayrı slice aynı uzunluk parametresini (`{len}`) \
+                     paylaşamaz."
+                ));
+                continue;
+            }
+            bindings.insert(
+                index,
+                SliceBinding {
+                    len_index,
+                    len_name: len.clone(),
+                    len_type,
+                    element,
+                    mutable,
+                    line: located.line,
+                },
+            );
+        }
+        (bindings, errors)
     }
 
     /// Bu anahtarın header'da bir karşılığı olduğunu ve parametre adlarını kaydeder.
@@ -561,7 +773,7 @@ fn known_types(module: &Module, plan: &mut BridgePlan) -> Known {
                     &decl.location,
                 )),
             },
-            Item::Function(_) | Item::Unsupported(_) => {}
+            Item::Function(_) | Item::Constant(_) | Item::Unsupported(_) => {}
         }
     }
 
@@ -638,6 +850,62 @@ fn assign_names(plan: &mut BridgePlan) {
         naming::name_methods(&mut instance);
     }
     naming::name_free_scope(&mut free_scope);
+    name_constants(plan);
+}
+
+fn constant_plan(constant: &Constant) -> Result<ConstantPlan, String> {
+    if in_anonymous_namespace(&constant.namespace) {
+        return Err(REASON_ANONYMOUS_CONSTANT.to_owned());
+    }
+    Ok(ConstantPlan {
+        rust_name: String::new(),
+        cpp_name: constant.name.clone(),
+        namespace: constant.namespace.clone(),
+        ty: rules::constant_type(&constant.ty, constant.value)?,
+        value: constant.value,
+        location: constant.location.clone(),
+    })
+}
+
+/// Sabit adları: aynı ad birden fazla namespace'te varsa namespace ön eki (`units_FEET`);
+/// anahtar kelimeler `_` ile kaçılır. Bir güvenli fonksiyonla (Rust'ta aynı ad alanında)
+/// çakışan sabit bağlanmaz.
+fn name_constants(plan: &mut BridgePlan) {
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for constant in &plan.constants {
+        *counts.entry(constant.cpp_name.clone()).or_default() += 1;
+    }
+    let functions: BTreeSet<String> = plan.functions.iter().map(|f| f.rust_name.clone()).collect();
+    let mut used = BTreeSet::new();
+    let mut kept = Vec::with_capacity(plan.constants.len());
+    for mut constant in std::mem::take(&mut plan.constants) {
+        let base = if counts[&constant.cpp_name] > 1 && !constant.namespace.is_empty() {
+            format!("{}_{}", constant.namespace.join("_"), constant.cpp_name)
+        } else {
+            constant.cpp_name.clone()
+        };
+        let mut name = naming::escape(&base);
+        let mut counter = 2;
+        while used.contains(&name) {
+            name = format!("{}_{counter}", naming::escape(&base));
+            counter += 1;
+        }
+        if functions.contains(&name) {
+            plan.skipped.push(skipped(
+                &qualified(&constant.namespace, &constant.cpp_name),
+                &format!(
+                    "Rust'ta sabitler ve fonksiyonlar aynı ad alanında; `{name}` adlı fonksiyonla \
+                     çakışıyor."
+                ),
+                &constant.location,
+            ));
+            continue;
+        }
+        used.insert(name.clone());
+        constant.rust_name = name;
+        kept.push(constant);
+    }
+    plan.constants = kept;
 }
 
 fn skipped(name: &str, reason: &str, location: &SourceLocation) -> Skipped {

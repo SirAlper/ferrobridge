@@ -1,0 +1,25 @@
+# `AP_Math/control.h`: `float&` / `postype_t&` parametreler giriş-çıkış değerleri; fonksiyonlar
+# (`control.cpp`) onları yalnızca çağrı süresince okuyup yazıyor, saklamıyor.
+
+[functions.update_vel_accel.params]
+vel = "borrowed"
+
+[functions.update_pos_vel_accel.params]
+pos = "borrowed"
+vel = "borrowed"
+
+[functions.shape_accel.params]
+accel = "borrowed"
+
+[functions.shape_vel_accel.params]
+accel = "borrowed"
+
+[functions.shape_pos_vel_accel.params]
+accel = "borrowed"
+
+[functions.shape_angle_vel_accel.params]
+angle_accel = "borrowed"
+
+[functions.rc_input_to_roll_pitch_rad.params]
+roll_out_rad = "borrowed"
+pitch_out_rad = "borrowed"

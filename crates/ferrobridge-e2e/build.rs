@@ -1,28 +1,29 @@
 //! Üretilmiş bridge'leri, shim'leri ve fixture'ların C++ gerçeklemelerini derler.
+//!
+//! `ferrobridge-build`'in commit'li dosya modunu kullanır (README'deki örnekle aynı yol).
 
-const FIXTURES: [&str; 5] = ["classes", "enums", "strings", "ownership", "vectors"];
+const FIXTURES: [&str; 7] = [
+    "classes",
+    "enums",
+    "strings",
+    "ownership",
+    "vectors",
+    "slices",
+    "inline_and_constants",
+];
 
 fn main() {
-    let bridges: Vec<String> = FIXTURES
-        .iter()
-        .map(|name| format!("src/generated/{name}/bridge.rs"))
-        .collect();
-    let mut build = cxx_build::bridges(&bridges);
+    let mut build = ferrobridge_build::Build::new();
     for name in FIXTURES {
         build
-            .file(format!("src/generated/{name}/shim.cc"))
+            .committed(format!("src/generated/{name}"))
             .file(format!("../../tests/fixtures/{name}/impl.cc"));
-        for path in [
-            format!("src/generated/{name}"),
-            format!("../../tests/fixtures/{name}"),
-        ] {
-            println!("cargo:rerun-if-changed={path}");
-        }
     }
     build
         // `classes/shim.h` ve `classes/input.h` gibi yollar bu iki kökten çözülür.
-        .include("src/generated")
-        .include("../../tests/fixtures")
-        .std("c++17")
-        .compile("ferrobridge_e2e");
+        .include_dir("src/generated")
+        .include_dir("../../tests/fixtures");
+    if let Err(error) = build.compile("ferrobridge_e2e") {
+        panic!("{error}");
+    }
 }

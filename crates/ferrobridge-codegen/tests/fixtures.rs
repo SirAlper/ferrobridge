@@ -31,6 +31,7 @@ fn generated(name: &str) -> GeneratedFiles {
             header_include: format!("{name}/input.h"),
             shim_include: format!("{name}/shim.h"),
             shim_namespace: format!("ferrobridge::{name}"),
+            prelude: Vec::new(),
         },
     )
     .unwrap()
@@ -69,6 +70,16 @@ fn vectors() {
 }
 
 #[test]
+fn slices() {
+    snapshot("slices");
+}
+
+#[test]
+fn inline_and_constants() {
+    snapshot("inline_and_constants");
+}
+
+#[test]
 fn generated_bridge_is_valid_rust() {
     for name in [
         "classes",
@@ -79,6 +90,8 @@ fn generated_bridge_is_valid_rust() {
         "destructors",
         "free_functions",
         "namespaces",
+        "slices",
+        "inline_and_constants",
     ] {
         let files = generated(name);
         if let Err(error) = syn::parse_file(&files.bridge_rs) {
@@ -115,4 +128,29 @@ fn assumptions_are_listed_in_every_generated_file() {
     }
     // Açıklaması olmayan dosyada blok yok.
     assert!(!generated("classes").bridge_rs.contains("varsayımlar"));
+}
+
+#[test]
+fn shim_includes_the_prelude_before_the_header() {
+    let header = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/prelude");
+    let options = ParseOptions {
+        prelude: vec![header.join("prelude.h").to_str().unwrap().to_owned()],
+        ..ParseOptions::default()
+    };
+    let module = parse_header(&header.join("input.h"), &options).unwrap();
+    let plan = ferrobridge_analysis::check(&module, &ferrobridge_analysis::Annotations::default())
+        .unwrap();
+    let files = generate(
+        &plan,
+        &CodegenOptions {
+            header_include: "prelude/input.h".to_owned(),
+            shim_include: "prelude/shim.h".to_owned(),
+            shim_namespace: "ferrobridge::prelude".to_owned(),
+            prelude: vec!["prelude/prelude.h".to_owned()],
+        },
+    )
+    .unwrap();
+    let prelude = files.shim_h.find("#include \"prelude/prelude.h\"").unwrap();
+    let header = files.shim_h.find("#include \"prelude/input.h\"").unwrap();
+    assert!(prelude < header, "{}", files.shim_h);
 }

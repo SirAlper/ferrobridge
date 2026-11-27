@@ -68,6 +68,40 @@ fn destructors() {
 }
 
 #[test]
+fn self_including_header_is_read_once() {
+    // Header ana dosya olarak verilseydi `#pragma once` işlemez, `Counter` iki kez tanımlanırdı.
+    snapshot("self_include");
+}
+
+#[test]
+fn prelude_is_included_before_the_header_but_not_lowered() {
+    let dir = fixture("prelude").parent().unwrap().to_path_buf();
+    let options = ParseOptions {
+        prelude: vec![dir.join("prelude.h").to_str().unwrap().to_owned()],
+        ..ParseOptions::default()
+    };
+    let module = parse_header(&fixture("prelude"), &options).unwrap();
+    insta::assert_json_snapshot!("prelude", module);
+}
+
+#[test]
+fn header_without_its_prelude_fails_to_parse() {
+    let error = parse_header(&fixture("prelude"), &ParseOptions::default()).unwrap_err();
+    let ParserError::ParseFailed { diagnostics } = &error else {
+        panic!("ParseFailed bekleniyordu, gelen: {error:?}");
+    };
+    assert!(
+        diagnostics.iter().all(|d| d.file.ends_with("input.h")),
+        "tanılar header'ı göstermeli: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn inline_functions_and_constants() {
+    snapshot("inline_and_constants");
+}
+
+#[test]
 fn syntax_error_reports_diagnostics_with_line_numbers() {
     let error = parse_header(&fixture("syntax_error"), &ParseOptions::default()).unwrap_err();
     let ParserError::ParseFailed { diagnostics } = &error else {
@@ -86,5 +120,72 @@ fn missing_file_is_reported() {
     assert!(
         matches!(&error, ParserError::FileNotFound(p) if p == &path),
         "beklenmeyen hata: {error:?}"
+    );
+}
+
+/// Geçici bir header yazar ve okur.
+fn parse_text(name: &str, text: &str) -> ferrobridge_ir::Module {
+    let dir =
+        std::env::temp_dir().join(format!("ferrobridge-parser-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let header = dir.join("input.h");
+    std::fs::write(&header, text).unwrap();
+    let module = parse_header(&header, &ParseOptions::default()).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    module
+}
+
+#[test]
+fn chained_constants_are_checked_in_linear_time() {
+    // Her sabit bir öncekine iki kez dayanıyor: başlatıcılar her başvuruda yeniden gezilseydi
+    // 2^60 adım gerekirdi.
+    let mut text = String::from("#pragma once\nconstexpr unsigned long long A0 = 1;\n");
+    for i in 1..=60 {
+        text.push_str(&format!(
+            "constexpr unsigned long long A{i} = A{} + A{};\n",
+            i - 1,
+            i - 1
+        ));
+    }
+    let module = parse_text("chain", &text);
+    let last = module.items.last().unwrap();
+    let ferrobridge_ir::Item::Constant(last) = last else {
+        panic!("sabit bekleniyordu: {last:?}");
+    };
+    assert_eq!(last.value, ferrobridge_ir::ConstantValue::Unsigned(1 << 60));
+}
+
+#[test]
+fn platform_dependent_constants_are_rejected() {
+    let module = parse_text(
+        "sizeof",
+        "#pragma once\n#include <cstddef>\nstruct S { int a; double b; };\n\
+         constexpr int PTR = sizeof(void*);\nconstexpr int ALIGN = alignof(double);\n\
+         constexpr int OFF = offsetof(S, b);\nconstexpr int PLAIN = 4 * 2;\n",
+    );
+    let kinds: Vec<(String, &str)> = module
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            ferrobridge_ir::Item::Constant(c) => Some((c.name.clone(), "constant")),
+            ferrobridge_ir::Item::Unsupported(u) if u.construct == "constant" => Some((
+                u.name.clone(),
+                if u.reason.contains("platform") {
+                    "platform"
+                } else {
+                    "other"
+                },
+            )),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("PTR".to_owned(), "platform"),
+            ("ALIGN".to_owned(), "platform"),
+            ("OFF".to_owned(), "platform"),
+            ("PLAIN".to_owned(), "constant"),
+        ]
     );
 }

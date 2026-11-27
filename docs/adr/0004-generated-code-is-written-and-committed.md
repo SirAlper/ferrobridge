@@ -22,7 +22,7 @@ Kod üretimi `ferrobridge generate <header> --out-dir <dizin>` komutuyla yapıl�
 ### Alternatif 2: İkisini birden sunmak
 - **Artıları**: Esneklik.
 - **Eksileri**: İki yolun da test edilmesi ve belgelenmesi gerekir; MVP için gereksiz yük.
-- **Neden seçilmedi**: `build.rs` yardımcısı (`ferrobridge-build`) M5'te bu ADR'ye uygun olarak, yalnızca commit'li dosyaları derleyen bir yardımcı olarak gelecek. Her derlemede üretme ihtiyacı ortaya çıkarsa ayrı ADR ile değerlendirilir.
+- **Neden seçilmedi**: `build.rs` yardımcısı (`ferrobridge-build`) M5'te bu ADR'ye uygun olarak, varsayılan olarak yalnızca commit'li dosyaları derleyen bir yardımcı olarak geldi. Her derlemede üretme, lisans nedeniyle commit'lenemeyen kodlar için ADR-0008 ile açık bir özellik (`generate`) olarak eklendi; varsayılan yol bu ADR'dir.
 
 ## Sonuçlar
 

@@ -14,6 +14,8 @@ pub enum Item {
     Class(Class),
     /// Bir enum tanımı.
     Enum(Enum),
+    /// Değeri derleme anında kesin olarak bilinen, sayı ya da `bool` tipli bir sabit.
+    Constant(Constant),
     /// Bu sürümde desteklenmeyen bir yapı. Sessizce atlanmak yerine nedeniyle kaydedilir.
     Unsupported(Unsupported),
 }
@@ -133,6 +135,41 @@ pub struct EnumVariant {
     /// Sayısal değeri.
     pub value: i64,
 }
+
+/// `const`/`constexpr` bir değişken; değeri header'dan hesaplandı.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Constant {
+    /// Sabitin adı.
+    pub name: String,
+    /// Dıştan içe namespace yolu.
+    pub namespace: Vec<String>,
+    /// Sabitin tipi: [`Type::Integer`], [`Type::Float`] ya da [`Type::Bool`].
+    #[serde(rename = "type")]
+    pub ty: Type,
+    /// Hesaplanan değer.
+    pub value: ConstantValue,
+    /// Bildirimin kaynaktaki yeri.
+    pub location: SourceLocation,
+}
+
+/// Bir sabitin değeri.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum ConstantValue {
+    /// İşaretli tamsayı tipli sabitin değeri.
+    Signed(i64),
+    /// İşaretsiz tamsayı tipli sabitin değeri.
+    Unsigned(u64),
+    /// Kayan noktalı sayı. Her zaman sonlu: NaN ve sonsuz değerli sabitler IR'a girmez. `float`
+    /// sabitlerde değer, `f32`'ye kayıpsız dönüşen bir `f64`'tür.
+    Float(f64),
+    /// `bool`.
+    Bool(bool),
+}
+
+// `f64` `Eq` değildir, çünkü NaN kendisine eşit değildir. IR'daki değerler her zaman sonlu
+// olduğu için (bkz. `ConstantValue::Float`) eşitlik burada bir denklik ilişkisidir.
+impl Eq for ConstantValue {}
 
 /// Bir fonksiyon parametresi.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

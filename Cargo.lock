@@ -263,6 +263,13 @@ dependencies = [
 [[package]]
 name = "ferrobridge-build"
 version = "0.0.0"
+dependencies = [
+ "cxx-build",
+ "ferrobridge-analysis",
+ "ferrobridge-codegen",
+ "ferrobridge-parser",
+ "thiserror",
+]
 
 [[package]]
 name = "ferrobridge-cli"
@@ -294,8 +301,8 @@ name = "ferrobridge-e2e"
 version = "0.0.0"
 dependencies = [
  "cxx",
- "cxx-build",
  "ferrobridge",
+ "ferrobridge-build",
 ]
 
 [[package]]

@@ -11,6 +11,9 @@
 //!
 //! [functions."geo::Widget::attach".params]
 //! target = "borrowed"
+//!
+//! [functions."crc_crc8".params]
+//! p = { slice = "len" }   # p, len elemanlık bir dizi
 //! ```
 
 use std::collections::BTreeMap;
@@ -31,11 +34,79 @@ pub enum ReturnAnnotation {
 }
 
 /// Bir parametrenin sahipliği.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
+///
+/// TOML'da `"borrowed"` ya da `{ slice = "<uzunluk parametresi>" }`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParamAnnotation {
     /// Pointer/referans yalnızca çağrı süresince kullanılıyor, saklanmıyor ve null değil.
     Borrowed,
+    /// Pointer, aynı fonksiyondaki `len` parametresi kadar elemanlık bir diziyi gösteriyor ve
+    /// yalnızca çağrı süresince kullanılıyor. Rust'ta pointer ve uzunluk tek bir slice olur.
+    Slice {
+        /// Eleman sayısını taşıyan parametrenin adı.
+        len: String,
+    },
+}
+
+const PARAM_EXPECTED: &str = "`\"borrowed\"` ya da `{ slice = \"<uzunluk parametresi>\" }`";
+
+impl<'de> Deserialize<'de> for ParamAnnotation {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = ParamAnnotation;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(PARAM_EXPECTED)
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                match value {
+                    "borrowed" => Ok(ParamAnnotation::Borrowed),
+                    other => Err(E::custom(format!(
+                        "bilinmeyen parametre açıklaması `{other}`; beklenen: {PARAM_EXPECTED}"
+                    ))),
+                }
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                use serde::de::Error as _;
+                let mut len: Option<String> = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    if key != "slice" {
+                        return Err(A::Error::custom(format!(
+                            "bilinmeyen anahtar `{key}`; beklenen: {PARAM_EXPECTED}"
+                        )));
+                    }
+                    if len.is_some() {
+                        return Err(A::Error::duplicate_field("slice"));
+                    }
+                    let value: String = map.next_value().map_err(|_| {
+                        A::Error::custom(format!(
+                            "`slice` uzunluk parametresinin adı olmalı (metin); beklenen: \
+                             {PARAM_EXPECTED}"
+                        ))
+                    })?;
+                    len = Some(value);
+                }
+                match len {
+                    None => Err(A::Error::custom(format!(
+                        "`slice` anahtarı eksik; beklenen: {PARAM_EXPECTED}"
+                    ))),
+                    Some(len) if len.trim().is_empty() => Err(A::Error::custom(
+                        "`slice` uzunluk parametresinin adı boş olamaz",
+                    )),
+                    Some(len) => Ok(ParamAnnotation::Slice { len }),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
 }
 
 /// Dosyadaki satır numarasıyla birlikte bir değer.
@@ -191,9 +262,10 @@ impl fmt::Display for ReturnAnnotation {
 
 impl fmt::Display for ParamAnnotation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Borrowed => "borrowed",
-        })
+        match self {
+            Self::Borrowed => f.write_str("borrowed"),
+            Self::Slice { len } => write!(f, "{{ slice = \"{len}\" }}"),
+        }
     }
 }
 
@@ -285,6 +357,43 @@ arg1 = "borrowed"
         let (line, message) = invalid_line("[functions.\"f\".params]\nout = \"owned\"\n");
         assert_eq!(line, 2);
         assert!(message.contains("borrowed"), "{message}");
+    }
+
+    #[test]
+    fn slice_annotation_names_the_length_parameter() {
+        let text = "[functions.\"crc8\".params]\np = { slice = \"len\" }\n";
+        let annotations = parse(text).unwrap();
+        assert_eq!(
+            annotations.functions["crc8"].params["p"],
+            Located {
+                value: ParamAnnotation::Slice {
+                    len: "len".to_owned()
+                },
+                line: 2
+            }
+        );
+        assert_eq!(
+            annotations.functions["crc8"].params["p"].value.to_string(),
+            "{ slice = \"len\" }"
+        );
+    }
+
+    #[test]
+    fn malformed_slice_annotations_are_rejected() {
+        for (text, needle) in [
+            (
+                "[functions.\"f\".params]\np = { slise = \"len\" }\n",
+                "slise",
+            ),
+            ("[functions.\"f\".params]\np = { }\n", "slice"),
+            ("[functions.\"f\".params]\np = { slice = \" \" }\n", "boş"),
+            ("[functions.\"f\".params]\np = { slice = 3 }\n", "slice"),
+            ("[functions.\"f\".params]\np = \"slice\"\n", "slice = "),
+        ] {
+            let (line, message) = invalid_line(text);
+            assert_eq!(line, 2, "{text}");
+            assert!(message.contains(needle), "{text}: {message}");
+        }
     }
 
     #[test]

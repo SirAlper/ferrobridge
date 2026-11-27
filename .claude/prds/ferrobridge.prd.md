@@ -50,7 +50,7 @@ Elinde büyük C++ kod tabanı olan ve yeni kodu Rust'ta yazmak isteyen ekiplerd
 **Out of scope:**
 - Bazel desteği — Crubit zaten çözüyor
 - C++ → Rust yönü — Zngur'a bırakıldı, ileride birlikte çalışma hedefleniyor
-- Genel template, kalıtım/virtual, operator overloading, callback/lambda — v0.2 ve sonrasına ertelendi
+- Genel template, kalıtım/virtual, operator overloading, callback/lambda — v0.2 ve sonrasına ertelendi (27.11.2026: `AP_Math` ölçümü sonrası template örnekleme ve public alanlar M6'da yeniden değerlendirilecek; bkz. `.claude/plans/m5-apmath-olcum.md`)
 - CMake entegrasyonu — v0.2'nin ilk hedefi (PX4 ile test)
 - Yalnızca nightly Rust'ta çalışan özellikler — MVP stable Rust ile çalışmalı
 - Saf C kütüphaneleri — bindgen yeterli
@@ -63,8 +63,9 @@ Elinde büyük C++ kod tabanı olan ve yeni kodu Rust'ta yazmak isteyen ekiplerd
 | 2 | İlk köprü | Basit bir C++ sınıfı, elle bridge yazılmadan Rust testinden çağrılabilir | complete | `.claude/plans/m2-ilk-kopru.plan.md` |
 | 3 | Sahiplik açıklamaları | Kullanıcı belirsiz pointer'lar için açıklama yazar; araç belirsiz durumda kod üretmek yerine soru sorar | complete | `.claude/plans/m3-sahiplik-aciklamalari.plan.md` |
 | 4 | Güvenli API | Kullanıcı hiç `unsafe` yazmadan C++ nesnesi oluşturup kullanabilir; exception'lar `Result` olarak gelir | complete | `.claude/plans/m4-guvenli-api.plan.md` |
-| 5 | Gerçek dünya demosu | `AP_Math` API'sinin ≥ %80'i Rust'tan kullanılabilir | pending | — |
-| 6 | v0.1 yayını | Araç crates.io'da; README, örnekler ve demo herkese açık | pending | — |
+| 5 | Derleme hattı ve demo iskeleti | `ferrobridge-build` ile `build.rs` entegrasyonu; `AP_Math`'in template olmayan API'sinin ≥ %85'i (toplamda ≥ %30) gerçek bir ArduPilot checkout'una karşı Rust'tan kullanılabilir | complete | `.claude/plans/m5-derleme-hatti-ve-demo.plan.md` |
+| 6 | Template'ler ve alanlar | `AP_Math` API'sinin ≥ %80'i Rust'tan kullanılabilir (`Vector3f`, `Matrix3f`, `Quaternion` dahil; template örnekleme bu milestone'da ADR ile MVP'ye alınır) | pending | — |
+| 7 | v0.1 yayını | Araç crates.io'da; README, örnekler ve demo herkese açık | pending | — |
 
 ## Open Questions
 - [ ] Exception'ı kapalı derlenen kodlar (`-fno-exceptions`, ArduPilot gibi gömülü projelerde yaygın): "exception → `Result`" eşlemesi nasıl davranacak?

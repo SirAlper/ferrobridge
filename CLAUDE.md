@@ -5,11 +5,11 @@ libclang ile header okur → ara model (IR) → ownership çıkarımı + `ferrob
 
 Açık kaynak: `MIT OR Apache-2.0` (bkz. `docs/adr/0003-open-source-dual-license.md`).
 
-Durum: **Milestone 4 (güvenli API) tamamlandı**: `ferrobridge generate <header> --out-dir <dizin> [--config ferrobridge.toml]` sınıflar, metotlar, enum'lar, `std::string`, `std::vector` ve `ferrobridge.toml`'da açıklanan pointer'lar için güvenli Rust API'si (sahip olan sarmalayıcılar, `&str`/`String`, `Vec<T>`, gerçek enum'lar, `ferrobridge::Error`) + altındaki ham cxx bridge + C++ shim üretiyor; `ferrobridge suggest <header>` açıklama bekleyen yerler için taslak basıyor; `crates/ferrobridge-e2e` bunu gerçek C++ ile test ediyor. Sırada Milestone 5: gerçek dünya demosu (`AP_Math`) ve `ferrobridge-build` (`/ecc:plan .claude/prds/ferrobridge.prd.md`).
+Durum: **Milestone 5 (derleme hattı ve demo iskeleti) tamamlandı**: `ferrobridge-build` `build.rs`'ten commit'li bridge'leri ya da (`generate` özelliği) derleme sırasında `OUT_DIR`'e üretilenleri derliyor (`ferrobridge::include_bridge!`); `{ slice = "len" }` açıklaması pointer + uzunluğu `&[T]`/`&mut [T]` yapıyor; `static inline` fonksiyonlar ve `const`/`constexpr` sabitler bağlanıyor; header'lar sentetik bir çeviri birimiyle okunuyor (`--prelude`). `demo/ap_math/` ArduPilot `AP_Math`'i gerçek bir checkout'a karşı derleyip Rust'tan çağırıyor (template olmayan API'nin %90'ı, toplamın %31'i). Sırada Milestone 6: template örnekleme ve public alanlar (`/ecc:plan .claude/prds/ferrobridge.prd.md`).
 
 ## Belgeler
 - Gereksinimler (PRD): `.claude/prds/ferrobridge.prd.md`. Planlama komutu `/ecc:plan .claude/prds/ferrobridge.prd.md` bu dosyayı okur.
-- Mimari kararlar: `docs/adr/` (dizin: `docs/adr/README.md`, şablon: `docs/adr/template.md`). Kabul edilmiş ADR'ler: 0001 (libclang via `clang-sys`), 0002 (cxx üstüne inşa), 0003 (açık kaynak çift lisans), 0004 (üretilen kod commit'lenir), 0005 (overload/çakışma adlandırma), 0006 (sahiplik açıklamaları ayrı TOML dosyasında), 0007 (cxx üstünde güvenli API katmanı).
+- Mimari kararlar: `docs/adr/` (dizin: `docs/adr/README.md`, şablon: `docs/adr/template.md`). Kabul edilmiş ADR'ler: 0001 (libclang via `clang-sys`), 0002 (cxx üstüne inşa), 0003 (açık kaynak çift lisans), 0004 (üretilen kod commit'lenir), 0005 (overload/çakışma adlandırma), 0006 (sahiplik açıklamaları ayrı TOML dosyasında), 0007 (cxx üstünde güvenli API katmanı), 0008 (derleme sırasında üretim ve GPL'li demo).
 - Milestone planları: `.claude/plans/` (her planın sonunda uygulama notları ve sapmalar).
 - Kişisel notlar ve yerel yollar repoya girmez; proje sahibi bunları Git'e girmeyen `CLAUDE.local.md` dosyasında tutar.
 
@@ -32,12 +32,15 @@ cargo run -p ferrobridge-cli -- doctor              # hangi libclang'ın yüklen
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace                              # e2e için C++17 derleyicisi gerekir
+ARDUPILOT_DIR=~/ardupilot cargo test --manifest-path demo/ap_math/Cargo.toml   # AP_Math demosu
 ```
 
 Üretici veya fixture'lar değişince `crates/ferrobridge-e2e/src/generated/` yeniden üretilmeli (komut: `crates/ferrobridge-e2e/README.md`; `ferrobridge.toml`'u olan fixture'lar `--config` ile); aksi halde `generated_files_match_the_committed_e2e_files` testi başarısız olur. Üretilen `bridge.rs`'teki her üst düzey öğe `#[rustfmt::skip]` taşır, `cargo fmt` ona dokunmaz. E2e'de güvenli API testleri cxx tipi kullanmaz (`tests/idiomatic.rs` denetler); ham katman testleri `tests/raw_layer.rs`'te. Snapshot değişikliklerini `cargo insta review` ile **elle inceleyip** kabul et.
 
+`demo/ap_math/` kök workspace'in parçası değil ve **GPL-3.0-or-later** (ADR-0008): ArduPilot kodu ve ondan üretilen dosyalar repoya girmez (bridge'ler `OUT_DIR`'e üretilir), demo kodu ana crate'lere taşınmaz. Açıklamalar header başına ayrı dosyada (`demo/ap_math/annotations/<bridge>.toml`), çünkü açıklanan her ad o header'da bulunmalı. Bir açıklama yazmadan önce C++ kaynağını oku: söz kaynağa dayanmalı.
+
 ## Mimari (kısa)
-`parser` (libclang → IR) → `analysis` (`ferrobridge.toml` + neyin güvenle bağlanacağı + Rust adları → `BridgePlan`) → `codegen` (`bridge.rs` = güvenli katman + ham `ffi`, `shim.h`, `shim.cc`) → `cli`. Üretilen kod çalışma zamanında `ferrobridge` crate'ini (`Error`, dönüşümler) kullanır. Bütün `unsafe` `crates/ferrobridge-parser/src/clang.rs`'de.
+`parser` (libclang → IR; header bellekte üretilen bir çeviri birimiyle okunur) → `analysis` (`ferrobridge.toml` + neyin güvenle bağlanacağı + Rust adları → `BridgePlan`) → `codegen` (`bridge.rs` = güvenli katman + ham `ffi`, `shim.h`, `shim.cc`) → `cli` / `build` (`build.rs`). Üretilen kod çalışma zamanında `ferrobridge` crate'ini (`Error`, dönüşümler) kullanır. Bütün `unsafe` `crates/ferrobridge-parser/src/clang.rs`'de.
 
 ## Kod kuralları (workspace lint'leriyle zorlanır)
 - Testler dışında `unwrap()` / `expect()` yasak (`clippy.toml` testlerde izin verir).

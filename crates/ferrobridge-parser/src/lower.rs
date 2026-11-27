@@ -1,22 +1,26 @@
 //! libclang AST'sini IR'a çevirme.
 //!
-//! Yalnızca ayrıştırılan ana dosyadaki bildirimler alınır; `#include` edilen dosyalar alınmaz.
+//! Yalnızca hedef header'daki bildirimler alınır; onun `#include` ettiği dosyalar ve prelude
+//! alınmaz.
 //! Desteklenmeyen hiçbir yapı sessizce atlanmaz: `Item::Unsupported`,
 //! `Class::unsupported_members` ya da `Type::Unsupported` olarak nedeniyle kaydedilir.
 //!
 //! Bilerek kaydedilmeyenler (bağlanacak bir API olmadıkları için): ileri bildirimler
 //! (`class Foo;`), typedef/using'ler (kullanıldıkları tipte çözülür), `= delete` ile silinmiş
 //! fonksiyonlar, destructor'lar (`UniquePtr` tarafından çağrılır), private/protected üyeler.
+//!
+//! Sabitler (`Item::Constant`) yalnızca değerleri derleme anında kesin olarak biliniyorsa
+//! alınır; bkz. [`InitializerCheck`].
 
 use std::path::Path;
 
 use clang_sys as cx;
 use ferrobridge_ir::{
-    Class, Constructor, Destructor, Enum, EnumVariant, Function, Item, Method, Module, Param,
-    QualType, SourceLocation, Type, Unsupported,
+    Class, Constant, ConstantValue, Constructor, Destructor, Enum, EnumVariant, Function, Item,
+    Method, Module, Param, QualType, SourceLocation, Type, Unsupported,
 };
 
-use crate::clang::{self, Cursor, TranslationUnit};
+use crate::clang::{self, Cursor, Evaluated, File, TranslationUnit};
 
 /// Anonim namespace'in IR'daki adı.
 const ANONYMOUS_NAMESPACE: &str = "(anonim)";
@@ -26,13 +30,26 @@ const REASON_ANONYMOUS: &str = "İsimsiz sınıf ve enum'lar Rust'tan adlandır�
 const REASON_NESTED: &str = "İç içe tipler (sınıf içinde tanımlı sınıf/enum) v0.2 hedefi.";
 const REASON_TEMPLATE: &str = "Template'ler MVP kapsamı dışında (v0.2 hedefi).";
 const REASON_VARIABLE: &str = "Global ve statik değişkenler henüz desteklenmiyor.";
+const REASON_CONSTANT_TYPE: &str = "Yalnızca sayı ve `bool` tipli sabitler bağlanıyor.";
+const REASON_CONSTANT_CALL: &str = "Sabitin başlatıcısı (ya da dayandığı bir sabitinki) fonksiyon \
+     çağrısı içeriyor; değer çalışma anında hesaplanabilir ve derleme anında hesaplanan değerle \
+     aynı olduğu kesin değil.";
+const REASON_CONSTANT_UNKNOWN: &str =
+    "Sabitin değeri hesaplanamadı (başlatıcısı yok ya da sabit bir ifade değil).";
+const REASON_CONSTANT_NON_FINITE: &str = "Sabitin değeri sonlu değil (NaN ya da sonsuz); Rust'ta \
+     NaN'ın bit deseni korunamadığı için bağlanmıyor.";
+const REASON_CONSTANT_RANGE: &str = "Sabitin değeri tipine sığmıyor.";
+const REASON_CONSTANT_PLATFORM: &str = "Sabitin başlatıcısı `sizeof`, `alignof` ya da `offsetof` \
+     içeriyor; değeri platforma bağlı, başka bir platformda yanlış olurdu.";
 const REASON_FIELD: &str = "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.";
 const REASON_OPERATOR: &str = "Operatörler v0.2 hedefi.";
 const REASON_CONVERSION: &str = "Dönüşüm operatörleri v0.2 hedefi.";
 const REASON_INHERITANCE: &str =
     "Kalıtım v0.2 hedefi: base sınıfın metotları bu sınıf üzerinden bağlanmıyor.";
-const REASON_INTERNAL: &str =
-    "İç bağlantılı fonksiyonlar (static veya anonim namespace içinde) header dışından çağrılamaz.";
+const REASON_INTERNAL: &str = "İç bağlantılı (`static`) fonksiyonun tanımı header'da görünmüyor; \
+     header dışından çağrılamaz.";
+const REASON_ANONYMOUS_FUNCTION: &str =
+    "Anonim namespace'teki fonksiyonların Rust'tan yazılabilecek bir adı yok.";
 const REASON_VARIADIC: &str = "Değişken sayıda argüman alan (`...`) fonksiyonlar desteklenmiyor.";
 const REASON_ENUM_RANGE: &str = "Enum değeri 64 bit işaretli tamsayıya sığmıyor.";
 const REASON_STD_TYPE: &str = "Bu standart kütüphane tipi henüz desteklenmiyor.";
@@ -45,10 +62,21 @@ const REASON_UNKNOWN_TYPE: &str = "Bu tip henüz desteklenmiyor.";
 const MAX_TYPEDEF_DEPTH: usize = 16;
 /// Taban sınıf zincirinde en fazla bu kadar derine inilir; ötesi bilinmiyor sayılır.
 const MAX_BASE_DEPTH: usize = 32;
+/// Bir sabitin başlatıcısında ve dayandığı sabitlerde en fazla bu kadar derine inilir; ötesi
+/// kesin değil sayılır.
+const MAX_INITIALIZER_DEPTH: usize = 64;
+/// Bir header'daki bütün sabit başlatıcılarında gezilecek en fazla düğüm; ötesi kesin değil
+/// sayılır (ihtiyatla reddedilir).
+const MAX_INITIALIZER_NODES: usize = 100_000;
 
-/// Translation unit'teki ana dosya bildirimlerini IR modülüne çevirir.
-pub(crate) fn lower(tu: &TranslationUnit<'_>) -> Module {
-    let mut lowering = Lowering::default();
+/// Translation unit'te `target` dosyasındaki bildirimleri IR modülüne çevirir.
+pub(crate) fn lower<'tu>(tu: &'tu TranslationUnit<'_>, target: File<'tu>) -> Module {
+    let mut lowering = Lowering {
+        target,
+        namespace: Vec::new(),
+        items: Vec::new(),
+        initializers: InitializerCheck::default(),
+    };
     lowering.visit_children(tu.cursor());
     Module {
         items: lowering.items,
@@ -56,22 +84,24 @@ pub(crate) fn lower(tu: &TranslationUnit<'_>) -> Module {
     }
 }
 
-#[derive(Default)]
-struct Lowering {
+struct Lowering<'tu> {
+    /// Bildirimleri alınacak header.
+    target: File<'tu>,
     namespace: Vec<String>,
     items: Vec<Item>,
+    initializers: InitializerCheck<'tu>,
 }
 
-impl Lowering {
-    fn visit_children(&mut self, parent: Cursor<'_>) {
+impl<'tu> Lowering<'tu> {
+    fn visit_children(&mut self, parent: Cursor<'tu>) {
         for child in parent.children() {
-            if child.is_in_main_file() {
+            if child.is_in_file(self.target) {
                 self.visit(child);
             }
         }
     }
 
-    fn visit(&mut self, cursor: Cursor<'_>) {
+    fn visit(&mut self, cursor: Cursor<'tu>) {
         match cursor.kind() {
             cx::CXCursor_Namespace => {
                 let name = cursor.spelling();
@@ -101,7 +131,7 @@ impl Lowering {
             cx::CXCursor_TypeAliasTemplateDecl => {
                 self.unsupported(cursor, "alias_template", REASON_TEMPLATE);
             }
-            cx::CXCursor_VarDecl => self.unsupported(cursor, "variable", REASON_VARIABLE),
+            cx::CXCursor_VarDecl => self.variable(cursor),
             // Bağlanacak bir API değil (modül belgesine bakın).
             cx::CXCursor_StructDecl
             | cx::CXCursor_ClassDecl
@@ -124,8 +154,17 @@ impl Lowering {
         if cursor.is_deleted() {
             return;
         }
+        // İç bağlantılı (`static`) bir fonksiyon, tanımı header'daysa bağlanabilir: shim ve cxx'in
+        // ürettiği C++ dosyası header'ı include ettiği için o çeviri biriminde tanımlıdır.
+        // Anonim namespace'teki fonksiyonların bağlantısı C++11'den beri `Internal`; ayrıca
+        // namespace yolundan tanınır.
         let linkage = cursor.linkage();
-        if linkage == cx::CXLinkage_Internal || linkage == cx::CXLinkage_UniqueExternal {
+        if linkage == cx::CXLinkage_UniqueExternal
+            || self.namespace.iter().any(|ns| ns == ANONYMOUS_NAMESPACE)
+        {
+            return self.unsupported(cursor, "function", REASON_ANONYMOUS_FUNCTION);
+        }
+        if linkage == cx::CXLinkage_Internal && !cursor.is_definition() {
             return self.unsupported(cursor, "function", REASON_INTERNAL);
         }
         if cursor.ty().is_variadic() {
@@ -137,6 +176,44 @@ impl Lowering {
             params: params(cursor),
             return_type: lower_type(cursor.result_type()),
             noexcept: is_noexcept(cursor.exception_spec()),
+            location: location(cursor),
+        }));
+    }
+
+    /// `const`/`constexpr` sayı ya da `bool` tipli değişkenler, değerleri derleme anında kesin
+    /// olarak biliniyorsa sabit olur; diğer değişkenler desteklenmiyor.
+    fn variable(&mut self, cursor: Cursor<'tu>) {
+        let lowered = lower_type(cursor.ty());
+        if !lowered.is_const {
+            return self.unsupported(cursor, "variable", REASON_VARIABLE);
+        }
+        if !matches!(
+            lowered.ty,
+            Type::Integer { .. } | Type::Float { .. } | Type::Bool
+        ) {
+            return self.unsupported(cursor, "constant", REASON_CONSTANT_TYPE);
+        }
+        match self.initializers.check(cursor, 0) {
+            Initializer::Exact => {}
+            Initializer::Call => {
+                return self.unsupported(cursor, "constant", REASON_CONSTANT_CALL);
+            }
+            Initializer::Platform => {
+                return self.unsupported(cursor, "constant", REASON_CONSTANT_PLATFORM);
+            }
+        }
+        let Some(evaluated) = cursor.evaluate() else {
+            return self.unsupported(cursor, "constant", REASON_CONSTANT_UNKNOWN);
+        };
+        let value = match constant_value(&lowered.ty, evaluated) {
+            Ok(value) => value,
+            Err(reason) => return self.unsupported(cursor, "constant", reason),
+        };
+        self.items.push(Item::Constant(Constant {
+            name: cursor.spelling(),
+            namespace: self.namespace.clone(),
+            ty: lowered.ty,
+            value,
             location: location(cursor),
         }));
     }
@@ -213,6 +290,102 @@ impl Lowering {
             path.push(name.to_owned());
         }
         path.join("::")
+    }
+}
+
+/// Bir sabitin başlatıcısının denetim sonucu.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Initializer {
+    /// Literaller, aritmetik ve dönüşümler: derleme ve çalışma anında aynı değer.
+    Exact,
+    /// Fonksiyon çağrısı var (ya da denetim sınırı aşıldı).
+    Call,
+    /// `sizeof`, `alignof` ya da `offsetof`: değer üretimin yapıldığı platforma bağlı.
+    Platform,
+}
+
+/// Sabit başlatıcılarını denetler. Doğrulanan değişkenler hatırlanır: her başlatıcı bir kez
+/// gezilir (`A2 = A1 + A1` gibi zincirler üstel değil doğrusal sürer).
+///
+/// Neden: `static const double X = sqrt(2.0);` bir C++ sabit ifadesi değildir; derleyici değeri
+/// çalışma anında libm ile hesaplayabilir. libclang ise değeri derleme anında kendisi katlar.
+/// İkisinin son bitte aynı çıkacağı kesin olmadığı için böyle bir değeri Rust'a `const` olarak
+/// yazmak tahmin olur. `sizeof(void*)` gibi değerler de üretimin yapıldığı makineye bağlıdır;
+/// commit'lenen dosya başka bir platformda yanlış olur (ADR-0004). Literaller, aritmetik ve
+/// dönüşümler ise IEEE kurallarıyla her yerde aynı sonucu verir.
+#[derive(Default)]
+struct InitializerCheck<'tu> {
+    exact: Vec<Cursor<'tu>>,
+    visited: usize,
+}
+
+impl<'tu> InitializerCheck<'tu> {
+    fn check(&mut self, variable: Cursor<'tu>, depth: usize) -> Initializer {
+        if self.exact.iter().any(|known| known.same_as(&variable)) {
+            return Initializer::Exact;
+        }
+        if depth > MAX_INITIALIZER_DEPTH {
+            return Initializer::Call;
+        }
+        let mut stack = variable.children();
+        while let Some(node) = stack.pop() {
+            self.visited += 1;
+            if self.visited > MAX_INITIALIZER_NODES {
+                return Initializer::Call;
+            }
+            match node.kind() {
+                cx::CXCursor_CallExpr => return Initializer::Call,
+                // `sizeof`/`alignof` (`UnaryExpr`) ve `offsetof` (libclang'da ayrı türü yok;
+                // alana nesnesiz başvuru, `MemberRef`, yalnızca orada ya da üye pointer'ında
+                // görülür ve üye pointer'ı sayı tipi değildir).
+                cx::CXCursor_UnaryExpr | cx::CXCursor_MemberRef => return Initializer::Platform,
+                cx::CXCursor_DeclRefExpr => {
+                    let target = node.referenced();
+                    if target.kind() == cx::CXCursor_VarDecl && !target.same_as(&variable) {
+                        let result = self.check(target, depth + 1);
+                        if result != Initializer::Exact {
+                            return result;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            stack.extend(node.children());
+        }
+        self.exact.push(variable);
+        Initializer::Exact
+    }
+}
+
+/// libclang'ın hesapladığı değeri sabitin tipine göre IR değerine çevirir.
+fn constant_value(ty: &Type, evaluated: Evaluated) -> Result<ConstantValue, &'static str> {
+    match (ty, evaluated) {
+        (Type::Bool, Evaluated::Signed(v)) => Ok(ConstantValue::Bool(v != 0)),
+        (Type::Bool, Evaluated::Unsigned(v)) => Ok(ConstantValue::Bool(v != 0)),
+        (Type::Integer { signed: true, .. }, Evaluated::Signed(v)) => Ok(ConstantValue::Signed(v)),
+        (Type::Integer { signed: true, .. }, Evaluated::Unsigned(v)) => i64::try_from(v)
+            .map(ConstantValue::Signed)
+            .map_err(|_| REASON_CONSTANT_RANGE),
+        (Type::Integer { signed: false, .. }, Evaluated::Unsigned(v)) => {
+            Ok(ConstantValue::Unsigned(v))
+        }
+        (Type::Integer { signed: false, .. }, Evaluated::Signed(v)) => u64::try_from(v)
+            .map(ConstantValue::Unsigned)
+            .map_err(|_| REASON_CONSTANT_RANGE),
+        (Type::Float { size_bytes, .. }, Evaluated::Float(v)) => {
+            if !v.is_finite() {
+                return Err(REASON_CONSTANT_NON_FINITE);
+            }
+            // `float` sabit `double` olarak geliyor; `f32`'ye kayıpsız dönmüyorsa değer `float`
+            // değildir ve libclang'ın sonucuna güvenilmez.
+            #[allow(clippy::cast_possible_truncation)]
+            let narrowed = f64::from(v as f32);
+            if *size_bytes == 4 && narrowed != v {
+                return Err(REASON_CONSTANT_UNKNOWN);
+            }
+            Ok(ConstantValue::Float(v))
+        }
+        _ => Err(REASON_CONSTANT_UNKNOWN),
     }
 }
 

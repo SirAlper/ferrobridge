@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use ferrobridge_ir::{Destructor, QualType, Type};
+use ferrobridge_ir::{ConstantValue, Destructor, QualType, Type};
 
 use crate::config::{ParamAnnotation, ReturnAnnotation};
 use crate::plan::{BridgeType, IntType, Pass, Returns, TypeRef};
@@ -51,6 +51,15 @@ const REASON_VECTOR_BOOL: &str =
 const REASON_VECTOR_ELEMENT: &str = "`std::vector` elemanı yalnızca sabit genişlikli tamsayı, \
      `float`/`double`, `std::string` ya da bu header'daki bir sınıf olabilir.";
 const REASON_FLOAT_SIZE: &str = "Yalnızca `float` ve `double` destekleniyor.";
+const REASON_CONSTANT_VALUE: &str = "Sabitin değeri Rust tipine sığmıyor (`char` sabitleri \
+     yalnızca 0–127 arasında bağlanır: `c_char`'ın işareti platforma bağlı).";
+const REASON_SLICE_NOT_POINTER: &str = "`slice` yalnızca pointer parametrelerine uygulanabilir.";
+const REASON_SLICE_ELEMENT: &str = "`slice` yalnızca sayı dizilerini gösteren pointer'lara \
+     uygulanabilir (sabit genişlikli tamsayı, `float`, `double`).";
+const REASON_SLICE_CHAR: &str = "`char` dizileri `slice` olarak bağlanmıyor (işareti platforma \
+     bağlı); bayt dizileri için header'da `uint8_t` kullanılmalı.";
+const REASON_SLICE_LENGTH: &str =
+    "`slice` uzunluk parametresi değerle geçirilen bir tamsayı olmalı.";
 
 /// Her platformda aynı genişlikte olan C++ temel tamsayı tipleri. `long` (Windows'ta 32,
 /// diğerlerinde 64 bit) ve `long long` (`std::int64_t` bazı platformlarda `long`) dışarıda.
@@ -126,12 +135,15 @@ pub(crate) struct ReturnRule {
 }
 
 /// Bir parametre tipini çevirir.
+///
+/// `slice` açıklamaları burada değil, fonksiyon düzeyinde (uzunluk parametresiyle birlikte)
+/// işlenir; buraya yalnızca `borrowed` gelir.
 pub(crate) fn param_type(
     qt: &QualType,
     known: &Known,
-    annotation: Option<ParamAnnotation>,
+    annotation: Option<&ParamAnnotation>,
 ) -> Result<ParamRule, Rejection> {
-    let borrowed = annotation == Some(ParamAnnotation::Borrowed);
+    let borrowed = annotation == Some(&ParamAnnotation::Borrowed);
     let direct = |ty| ParamRule {
         ty,
         pass: Pass::Direct,
@@ -317,6 +329,63 @@ fn pointer_return(
             })
         }
     }
+}
+
+/// Bir sabitin Rust tipi; değer tipe uymuyorsa ya da sığmıyorsa reddedilir.
+pub(crate) fn constant_type(ty: &Type, value: ConstantValue) -> Result<BridgeType, String> {
+    let bridge = non_ref(ty, &Known::default())?;
+    let as_int = |value: ConstantValue| match value {
+        ConstantValue::Signed(v) => Some(i128::from(v)),
+        ConstantValue::Unsigned(v) => Some(i128::from(v)),
+        _ => None,
+    };
+    let fits = match (&bridge, value) {
+        (BridgeType::Bool, ConstantValue::Bool(_))
+        | (BridgeType::F32 | BridgeType::F64, ConstantValue::Float(_)) => true,
+        (BridgeType::Int(int), value) => {
+            let (min, max) = int.range();
+            as_int(value).is_some_and(|v| (min..=max).contains(&v))
+        }
+        // `c_char` bir platformda işaretli, diğerinde işaretsiz: yalnızca ikisinde de aynı
+        // olan değerler.
+        (BridgeType::Char, value) => as_int(value).is_some_and(|v| (0..=127).contains(&v)),
+        _ => false,
+    };
+    if fits {
+        Ok(bridge)
+    } else {
+        Err(REASON_CONSTANT_VALUE.to_owned())
+    }
+}
+
+/// `slice` açıklamalı bir parametre: eleman tipi ve dizinin değiştirilebilir olup olmadığı.
+pub(crate) fn slice_element(qt: &QualType, known: &Known) -> Result<(BridgeType, bool), String> {
+    let Type::Pointer { pointee } = &qt.ty else {
+        return Err(REASON_SLICE_NOT_POINTER.to_owned());
+    };
+    match &pointee.ty {
+        Type::Integer { .. } | Type::Float { .. } => match non_ref(&pointee.ty, known)? {
+            ty @ (BridgeType::Int(_) | BridgeType::F32 | BridgeType::F64) => {
+                Ok((ty, !pointee.is_const))
+            }
+            _ => Err(REASON_SLICE_CHAR.to_owned()),
+        },
+        _ => Err(REASON_SLICE_ELEMENT.to_owned()),
+    }
+}
+
+/// `slice` uzunluk parametresinin C++ temel tipi (ör. `"unsigned short"`). Rust'a görünmediği
+/// için `size_t` gibi platforma bağlı tipler de kabul edilir.
+pub(crate) fn slice_length(qt: &QualType) -> Result<String, String> {
+    match &qt.ty {
+        Type::Integer { builtin, .. } => Ok(builtin.clone()),
+        _ => Err(REASON_SLICE_LENGTH.to_owned()),
+    }
+}
+
+/// Sayı dizisi olabilecek bir pointer mı (`slice` önerisi için)?
+pub(crate) fn could_be_slice(qt: &QualType, known: &Known) -> bool {
+    slice_element(qt, known).is_ok()
 }
 
 /// `const` olmayan primitif ya da enum mu (`double&` gibi)?

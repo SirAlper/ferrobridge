@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use ferrobridge_analysis::{BridgeType, Callee, Pass, Returns};
+use ferrobridge_analysis::{BridgeType, Callee, ConstantPlan, ConstantValue, Pass, Returns};
 
 use crate::bridge::SHIM_SELF;
 use crate::spelling::{cpp_return, cpp_type};
@@ -36,6 +36,13 @@ pub(crate) fn header(options: &CodegenOptions, shims: &[ShimFn<'_>]) -> String {
         "#include <cstdint>\n#include <exception>\n#include <memory>\n#include <stdexcept>\n\
          #include <string>\n#include <vector>\n\n",
     );
+    if shims.iter().any(|shim| !shim.plan.lengths.is_empty()) {
+        // `rust::Slice` ve uzunluk kontrolü için.
+        out.push_str("#include <limits>\n\n#include \"rust/cxx.h\"\n\n");
+    }
+    for prelude in &options.prelude {
+        let _ = writeln!(out, "#include \"{prelude}\"  // prelude");
+    }
     let _ = writeln!(out, "#include \"{}\"\n", options.header_include);
     out.push_str(TRYCATCH);
     let _ = writeln!(out, "\nnamespace {} {{\n", options.shim_namespace);
@@ -49,9 +56,14 @@ pub(crate) fn header(options: &CodegenOptions, shims: &[ShimFn<'_>]) -> String {
     out
 }
 
-pub(crate) fn source(options: &CodegenOptions, shims: &[ShimFn<'_>]) -> String {
+pub(crate) fn source(
+    options: &CodegenOptions,
+    shims: &[ShimFn<'_>],
+    constants: &[ConstantPlan],
+) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#include \"{}\"\n", options.shim_include);
+    out.push_str(&constant_checks(constants));
     let _ = writeln!(out, "namespace {} {{\n", options.shim_namespace);
     for shim in shims {
         let _ = writeln!(
@@ -62,6 +74,37 @@ pub(crate) fn source(options: &CodegenOptions, shims: &[ShimFn<'_>]) -> String {
         );
     }
     let _ = writeln!(out, "}}  // namespace {}", options.shim_namespace);
+    out
+}
+
+/// Rust'a `const` olarak yazılan tamsayı ve `bool` sabitlerin değerini C++ derleyicisi yeniden
+/// doğrular. Üretilmiş dosya başka bir platformda ya da başka define'larla derlenirse ve değer
+/// değiştiyse, sessizce yanlış bir `const` yerine derleme hatası çıkar.
+///
+/// Kayan noktalı sabitler `static const double` olarak C++ sabit ifadesi değildir, burada
+/// doğrulanamaz; onları başlatıcı denetimi korur (`ferrobridge-parser`).
+fn constant_checks(constants: &[ConstantPlan]) -> String {
+    let mut out = String::new();
+    for constant in constants {
+        let value = match constant.value {
+            ConstantValue::Bool(v) => v.to_string(),
+            ConstantValue::Signed(i64::MIN) => "(-9223372036854775807LL - 1)".to_owned(),
+            ConstantValue::Signed(v) => format!("{v}LL"),
+            ConstantValue::Unsigned(v) => format!("{v}ULL"),
+            ConstantValue::Float(_) => continue,
+        };
+        let mut path = constant.namespace.clone();
+        path.push(constant.cpp_name.clone());
+        let path = path.join("::");
+        let _ = writeln!(
+            out,
+            "static_assert(::{path} == {value}, \"ferrobridge: `{path}` üretildiği değerden \
+             farklı; bridge'i yeniden üretin\");"
+        );
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
     out
 }
 
@@ -91,20 +134,70 @@ fn signature(shim: &ShimFn<'_>) -> String {
 
 /// Shim gövdesinin satırları.
 fn body(shim: &ShimFn<'_>) -> Vec<String> {
+    let mut lines = length_checks(shim);
+    lines.extend(call_lines(shim));
+    lines
+}
+
+/// C++ fonksiyonuna geçirilen argümanlar, C++'taki sırasıyla. Rust imzasında olmayan uzunluk
+/// parametreleri slice'ın boyundan doldurulur.
+fn arguments(shim: &ShimFn<'_>) -> String {
     let plan = shim.plan;
-    let args = plan
+    let mut params = plan
         .params
         .iter()
         .map(|param| match (&param.ty, param.pass) {
             // `borrowed` pointer parametresi: Rust referans verdi, C++ pointer bekliyor.
             (_, Pass::AddressOf) => format!("&{}", param.rust_name),
+            (_, Pass::Slice) => format!("{}.data()", param.rust_name),
             (BridgeType::UniquePtr(_), Pass::Direct) => {
                 format!("::std::move({})", param.rust_name)
             }
             (_, Pass::Direct) => param.rust_name.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
+        });
+    let mut args = Vec::with_capacity(plan.cpp_arity());
+    for position in 0..plan.cpp_arity() {
+        let length = plan.lengths.iter().find(|l| l.position == position);
+        let arg = match length {
+            Some(length) => format!(
+                "static_cast<{}>({}.size())",
+                length.cpp_type, plan.params[length.slice].rust_name
+            ),
+            None => params.next().unwrap_or_default(),
+        };
+        args.push(arg);
+    }
+    args.join(", ")
+}
+
+/// Her slice'ın boyu C++ uzunluk tipine sığmalı; sığmazsa sessizce kırpılmaz, exception →
+/// Rust'ta `Err`. Karşılaştırma `unsigned long long`'da yapılır: iki taraf da negatif değil ve
+/// hiçbir değer kesilmez.
+fn length_checks(shim: &ShimFn<'_>) -> Vec<String> {
+    let plan = shim.plan;
+    let mut lines = Vec::new();
+    for length in &plan.lengths {
+        let slice = &plan.params[length.slice].rust_name;
+        lines.push(format!(
+            "if (static_cast<unsigned long long>({slice}.size()) > \
+             static_cast<unsigned long long>(::std::numeric_limits<{}>::max())) {{",
+            length.cpp_type
+        ));
+        lines.push(format!(
+            "  throw ::std::length_error(\"{}: `{slice}` uzunluk parametresinin tipine ({}) \
+             sığmayacak kadar uzun\");",
+            callee_name(&plan.callee),
+            length.cpp_type
+        ));
+        lines.push("}".to_owned());
+    }
+    lines
+}
+
+/// Çağrı ve dönüş satırları.
+fn call_lines(shim: &ShimFn<'_>) -> Vec<String> {
+    let plan = shim.plan;
+    let args = arguments(shim);
     let call = match &plan.callee {
         Callee::Constructor { class } => {
             return vec![format!(

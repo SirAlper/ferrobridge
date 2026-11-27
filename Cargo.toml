@@ -15,7 +15,7 @@ publish = false
 #   parser   -> ir          (bağlı)
 #   analysis -> ir          (bağlı)
 #   codegen  -> analysis    (bağlı; plan tipleri analizde)
-#   build    -> parser, analysis, codegen
+#   build    -> parser, analysis, codegen (bağlı, yalnızca `generate` özelliğiyle)
 #   cli      -> parser, analysis, codegen (bağlı); ileride build
 #   ferrobridge (çalışma zamanı) -> yalnızca cxx; üretilen kodu kullanan crate'ler buna bağlanır
 # Kural: ir hiçbir ferrobridge crate'ine bağımlı olamaz.
@@ -24,6 +24,7 @@ ferrobridge-ir = { path = "crates/ferrobridge-ir" }
 ferrobridge-parser = { path = "crates/ferrobridge-parser" }
 ferrobridge-analysis = { path = "crates/ferrobridge-analysis" }
 ferrobridge-codegen = { path = "crates/ferrobridge-codegen" }
+ferrobridge-build = { path = "crates/ferrobridge-build" }
 ferrobridge = { path = "crates/ferrobridge" }
 
 [workspace.lints.rust]

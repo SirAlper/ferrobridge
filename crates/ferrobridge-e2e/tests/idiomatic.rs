@@ -37,5 +37,5 @@ fn safe_api_tests_use_no_cxx_types_or_unsafe() {
         }
         checked += 1;
     }
-    assert_eq!(checked, 6, "beklenen güvenli API test dosyaları bulunamadı");
+    assert_eq!(checked, 8, "beklenen güvenli API test dosyaları bulunamadı");
 }

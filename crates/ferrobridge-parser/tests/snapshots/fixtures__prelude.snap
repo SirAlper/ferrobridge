@@ -1,0 +1,85 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 4,
+  "items": [
+    {
+      "kind": "function",
+      "name": "length",
+      "namespace": [],
+      "params": [
+        {
+          "name": "v",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "record",
+                  "name": "Vec2",
+                  "namespace": []
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "float",
+          "size_bytes": 4
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 4,
+        "column": 7
+      }
+    },
+    {
+      "kind": "function",
+      "name": "checksum",
+      "namespace": [],
+      "params": [
+        {
+          "name": "seed",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "uint8_t",
+              "builtin": "unsigned char",
+              "size_bytes": 1,
+              "signed": false,
+              "fixed_width": true
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "integer",
+          "spelling": "uint8_t",
+          "builtin": "unsigned char",
+          "size_bytes": 1,
+          "signed": false,
+          "fixed_width": true
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 5,
+        "column": 9
+      }
+    }
+  ]
+}

@@ -26,3 +26,11 @@ pub mod ownership;
 /// `tests/fixtures/vectors`: `std::vector` parametreleri ve dönüşleri.
 #[path = "generated/vectors/bridge.rs"]
 pub mod vectors;
+
+/// `tests/fixtures/slices`: `{ slice = "len" }` açıklamalı pointer + uzunluk çiftleri.
+#[path = "generated/slices/bridge.rs"]
+pub mod slices;
+
+/// `tests/fixtures/inline_and_constants`: `static inline` fonksiyonlar ve sabitler.
+#[path = "generated/inline_and_constants/bridge.rs"]
+pub mod inline_and_constants;

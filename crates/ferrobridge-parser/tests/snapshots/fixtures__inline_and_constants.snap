@@ -1,0 +1,471 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 4,
+  "items": [
+    {
+      "kind": "function",
+      "name": "add_one",
+      "namespace": [],
+      "params": [
+        {
+          "name": "x",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "integer",
+          "spelling": "int",
+          "builtin": "int",
+          "size_bytes": 4,
+          "signed": true,
+          "fixed_width": false
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 9,
+        "column": 19
+      }
+    },
+    {
+      "kind": "function",
+      "name": "half",
+      "namespace": [],
+      "params": [
+        {
+          "name": "x",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "float",
+          "size_bytes": 4
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 10,
+        "column": 31
+      }
+    },
+    {
+      "kind": "function",
+      "name": "triple",
+      "namespace": [],
+      "params": [
+        {
+          "name": "x",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "double",
+          "size_bytes": 8
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 11,
+        "column": 32
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "function",
+      "name": "hidden",
+      "reason": "İç bağlantılı (`static`) fonksiyonun tanımı header'da görünmüyor; header dışından çağrılamaz.",
+      "location": {
+        "file": "input.h",
+        "line": 14,
+        "column": 29
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "function",
+      "name": "(anonim)::anonymous",
+      "reason": "Anonim namespace'teki fonksiyonların Rust'tan yazılabilecek bir adı yok.",
+      "location": {
+        "file": "input.h",
+        "line": 18,
+        "column": 12
+      }
+    },
+    {
+      "kind": "constant",
+      "name": "WGS84_A",
+      "namespace": [],
+      "type": {
+        "kind": "float",
+        "spelling": "double",
+        "size_bytes": 8
+      },
+      "value": {
+        "kind": "float",
+        "value": 6378137.0
+      },
+      "location": {
+        "file": "input.h",
+        "line": 22,
+        "column": 21
+      }
+    },
+    {
+      "kind": "constant",
+      "name": "WGS84_IF",
+      "namespace": [],
+      "type": {
+        "kind": "float",
+        "spelling": "double",
+        "size_bytes": 8
+      },
+      "value": {
+        "kind": "float",
+        "value": 298.257223563
+      },
+      "location": {
+        "file": "input.h",
+        "line": 23,
+        "column": 21
+      }
+    },
+    {
+      "kind": "constant",
+      "name": "WGS84_F",
+      "namespace": [],
+      "type": {
+        "kind": "float",
+        "spelling": "double",
+        "size_bytes": 8
+      },
+      "value": {
+        "kind": "float",
+        "value": 0.0033528106647474805
+      },
+      "location": {
+        "file": "input.h",
+        "line": 24,
+        "column": 21
+      }
+    },
+    {
+      "kind": "constant",
+      "name": "GRAVITY_MSS",
+      "namespace": [],
+      "type": {
+        "kind": "float",
+        "spelling": "float",
+        "size_bytes": 4
+      },
+      "value": {
+        "kind": "float",
+        "value": 9.806650161743164
+      },
+      "location": {
+        "file": "input.h",
+        "line": 25,
+        "column": 20
+      }
+    },
+    {
+      "kind": "constant",
+      "name": "TENTH",
+      "namespace": [],
+      "type": {
+        "kind": "float",
+        "spelling": "float",
+        "size_bytes": 4
+      },
+      "value": {
+        "kind": "float",
+        "value": 0.10000000149011612
+      },
+      "location": {
+        "file": "input.h",
+        "line": 26,
+        "column": 20
+      }
+    },
+    {
+      "kind": "constant",
+      "name": "MAX_WHEELS",
+      "namespace": [],
+      "type": {
+        "kind": "integer",
+        "spelling": "int32_t",
+        "builtin": "int",
+        "size_bytes": 4,
+        "signed": true,
+        "fixed_width": true
+      },
+      "value": {
+        "kind": "signed",
+        "value": 8
+      },
+      "location": {
+        "file": "input.h",
+        "line": 27,
+        "column": 19
+      }
+    },
+    {
+      "kind": "constant",
+      "name": "OFFSET",
+      "namespace": [],
+      "type": {
+        "kind": "integer",
+        "spelling": "int8_t",
+        "builtin": "signed char",
+        "size_bytes": 1,
+        "signed": true,
+        "fixed_width": true
+      },
+      "value": {
+        "kind": "signed",
+        "value": -5
+      },
+      "location": {
+        "file": "input.h",
+        "line": 28,
+        "column": 18
+      }
+    },
+    {
+      "kind": "constant",
+      "name": "ALL_BITS",
+      "namespace": [],
+      "type": {
+        "kind": "integer",
+        "spelling": "uint64_t",
+        "builtin": "unsigned long long",
+        "size_bytes": 8,
+        "signed": false,
+        "fixed_width": true
+      },
+      "value": {
+        "kind": "unsigned",
+        "value": 18446744073709551615
+      },
+      "location": {
+        "file": "input.h",
+        "line": 29,
+        "column": 16
+      }
+    },
+    {
+      "kind": "constant",
+      "name": "ENABLED",
+      "namespace": [],
+      "type": {
+        "kind": "bool"
+      },
+      "value": {
+        "kind": "bool",
+        "value": true
+      },
+      "location": {
+        "file": "input.h",
+        "line": 30,
+        "column": 16
+      }
+    },
+    {
+      "kind": "constant",
+      "name": "LETTER",
+      "namespace": [],
+      "type": {
+        "kind": "integer",
+        "spelling": "char",
+        "builtin": "char",
+        "size_bytes": 1,
+        "signed": true,
+        "fixed_width": false
+      },
+      "value": {
+        "kind": "signed",
+        "value": 65
+      },
+      "location": {
+        "file": "input.h",
+        "line": 31,
+        "column": 16
+      }
+    },
+    {
+      "kind": "constant",
+      "name": "FEET_PER_METER",
+      "namespace": [
+        "units"
+      ],
+      "type": {
+        "kind": "float",
+        "spelling": "double",
+        "size_bytes": 8
+      },
+      "value": {
+        "kind": "float",
+        "value": 3.28084
+      },
+      "location": {
+        "file": "input.h",
+        "line": 34,
+        "column": 18
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "constant",
+      "name": "ROOT_TWO",
+      "reason": "Sabitin başlatıcısı (ya da dayandığı bir sabitinki) fonksiyon çağrısı içeriyor; değer çalışma anında hesaplanabilir ve derleme anında hesaplanan değerle aynı olduğu kesin değil.",
+      "location": {
+        "file": "input.h",
+        "line": 39,
+        "column": 21
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "constant",
+      "name": "TWO_ROOT_TWO",
+      "reason": "Sabitin başlatıcısı (ya da dayandığı bir sabitinki) fonksiyon çağrısı içeriyor; değer çalışma anında hesaplanabilir ve derleme anında hesaplanan değerle aynı olduğu kesin değil.",
+      "location": {
+        "file": "input.h",
+        "line": 40,
+        "column": 21
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "constant",
+      "name": "QUIET_NAN",
+      "reason": "Sabitin başlatıcısı (ya da dayandığı bir sabitinki) fonksiyon çağrısı içeriyor; değer çalışma anında hesaplanabilir ve derleme anında hesaplanan değerle aynı olduğu kesin değil.",
+      "location": {
+        "file": "input.h",
+        "line": 41,
+        "column": 20
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "constant",
+      "name": "TOO_BIG",
+      "reason": "Sabitin değeri sonlu değil (NaN ya da sonsuz); Rust'ta NaN'ın bit deseni korunamadığı için bağlanmıyor.",
+      "location": {
+        "file": "input.h",
+        "line": 44,
+        "column": 21
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "variable",
+      "name": "counter",
+      "reason": "Global ve statik değişkenler henüz desteklenmiyor.",
+      "location": {
+        "file": "input.h",
+        "line": 47,
+        "column": 12
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "constant",
+      "name": "EXTERNAL",
+      "reason": "Sabitin değeri hesaplanamadı (başlatıcısı yok ya da sabit bir ifade değil).",
+      "location": {
+        "file": "input.h",
+        "line": 48,
+        "column": 18
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "constant",
+      "name": "NAME",
+      "reason": "Yalnızca sayı ve `bool` tipli sabitler bağlanıyor.",
+      "location": {
+        "file": "input.h",
+        "line": 49,
+        "column": 19
+      }
+    },
+    {
+      "kind": "function",
+      "name": "wgs84_f_at_runtime",
+      "namespace": [],
+      "params": [],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "double",
+          "size_bytes": 8
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 53,
+        "column": 8
+      }
+    },
+    {
+      "kind": "function",
+      "name": "tenth_at_runtime",
+      "namespace": [],
+      "params": [],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "float",
+          "size_bytes": 4
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 54,
+        "column": 7
+      }
+    }
+  ]
+}

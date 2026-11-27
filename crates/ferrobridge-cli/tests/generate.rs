@@ -33,7 +33,15 @@ fn ferrobridge(args: &[&str]) -> Output {
 }
 
 /// E2E crate'inin derlediği fixture'lar (`crates/ferrobridge-e2e/build.rs` ile aynı liste).
-const E2E_FIXTURES: [&str; 5] = ["classes", "enums", "strings", "ownership", "vectors"];
+const E2E_FIXTURES: [&str; 7] = [
+    "classes",
+    "enums",
+    "strings",
+    "ownership",
+    "vectors",
+    "slices",
+    "inline_and_constants",
+];
 
 /// `ferrobridge-e2e` crate'inin kullandığı ayarlarla üretir. Fixture'ın yanında
 /// `ferrobridge.toml` varsa `--config` ile verilir.
@@ -61,24 +69,26 @@ fn generate_like_e2e(name: &str, out: &Path) -> Output {
 }
 
 /// Taslaktaki yorum satırı değerleri açar; dönüşlerde her tablonun ilk seçeneğini seçer.
+/// Her tablo ve anahtar için ilk seçeneği açar (aynı anahtarın satırları alternatiftir).
+/// Taslağın açıklama başlığındaki örnekler (`#   { slice = "n" } ...`) anahtar değildir.
 fn uncomment_first_choices(draft: &str) -> String {
-    let mut table_has_return = false;
+    let mut seen = std::collections::HashSet::new();
+    let mut table = String::new();
     let mut lines = Vec::new();
     for line in draft.lines() {
         if line.starts_with('[') {
-            table_has_return = false;
+            table = line.to_owned();
             lines.push(line.to_owned());
             continue;
         }
-        match line.strip_prefix("# ") {
-            Some(value) if value.contains(" = \"") => {
-                let is_return = value.starts_with("returns");
-                if is_return && table_has_return {
-                    lines.push(line.to_owned());
-                } else {
-                    table_has_return |= is_return;
-                    lines.push(value.to_owned());
-                }
+        let choice = line.strip_prefix("# ").and_then(|value| {
+            let (key, _) = value.split_once(" = ")?;
+            let is_value = value.contains(" = \"") || value.contains(" = {");
+            (is_value && !key.is_empty() && !key.contains(' ')).then_some((key, value))
+        });
+        match choice {
+            Some((key, value)) if seen.insert((table.clone(), key.to_owned())) => {
+                lines.push(value.to_owned());
             }
             _ => lines.push(line.to_owned()),
         }

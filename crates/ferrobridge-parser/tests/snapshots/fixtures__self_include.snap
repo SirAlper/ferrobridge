@@ -1,0 +1,101 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 4,
+  "items": [
+    {
+      "kind": "class",
+      "name": "Counter",
+      "namespace": [],
+      "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
+      "constructors": [
+        {
+          "params": [],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 10,
+            "column": 5
+          }
+        }
+      ],
+      "methods": [
+        {
+          "name": "value",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 11,
+            "column": 9
+          }
+        }
+      ],
+      "unsupported_members": [],
+      "location": {
+        "file": "input.h",
+        "line": 8,
+        "column": 7
+      }
+    },
+    {
+      "kind": "function",
+      "name": "twice",
+      "namespace": [],
+      "params": [
+        {
+          "name": "x",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "integer",
+          "spelling": "int",
+          "builtin": "int",
+          "size_bytes": 4,
+          "signed": true,
+          "fixed_width": false
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 14,
+        "column": 5
+      }
+    }
+  ]
+}

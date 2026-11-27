@@ -18,6 +18,9 @@ const HEADER: &str = "\
 #
 #   borrowed (parametre): pointer/referans tek bir nesneyi gösteriyor (dizi değil), null
 #                         değil, yalnızca çağrı süresince kullanılıyor ve saklanmıyor.
+#   { slice = \"n\" } (parametre): pointer `n` parametresi kadar elemanlık bir diziyi gösteriyor
+#                         ve yalnızca çağrı süresince kullanılıyor; Rust'ta ikisi tek bir
+#                         `&[T]` olur. Aynı parametre için yalnızca bir satır aç.
 #   owned    (dönüş):     pointer `new` ile ayrıldı; silmek çağırana düşüyor.
 #   borrowed (dönüş):     pointer/referans nesnenin sahip olduğu bir şeyi gösteriyor ve
 #                         nesne yaşadıkça geçerli (yalnızca metotlar).
@@ -30,7 +33,8 @@ struct Group<'p> {
     key: &'p str,
     signatures: Vec<(&'p str, String)>,
     returns: Vec<(ReturnAnnotation, &'p str)>,
-    params: Vec<(&'p str, &'p str)>,
+    /// (ad, C++ tipi, aday slice uzunlukları)
+    params: Vec<(&'p str, &'p str, &'p [String])>,
 }
 
 /// Plandaki önerileri yorum satırlı bir TOML taslağına çevirir. Öneri yoksa bunu söyleyen
@@ -55,8 +59,15 @@ pub fn render_suggestions(plan: &BridgePlan) -> String {
         }
         if !group.params.is_empty() {
             let _ = writeln!(out, "[functions.{key}.params]");
-            for (name, cpp_type) in &group.params {
-                let _ = writeln!(out, "# {} = \"borrowed\"  # {cpp_type}", toml_key(name));
+            for (name, cpp_type, lengths) in &group.params {
+                let key = toml_key(name);
+                let _ = writeln!(out, "# {key} = \"borrowed\"  # {cpp_type}");
+                for len in *lengths {
+                    let _ = writeln!(
+                        out,
+                        "# {key} = {{ slice = \"{len}\" }}  # {name}, {len} elemanlık bir dizi"
+                    );
+                }
             }
         }
     }
@@ -95,9 +106,14 @@ fn group(suggestions: &[Suggestion]) -> Vec<Group<'_>> {
                     }
                 }
             }
-            SuggestionTarget::Param { name } => {
-                if !group.params.iter().any(|(n, _)| n == name) {
-                    group.params.push((name, &suggestion.cpp_type));
+            SuggestionTarget::Param {
+                name,
+                slice_lengths,
+            } => {
+                if !group.params.iter().any(|(n, _, _)| n == name) {
+                    group
+                        .params
+                        .push((name, &suggestion.cpp_type, slice_lengths));
                 }
             }
         }

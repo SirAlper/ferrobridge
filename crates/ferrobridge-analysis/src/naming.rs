@@ -106,6 +106,14 @@ fn type_token(ty: &BridgeType) -> String {
         BridgeType::String => "string".to_owned(),
         BridgeType::UniquePtr(inner) => format!("uptr_{}", type_token(inner)),
         BridgeType::Vector(inner) => format!("vec_{}", type_token(inner)),
+        BridgeType::Slice { mutable, element } => {
+            let token = type_token(element);
+            if *mutable {
+                format!("mut_slice_{token}")
+            } else {
+                format!("slice_{token}")
+            }
+        }
         BridgeType::Ref { mutable, inner } => {
             if *mutable {
                 format!("mut_{}", type_token(inner))

@@ -2,7 +2,7 @@
 
 C++ header'larından **güvenli ve idiomatik** Rust binding'leri üreten araç. cxx üzerine kuruludur, sahiplik bilgisini bir açıklama dosyasından (`ferrobridge.toml`) alır ve Bazel gerektirmez.
 
-> Durum: erken geliştirme (Milestone 4 / v0.1 öncesi). Henüz yayınlanmış bir sürüm yok.
+> Durum: erken geliştirme (Milestone 5 / v0.1 öncesi). Henüz yayınlanmış bir sürüm yok. Gerçek dünya demosu: ArduPilot `AP_Math` ([`demo/ap_math/`](demo/ap_math/README.md)).
 
 ## Gereksinimler
 
@@ -46,6 +46,41 @@ Bağlanamayan her öğe uyarı olarak basılır ve üretilen dosyaların başın
 pub mod vehicle;
 ```
 
+C++ tarafını `build.rs`'te `ferrobridge-build` derler (`[build-dependencies]`). `ferrobridge-e2e/build.rs` aynı yolu kullanır:
+
+```rust
+// build.rs
+fn main() {
+    let mut build = ferrobridge_build::Build::new();
+    build
+        .committed("src/ffi")         // bridge.rs, shim.h, shim.cc
+        .include_dir("include")       // `--include-as vehicle.h` buradan çözülür
+        .include_dir("src/ffi")       // bridge'in `include!("shim.h")`'si (varsayılan `--shim-include`)
+        .file("cpp/vehicle.cc");      // kütüphanenin gerçeklemesi
+    if let Err(error) = build.compile("vehicle") {
+        panic!("{error}");
+    }
+}
+```
+
+Header kendi başına derlenmiyorsa (başka bir header'dan önce include edilmesi gerekiyorsa) `--prelude <header>` verin; hem libclang hem shim onu önce include eder.
+
+Üretilmiş dosyaları commit'leyemiyorsanız (ör. kütüphanenin lisansı yüzünden), `ferrobridge-build`'in `generate` özelliği header'ı derleme sırasında okuyup bridge'i `OUT_DIR`'e üretir. Bu mod her derlemede libclang ister (ADR-0008):
+
+```rust
+// build.rs (ferrobridge-build = { ..., features = ["generate"] })
+build.generate(
+    ferrobridge_build::Generate::new("include/vehicle.h", "vehicle")
+        .include_as("vehicle.h")
+        .config("ferrobridge.toml"),
+);
+
+// src/lib.rs
+pub mod vehicle {
+    ferrobridge::include_bridge!("vehicle");
+}
+```
+
 Rust tarafında hiç `unsafe`, `Pin` ya da cxx tipi gerekmez (gerçek fixture'larla derlenen kopyası: `crates/ferrobridge-e2e/tests/readme.rs`):
 
 ```rust
@@ -71,6 +106,8 @@ fn main() -> ferrobridge::Result<()> {
 | `const std::string&` / `std::string` dönüşü | `&str` / `String` (geçersiz UTF-8 → `Err`) |
 | `const std::vector<T>&` (T sayı) / değerle dönen vector | `&[T]` / `Vec<T>`, `Vec<String>` (kopyalanır) |
 | `enum` | Gerçek Rust `enum`'u; C++'tan tanımsız değer → `Err` |
+| `const`/`constexpr` sayı ve `bool` sabitleri | `pub const` (değer üretim anında hesaplanır; tamsayılar C++ derlemesinde `static_assert` ile yeniden doğrulanır) |
+| Tanımı header'da olan `static inline` fonksiyon | Sıradan güvenli fonksiyon |
 | Exception fırlatabilen her şey | `ferrobridge::Result<T>`; hata C++ öğesinin adını taşır (`geo::Vehicle::break_down: motor arızası`) |
 
 Değiştirilebilir `std::string&` / `std::vector<T>&` ve sınıf elemanlı vector'ler cxx tipleri olarak kalır: kopyala-geri yaz, C++ referansı saklıyorsa sessizce yanlış olurdu. Ham cxx katmanı `vehicle::ffi` altında kaçış kapısı olarak durur (metotlar `raw_<ad>`). Sarmalayıcıyı `&ffi::T` bekleyen bir fonksiyona `&araba` diye verebilirsiniz (deref coercion); bunun için değer bir değişkene bağlı olmalı. Tasarım: ADR-0007.
@@ -102,6 +139,10 @@ target = "borrowed"
 
 [functions."geo::Vehicle::read_odometer".params]
 out = "borrowed"
+
+# `p`, `len` parametresi kadar elemanlık bir dizi; yalnızca çağrı süresince kullanılıyor.
+[functions."crc_crc8".params]
+p = { slice = "len" }
 ```
 
 ```bash
@@ -115,6 +156,11 @@ cargo run -p ferrobridge-cli -- generate include/vehicle.h --out-dir src/ffi --c
 | `double& m()` (metot) | `returns = "borrowed"` | `&mut f64` |
 | `f(const T* p)` / `f(T* p)` | `p = "borrowed"` | `&T` / `Pin<&mut T>` (primitifte `&mut f64`) |
 | `f(double& out)` | `out = "borrowed"` | `&mut f64` |
+| `f(const uint8_t* p, uint8_t len)` / `f(float* p, size_t n)` | `p = { slice = "len" }` | `f(p: &[u8])` / `f(p: &mut [f32])`; uzunluk Rust imzasından kalkar. Slice C++ uzunluk tipine sığmazsa `Err` (sessiz kırpma yok) |
+
+Boş bir Rust slice'ı C++'a null olmayan (ama okunmaması gereken) bir pointer ve `0` uzunlukla gelir; C++ `p == nullptr`'a ayrıca bakıyorsa farklı davranabilir.
+
+Tanımı header'da olan `static` / `static inline` fonksiyonlar bridge'in kendi çeviri biriminde derlenir. Gövdelerinde `static` yerel değişken varsa Rust'tan yapılan çağrılar, C++ kütüphanesinin kendi kopyasından ayrı bir duruma bakar (tanımsız davranış değil, ama durum paylaşılmaz).
 
 Anahtar tam C++ adıdır (constructor için `ns::Sınıf::Sınıf`; isimsiz parametreler `arg0`, `arg1`...) ve aynı adlı **bütün overload'lara** uygulanır. Bu durumda bir uyarı basılır.
 
@@ -145,9 +191,11 @@ cargo run -p ferrobridge-cli -- parse include/mylib.h --std c++20 -- -I include 
 | `ferrobridge-analysis` | Neyin güvenle bağlanabileceğine karar verir (güvenlik kuralları), Rust adlarını atar |
 | `ferrobridge-codegen` | Güvenli Rust API, cxx bridge ve C++ shim üretimi |
 | `ferrobridge` | Üretilen kodun çalışma zamanı: `ferrobridge::Error` ve dönüşüm yardımcıları (yalnızca `cxx`'e bağlı, `unsafe` yok) |
-| `ferrobridge-build` | `build.rs` içinden çağrılan API |
+| `ferrobridge-build` | `build.rs` içinden çağrılan API: commit'li bridge'leri ya da (`generate` özelliği) derleme sırasında üretilenleri derler |
 | `ferrobridge-cli` | `ferrobridge` komut satırı aracı (`doctor`, `parse`, `generate`, `suggest`) |
 | `ferrobridge-e2e` | Uçtan uca testler: üretilen bridge'ler gerçek C++ ile derlenip Rust'tan çağrılır |
+
+`demo/ap_math/` kök workspace'in parçası değildir: ArduPilot'a bağlandığı için GPL-3.0-or-later lisanslı ayrı bir crate (ADR-0008).
 
 Test fixture'ları `tests/fixtures/<konu>/input.h` altında, beklenen çıktılar `crates/*/tests/snapshots/` altında [insta](https://insta.rs) snapshot'ı olarak tutulur. Çıktı değiştiğinde `cargo insta review` ile inceleyin.
 

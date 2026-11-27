@@ -1,0 +1,20 @@
+# `slices` fixture'ı: her pointer, yanındaki uzunluk parametresi kadar elemanlık bir dizi.
+
+[functions."buf::crc8".params]
+p = { slice = "len" }
+
+[functions."buf::sum".params]
+values = { slice = "n" }
+
+[functions."buf::scale".params]
+data = { slice = "count" }
+
+[functions."buf::dot".params]
+a = { slice = "a_len" }
+b = { slice = "b_len" }
+
+[functions."buf::count_nonzero".params]
+bytes = { slice = "size" }
+
+[functions."buf::Buffer::append".params]
+data = { slice = "len" }

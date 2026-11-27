@@ -25,12 +25,8 @@ enum Command {
     Parse {
         /// Okunacak C++ header dosyası.
         header: PathBuf,
-        /// C++ standardı (clang'a `-std=<değer>` olarak geçer).
-        #[arg(long, default_value = "c++17")]
-        std: String,
-        /// `--` sonrasında clang'a olduğu gibi geçirilecek argümanlar (ör. `-- -I include`).
-        #[arg(last = true)]
-        clang_args: Vec<String>,
+        #[command(flatten)]
+        parse: ParseArgs,
     },
     /// Bir C++ header'ından cxx bridge'i (`bridge.rs`) ve C++ shim'ini (`shim.h`, `shim.cc`)
     /// üretir. Bağlanamayan her öğe nedeniyle birlikte uyarı olarak basılır.
@@ -49,9 +45,6 @@ enum Command {
         /// Shim fonksiyonlarının C++ namespace'i. Varsayılan: `ferrobridge::<header adı>`.
         #[arg(long)]
         shim_namespace: Option<String>,
-        /// C++ standardı (clang'a `-std=<değer>` olarak geçer).
-        #[arg(long, default_value = "c++17")]
-        std: String,
         /// Sahiplik açıklamaları dosyası (`ferrobridge.toml`). Verilmezse açıklama yok sayılır
         /// ve sahipliği belirsiz pointer'lar bağlanmaz.
         #[arg(long)]
@@ -59,9 +52,8 @@ enum Command {
         /// ferrobridge'in üretmediği (elle yazılmış görünen) dosyaların da üzerine yaz.
         #[arg(long)]
         force: bool,
-        /// `--` sonrasında clang'a olduğu gibi geçirilecek argümanlar (ör. `-- -I include`).
-        #[arg(last = true)]
-        clang_args: Vec<String>,
+        #[command(flatten)]
+        parse: ParseArgs,
     },
     /// Açıklama gerektiren her pointer/referans için yorum satırlı bir `ferrobridge.toml`
     /// taslağı basar. Emin olduğun satırları açıp `generate --config` ile kullan.
@@ -71,13 +63,36 @@ enum Command {
         /// Var olan açıklamalar; bunların çözdüğü yerler taslağa girmez.
         #[arg(long)]
         config: Option<PathBuf>,
-        /// C++ standardı (clang'a `-std=<değer>` olarak geçer).
-        #[arg(long, default_value = "c++17")]
-        std: String,
-        /// `--` sonrasında clang'a olduğu gibi geçirilecek argümanlar (ör. `-- -I include`).
-        #[arg(last = true)]
-        clang_args: Vec<String>,
+        #[command(flatten)]
+        parse: ParseArgs,
     },
+}
+
+/// Header'ı okuma ayarları; `parse`, `generate` ve `suggest` için ortak.
+#[derive(clap::Args)]
+struct ParseArgs {
+    /// C++ standardı (clang'a `-std=<değer>` olarak geçer).
+    #[arg(long, default_value = "c++17")]
+    std: String,
+    /// Header'dan önce include edilecek dosya; kendi başına derlenmeyen header'lar için.
+    /// Tekrarlanabilir, verildiği sırayla include edilir; buradaki bildirimler bağlanmaz.
+    /// `generate`'te shim de header'dan önce bunu include eder: include yollarından çözülen bir
+    /// ad verin (ör. `AP_Math/AP_Math.h`).
+    #[arg(long, value_name = "HEADER")]
+    prelude: Vec<String>,
+    /// `--` sonrasında clang'a olduğu gibi geçirilecek argümanlar (ör. `-- -I include`).
+    #[arg(last = true)]
+    clang_args: Vec<String>,
+}
+
+impl From<ParseArgs> for ParseOptions {
+    fn from(args: ParseArgs) -> Self {
+        ParseOptions {
+            std: args.std,
+            extra_args: args.clang_args,
+            prelude: args.prelude,
+        }
+    }
 }
 
 /// Üretilen her dosyanın ilk satırı; üzerine yazmadan önce bununla kontrol edilir.
@@ -93,19 +108,17 @@ fn main() -> ExitCode {
         Command::Doctor => doctor(),
         Command::Parse {
             header,
-            std,
-            clang_args,
-        } => parse(&header, std, clang_args),
+            parse: args,
+        } => parse(&header, &args.into()),
         Command::Generate {
             header,
             out_dir,
             include_as,
             shim_include,
             shim_namespace,
-            std,
             config,
             force,
-            clang_args,
+            parse: args,
         } => {
             if !force {
                 let foreign = foreign_files(&out_dir);
@@ -124,31 +137,15 @@ fn main() -> ExitCode {
                 shim_include,
                 shim_namespace: shim_namespace
                     .unwrap_or_else(|| format!("ferrobridge::{}", identifier_from(&header))),
+                prelude: args.prelude.clone(),
             };
-            generate(
-                &header,
-                &out_dir,
-                &options,
-                config.as_deref(),
-                ParseOptions {
-                    std,
-                    extra_args: clang_args,
-                },
-            )
+            generate(&header, &out_dir, &options, config.as_deref(), args.into())
         }
         Command::Suggest {
             header,
             config,
-            std,
-            clang_args,
-        } => suggest(
-            &header,
-            config.as_deref(),
-            ParseOptions {
-                std,
-                extra_args: clang_args,
-            },
-        ),
+            parse: args,
+        } => suggest(&header, config.as_deref(), args.into()),
     }
 }
 
@@ -239,9 +236,10 @@ fn generate(
             .map(|c| c.constructors.len() + c.methods.len())
             .sum::<usize>();
     println!(
-        "✓ {} sınıf, {} enum ve {bound} fonksiyon/metot bağlandı; {} öğe atlandı.",
+        "✓ {} sınıf, {} enum, {} sabit ve {bound} fonksiyon/metot bağlandı; {} öğe atlandı.",
         plan.classes.len(),
         plan.enums.len(),
+        plan.constants.len(),
         plan.skipped.len()
     );
     if !plan.assumptions.is_empty() {
@@ -318,9 +316,8 @@ fn doctor() -> ExitCode {
     }
 }
 
-fn parse(header: &Path, std: String, extra_args: Vec<String>) -> ExitCode {
-    let options = ParseOptions { std, extra_args };
-    let module = match ferrobridge_parser::parse_header(header, &options) {
+fn parse(header: &Path, options: &ParseOptions) -> ExitCode {
+    let module = match ferrobridge_parser::parse_header(header, options) {
         Ok(module) => module,
         Err(error) => return report(&error),
     };

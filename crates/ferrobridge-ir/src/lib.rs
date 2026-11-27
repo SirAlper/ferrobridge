@@ -8,15 +8,15 @@ mod item;
 mod types;
 
 pub use item::{
-    Class, Constructor, Destructor, Enum, EnumVariant, Function, Item, Method, Param,
-    SourceLocation, Unsupported,
+    Class, Constant, ConstantValue, Constructor, Destructor, Enum, EnumVariant, Function, Item,
+    Method, Param, SourceLocation, Unsupported,
 };
 pub use types::{QualType, Type};
 
 use serde::{Deserialize, Serialize};
 
 /// IR'ın JSON biçiminin sürümü. Biçim uyumsuz şekilde değiştiğinde artırılır.
-pub const IR_FORMAT_VERSION: u32 = 3;
+pub const IR_FORMAT_VERSION: u32 = 4;
 
 /// Bir C++ header'ından okunan sembollerin kökü.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -277,6 +277,46 @@ mod tests {
         assert_eq!(json["kind"], "function");
         assert_eq!(json["return_type"]["type"]["kind"], "integer");
         assert_eq!(json["return_type"]["const"], false);
+    }
+
+    #[test]
+    fn constants_round_trip_and_use_readable_tags() {
+        let constants = [
+            (int32().ty, ConstantValue::Signed(-5), "signed"),
+            (
+                Type::Integer {
+                    spelling: "uint64_t".to_owned(),
+                    builtin: "unsigned long long".to_owned(),
+                    size_bytes: 8,
+                    signed: false,
+                    fixed_width: true,
+                },
+                ConstantValue::Unsigned(u64::MAX),
+                "unsigned",
+            ),
+            (
+                Type::Float {
+                    spelling: "double".to_owned(),
+                    size_bytes: 8,
+                },
+                ConstantValue::Float(6_378_137.0),
+                "float",
+            ),
+            (Type::Bool, ConstantValue::Bool(true), "bool"),
+        ];
+        for (ty, value, tag) in constants {
+            let item = Item::Constant(Constant {
+                name: "K".to_owned(),
+                namespace: vec!["units".to_owned()],
+                ty,
+                value,
+                location: location(2),
+            });
+            let json = serde_json::to_value(&item).unwrap();
+            assert_eq!(json["kind"], "constant");
+            assert_eq!(json["value"]["kind"], tag);
+            assert_eq!(serde_json::from_value::<Item>(json).unwrap(), item);
+        }
     }
 
     #[test]

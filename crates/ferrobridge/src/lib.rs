@@ -59,6 +59,32 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+/// `build.rs`'te `ferrobridge-build`'in `generate` özelliğiyle üretilen bridge'i bu noktaya
+/// ekler. Ad, `ferrobridge_build::Generate::new`'e verilen addır.
+///
+/// ```ignore
+/// pub mod crc {
+///     ferrobridge::include_bridge!("crc");
+/// }
+/// ```
+///
+/// Üretilen dosya `$OUT_DIR/ferrobridge/<ad>/bridge.rs`'tedir; içindeki bağlanmayan öğeler ve
+/// açıklamaya dayanan varsayımlar dosyanın başında listelenir.
+///
+/// Dosyadaki cxx katmanı (`ffi`) `unsafe extern` blokları içerir. Crate `unsafe_code`'u
+/// yasaklıyorsa, bridge'i içeren modüle `#[allow(unsafe_code)]` verilmeli (`forbid` gevşetilemez).
+#[macro_export]
+macro_rules! include_bridge {
+    ($name:literal) => {
+        include!(concat!(
+            env!("OUT_DIR"),
+            "/ferrobridge/",
+            $name,
+            "/bridge.rs"
+        ));
+    };
+}
+
 /// Güvenli katmanın sonuç tipi.
 pub type Result<T> = std::result::Result<T, Error>;
 

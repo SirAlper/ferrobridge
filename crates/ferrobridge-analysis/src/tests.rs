@@ -625,10 +625,12 @@ fn unannotated_pointers_produce_suggestions() {
         targets,
         [
             &SuggestionTarget::Param {
-                name: "a".to_owned()
+                name: "a".to_owned(),
+                slice_lengths: Vec::new(),
             },
             &SuggestionTarget::Param {
-                name: "out".to_owned()
+                name: "out".to_owned(),
+                slice_lengths: Vec::new(),
             },
         ]
     );
@@ -642,11 +644,14 @@ fn unannotated_pointers_produce_suggestions() {
 
 #[test]
 fn no_suggestions_when_an_annotation_would_not_help() {
+    // `int* p, long n` M5'ten beri `p = { slice = "n" }` ile bağlanabiliyor (bkz.
+    // `pointer_next_to_an_integer_suggests_a_slice`); bilinmeyen bir sınıfın pointer'ı ise slice
+    // olamaz, `long` da başka hiçbir açıklamayla düzelmez.
     let plan = check(&module(vec![function(
         &[],
         "f",
         vec![
-            param("p", ptr(q(i32_ty()))),
+            param("p", ptr(q(record("Unknown")))),
             param("n", q(int("long", "long", 8, true, false))),
         ],
         q(Type::Void),
@@ -1018,8 +1023,9 @@ fn unnecessary_annotations_are_warnings() {
 
 // ---- `suggest` taslağı -------------------------------------------------------------------------
 
+/// Her tablo ve anahtar için ilk seçeneği açar (seçenekler aynı anahtara alternatiflerdir).
 fn uncomment_first_choices(draft: &str) -> String {
-    let mut seen_returns = std::collections::HashSet::new();
+    let mut seen = std::collections::HashSet::new();
     let mut table = String::new();
     draft
         .lines()
@@ -1031,9 +1037,15 @@ fn uncomment_first_choices(draft: &str) -> String {
             let Some(value) = line.strip_prefix("# ") else {
                 return line.to_owned();
             };
-            let is_assignment = value.contains(" = \"");
-            let is_return = value.starts_with("returns");
-            if !is_assignment || (is_return && !seen_returns.insert(table.clone())) {
+            let Some((key, _)) = value.split_once(" = ") else {
+                return line.to_owned();
+            };
+            // Açıklama başlığındaki örnekler (`#   { slice = "n" } ...`) anahtar değil.
+            if key.is_empty() || key.contains(' ') {
+                return line.to_owned();
+            }
+            let is_assignment = value.contains(" = \"") || value.contains(" = {");
+            if !is_assignment || !seen.insert((table.clone(), key.to_owned())) {
                 return line.to_owned();
             }
             value.to_owned()
@@ -1138,5 +1150,324 @@ fn an_annotation_shared_by_overloads_is_warned_about() {
     assert!(
         shown[0].contains("geo::attach(geo::Point* w, bool keep)"),
         "{shown:#?}"
+    );
+}
+
+// ---- Slice açıklamaları (Milestone 5) --------------------------------------------------------
+
+fn u8_ty() -> Type {
+    int("uint8_t", "unsigned char", 1, false, true)
+}
+
+fn size_ty() -> Type {
+    int("size_t", "unsigned long", 8, false, false)
+}
+
+fn float_ty() -> Type {
+    Type::Float {
+        spelling: "float".to_owned(),
+        size_bytes: 4,
+    }
+}
+
+fn slice(mutable: bool, element: BridgeType) -> BridgeType {
+    BridgeType::Slice {
+        mutable,
+        element: Box::new(element),
+    }
+}
+
+/// `f(params)` serbest fonksiyonu ve onun için bir parametre açıklama tablosu.
+fn check_slice(params: Vec<Param>, table: &str) -> Result<BridgePlan, Vec<AnnotationIssue>> {
+    check_with(
+        &module(vec![function(&[], "f", params, q(Type::Void))]),
+        &format!("[functions.\"f\".params]\n{table}"),
+    )
+}
+
+#[test]
+fn slice_annotation_turns_pointer_and_length_into_one_slice() {
+    let plan = check_slice(
+        vec![param("p", ptr(konst(u8_ty()))), param("len", q(u8_ty()))],
+        "p = { slice = \"len\" }\n",
+    )
+    .unwrap();
+    let f = &plan.functions[0];
+    assert_eq!(f.params.len(), 1, "uzunluk Rust imzasından çıkmalı");
+    assert_eq!(f.params[0].rust_name, "p");
+    assert_eq!(f.params[0].ty, slice(false, BridgeType::Int(IntType::U8)));
+    assert_eq!(f.params[0].pass, Pass::Slice);
+    assert_eq!(
+        f.lengths,
+        vec![LengthParam {
+            position: 1,
+            slice: 0,
+            cpp_type: "unsigned char".to_owned(),
+        }]
+    );
+    assert!(f.needs_shim());
+    let assumption = &plan.assumptions[0];
+    assert_eq!(assumption.subject, "parametre `p`");
+    assert_eq!(assumption.annotation, "{ slice = \"len\" }");
+    assert!(
+        assumption.promise.contains("`len` elemanlık"),
+        "{assumption:?}"
+    );
+    assert_eq!(assumption.origin, "ferrobridge.toml:2");
+}
+
+#[test]
+fn mutable_slices_and_lengths_rust_cannot_name() {
+    // `size_t` Rust'a hiç görünmediği için uzunluk olabilir; `float*` → `&mut [f32]`.
+    let plan = check_slice(
+        vec![
+            param("n", q(size_ty())),
+            param("seed", q(i32_ty())),
+            param("out", ptr(q(float_ty()))),
+        ],
+        "out = { slice = \"n\" }\n",
+    )
+    .unwrap();
+    let f = &plan.functions[0];
+    let names: Vec<&str> = f.params.iter().map(|p| p.rust_name.as_str()).collect();
+    assert_eq!(names, ["seed", "out"]);
+    assert_eq!(f.params[1].ty, slice(true, BridgeType::F32));
+    assert_eq!(
+        f.lengths,
+        vec![LengthParam {
+            position: 0,
+            slice: 1,
+            cpp_type: "unsigned long".to_owned(),
+        }]
+    );
+}
+
+#[test]
+fn invalid_slice_annotations_are_errors_with_lines() {
+    let p_u8 = || param("p", ptr(konst(u8_ty())));
+    let cases: Vec<(Vec<Param>, &str, &str)> = vec![
+        (
+            vec![p_u8()],
+            "p = { slice = \"len\" }\n",
+            "`len` adında parametresi yok",
+        ),
+        (
+            vec![p_u8(), param("len", q(f64_ty()))],
+            "p = { slice = \"len\" }\n",
+            "tamsayı",
+        ),
+        (
+            vec![p_u8(), param("len", q(u8_ty()))],
+            "p = { slice = \"p\" }\n",
+            "kendisi",
+        ),
+        (
+            vec![
+                param("p", ptr(konst(record("Point")))),
+                param("n", q(i32_ty())),
+            ],
+            "p = { slice = \"n\" }\n",
+            "sayı",
+        ),
+        (
+            vec![param("p", ptr(konst(char_ty()))), param("n", q(i32_ty()))],
+            "p = { slice = \"n\" }\n",
+            "uint8_t",
+        ),
+        (
+            vec![param("p", q(i32_ty())), param("n", q(i32_ty()))],
+            "p = { slice = \"n\" }\n",
+            "pointer",
+        ),
+        (
+            vec![
+                p_u8(),
+                param("q", ptr(konst(u8_ty()))),
+                param("n", q(i32_ty())),
+            ],
+            "p = { slice = \"n\" }\nq = { slice = \"n\" }\n",
+            "iki",
+        ),
+        (
+            vec![p_u8(), param("n", q(i32_ty()))],
+            "p = { slice = \"n\" }\nn = \"borrowed\"\n",
+            "uzunluk",
+        ),
+    ];
+    for (params, table, needle) in cases {
+        let errors = check_slice(params, table).unwrap_err();
+        let shown: Vec<String> = errors.iter().map(ToString::to_string).collect();
+        assert!(
+            shown
+                .iter()
+                .any(|e| e.starts_with("ferrobridge.toml:") && e.contains(needle)),
+            "{table}: `{needle}` bekleniyordu: {shown:#?}"
+        );
+    }
+}
+
+#[test]
+fn pointer_next_to_an_integer_suggests_a_slice() {
+    let plan = check(&module(vec![function(
+        &[],
+        "crc",
+        vec![
+            param("buf", ptr(konst(u8_ty()))),
+            param("size", q(size_ty())),
+            param("flag", q(Type::Bool)),
+        ],
+        q(Type::Void),
+    )]));
+    assert_eq!(
+        plan.suggestions[0].target,
+        SuggestionTarget::Param {
+            name: "buf".to_owned(),
+            slice_lengths: vec!["size".to_owned()],
+        }
+    );
+    let draft = render_suggestions(&plan);
+    assert!(draft.contains("# buf = \"borrowed\""), "{draft}");
+    assert!(draft.contains("# buf = { slice = \"size\" }"), "{draft}");
+    // Bir sınıf pointer'ı için slice önerilmez.
+    let plan = check(&module(vec![
+        plain_point(),
+        function(
+            &[],
+            "g",
+            vec![
+                param("p", ptr(konst(record("Point")))),
+                param("n", q(i32_ty())),
+            ],
+            q(Type::Void),
+        ),
+    ]));
+    assert_eq!(
+        plan.suggestions[0].target,
+        SuggestionTarget::Param {
+            name: "p".to_owned(),
+            slice_lengths: Vec::new(),
+        }
+    );
+}
+
+// ---- Sabitler (Milestone 5) -------------------------------------------------------------------
+
+fn constant(ns: &[&str], name: &str, ty: Type, value: ConstantValue) -> Item {
+    Item::Constant(ferrobridge_ir::Constant {
+        name: name.to_owned(),
+        namespace: ns.iter().map(|s| (*s).to_owned()).collect(),
+        ty,
+        value,
+        location: loc(),
+    })
+}
+
+#[test]
+fn constants_get_rust_types_and_keep_their_values() {
+    let i8_ty = int("int8_t", "signed char", 1, true, true);
+    let u64_ty = int("uint64_t", "unsigned long long", 8, false, true);
+    let plan = check(&module(vec![
+        constant(&[], "WGS84_A", f64_ty(), ConstantValue::Float(6_378_137.0)),
+        constant(
+            &[],
+            "GRAVITY",
+            float_ty(),
+            ConstantValue::Float(9.806_650_161_743_164),
+        ),
+        constant(&[], "OFFSET", i8_ty.clone(), ConstantValue::Signed(-5)),
+        constant(&[], "ALL", u64_ty, ConstantValue::Unsigned(u64::MAX)),
+        constant(&[], "ON", Type::Bool, ConstantValue::Bool(true)),
+        constant(&[], "LETTER", char_ty(), ConstantValue::Signed(65)),
+    ]));
+    let summary: Vec<(&str, &BridgeType, ConstantValue)> = plan
+        .constants
+        .iter()
+        .map(|c| (c.rust_name.as_str(), &c.ty, c.value))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (
+                "WGS84_A",
+                &BridgeType::F64,
+                ConstantValue::Float(6_378_137.0)
+            ),
+            (
+                "GRAVITY",
+                &BridgeType::F32,
+                ConstantValue::Float(9.806_650_161_743_164)
+            ),
+            (
+                "OFFSET",
+                &BridgeType::Int(IntType::I8),
+                ConstantValue::Signed(-5)
+            ),
+            (
+                "ALL",
+                &BridgeType::Int(IntType::U64),
+                ConstantValue::Unsigned(u64::MAX)
+            ),
+            ("ON", &BridgeType::Bool, ConstantValue::Bool(true)),
+            ("LETTER", &BridgeType::Char, ConstantValue::Signed(65)),
+        ]
+    );
+    assert!(plan.skipped.is_empty(), "{:?}", plan.skipped);
+}
+
+#[test]
+fn constants_that_cannot_be_written_portably_are_skipped() {
+    let plan = check(&module(vec![
+        constant(
+            &[],
+            "BIG",
+            int("long", "long", 8, true, false),
+            ConstantValue::Signed(1),
+        ),
+        constant(&[], "HIGH", char_ty(), ConstantValue::Unsigned(200)),
+        constant(
+            &[],
+            "WRONG",
+            int("int8_t", "signed char", 1, true, true),
+            ConstantValue::Signed(300),
+        ),
+        constant(&["(anonim)"], "HIDDEN", i32_ty(), ConstantValue::Signed(1)),
+    ]));
+    assert!(plan.constants.is_empty(), "{:?}", plan.constants);
+    let reasons: Vec<(&str, &str)> = plan
+        .skipped
+        .iter()
+        .map(|s| (s.name.as_str(), s.reason.as_str()))
+        .collect();
+    assert!(reasons[0].1.contains("platformlar arasında"), "{reasons:?}");
+    assert!(reasons[1].1.contains("0–127"), "{reasons:?}");
+    assert!(reasons[2].1.contains("sığmıyor"), "{reasons:?}");
+    assert!(reasons[3].1.contains("Anonim namespace"), "{reasons:?}");
+}
+
+#[test]
+fn constant_names_avoid_collisions() {
+    let plan = check(&module(vec![
+        constant(&["metric"], "UNIT", f64_ty(), ConstantValue::Float(1.0)),
+        constant(
+            &["imperial"],
+            "UNIT",
+            f64_ty(),
+            ConstantValue::Float(0.3048),
+        ),
+        constant(&[], "type", i32_ty(), ConstantValue::Signed(1)),
+        constant(&[], "half", i32_ty(), ConstantValue::Signed(2)),
+        function(&[], "half", vec![param("x", q(i32_ty()))], q(i32_ty())),
+    ]));
+    let names: Vec<&str> = plan
+        .constants
+        .iter()
+        .map(|c| c.rust_name.as_str())
+        .collect();
+    assert_eq!(names, ["metric_UNIT", "imperial_UNIT", "type_"]);
+    assert_eq!(plan.skipped.len(), 1);
+    assert!(
+        plan.skipped[0].reason.contains("aynı ad alanında"),
+        "{:?}",
+        plan.skipped
     );
 }

@@ -3,7 +3,7 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 3,
+  "format_version": 4,
   "items": [
     {
       "kind": "enum",

@@ -28,6 +28,9 @@ pub struct CodegenOptions {
     /// Shim fonksiyonlarının C++ namespace'i (ör. `"ferrobridge::vehicle"`). Aynı programdaki
     /// farklı header'ların shim'leri çakışmasın diye header'a özgü olmalı.
     pub shim_namespace: String,
+    /// Shim'in header'dan önce include edeceği dosyalar (kendi başına derlenmeyen header'lar
+    /// için; parser'daki `prelude` ile aynı). Include yollarından çözülmeli.
+    pub prelude: Vec<String>,
 }
 
 /// Üretilen dosyaların içerikleri.
@@ -47,6 +50,9 @@ pub enum CodegenError {
     /// Ayar olarak verilen namespace geçerli bir C++ namespace yolu değil.
     #[error("geçersiz shim namespace'i: `{0}` (ör. `ferrobridge::vehicle`)")]
     InvalidNamespace(String),
+    /// `#include "..."` satırına yazılamayan bir yol (`"` ya da satır sonu içeriyor, boş).
+    #[error("`#include` yolu olarak kullanılamayan değer: {0:?}")]
+    InvalidInclude(String),
     /// Bir ad Rust tanımlayıcısı olarak kullanılamıyor.
     #[error("Rust tanımlayıcısı olarak kullanılamayan ad: `{0}`")]
     InvalidIdentifier(String),
@@ -69,6 +75,16 @@ pub fn generate(
             options.shim_namespace.clone(),
         ));
     }
+    // Bu değerler üretilen C++'a `#include "..."` olarak yazılır; satırı bozup araya kod
+    // sokamasınlar.
+    let includes = [&options.header_include, &options.shim_include]
+        .into_iter()
+        .chain(&options.prelude);
+    for include in includes {
+        if !is_include_path(include) {
+            return Err(CodegenError::InvalidInclude(include.clone()));
+        }
+    }
     let shims = shim_functions(plan);
     let header = header_comment(plan, options);
     Ok(GeneratedFiles {
@@ -85,7 +101,7 @@ pub fn generate(
         shim_cc: format!(
             "{}\n{}",
             comment(&header, "//"),
-            shim::source(options, &shims)
+            shim::source(options, &shims, &plan.constants)
         ),
     })
 }
@@ -148,6 +164,10 @@ fn unique(used: &mut HashSet<String>, candidate: String) -> String {
         counter += 1;
     }
     name
+}
+
+fn is_include_path(path: &str) -> bool {
+    !path.is_empty() && !path.contains(['"', '\n', '\r', '\0'])
 }
 
 fn is_cpp_namespace(path: &str) -> bool {
@@ -234,6 +254,28 @@ mod tests {
         assert!(!is_cpp_namespace("a::"));
         assert!(!is_cpp_namespace("a b"));
         assert!(!is_cpp_namespace("2a"));
+    }
+
+    #[test]
+    fn include_paths_cannot_break_out_of_the_include_line() {
+        let options = |header: &str, prelude: &str| CodegenOptions {
+            header_include: header.to_owned(),
+            shim_include: "x/shim.h".to_owned(),
+            shim_namespace: "ferrobridge::x".to_owned(),
+            prelude: vec![prelude.to_owned()],
+        };
+        let plan = BridgePlan::default();
+        assert!(generate(&plan, &options("x/input.h", "x/pre.h")).is_ok());
+        for (header, prelude) in [
+            ("x.h\"\n#include <evil>", "p.h"),
+            ("x.h", "p.h\nint main() {}"),
+            ("", "p.h"),
+        ] {
+            assert!(matches!(
+                generate(&plan, &options(header, prelude)),
+                Err(CodegenError::InvalidInclude(_))
+            ));
+        }
     }
 
     #[test]

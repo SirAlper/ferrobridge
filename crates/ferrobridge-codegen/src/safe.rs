@@ -13,9 +13,10 @@
 use std::collections::BTreeSet;
 
 use ferrobridge_analysis::{
-    BridgePlan, BridgeType, Callee, ClassPlan, EnumPlan, FunctionPlan, Returns, TypeRef,
+    BridgePlan, BridgeType, Callee, ClassPlan, ConstantPlan, ConstantValue, EnumPlan, FunctionPlan,
+    Returns, TypeRef,
 };
-use proc_macro2::TokenStream;
+use proc_macro2::{Literal, TokenStream};
 use quote::quote;
 
 use crate::bridge::raw_method_name;
@@ -36,6 +37,9 @@ pub(crate) fn generate(
         wrapped: &wrapped,
     };
     let mut items = Vec::new();
+    for constant in &plan.constants {
+        items.push(safe_constant(constant)?);
+    }
     for enumeration in &plan.enums {
         items.push(safe_enum(enumeration)?);
     }
@@ -156,6 +160,56 @@ fn item_allows() -> TokenStream {
         clippy::should_implement_trait,
         clippy::too_many_arguments
     )])
+}
+
+// ---- Sabitler ---------------------------------------------------------------------------------
+
+/// `pub const WGS84_A: f64 = 6378137.0;`. Değer header'dan üretim anında hesaplandı
+/// (`ferrobridge-parser`); C++ tarafı çağrılmaz.
+fn safe_constant(constant: &ConstantPlan) -> Result<TokenStream, CodegenError> {
+    let name = ident(&constant.rust_name)?;
+    let ty = raw_type(&constant.ty)?;
+    let mut path = constant.namespace.clone();
+    path.push(constant.cpp_name.clone());
+    let doc = doc_line(&format!(" C++: `{}`", path.join("::")));
+    let value = constant_literal(constant)?;
+    Ok(quote! {
+        #doc
+        #[rustfmt::skip]
+        #[allow(non_upper_case_globals, clippy::approx_constant)]
+        pub const #name: #ty = #value;
+    })
+}
+
+fn constant_literal(constant: &ConstantPlan) -> Result<TokenStream, CodegenError> {
+    let negative = |magnitude: Literal, negative: bool| {
+        if negative {
+            quote!(-#magnitude)
+        } else {
+            quote!(#magnitude)
+        }
+    };
+    Ok(match (constant.value, &constant.ty) {
+        (ConstantValue::Bool(true), _) => quote!(true),
+        (ConstantValue::Bool(false), _) => quote!(false),
+        (ConstantValue::Signed(v), _) => negative(Literal::u64_unsuffixed(v.unsigned_abs()), v < 0),
+        (ConstantValue::Unsigned(v), _) => negative(Literal::u64_unsuffixed(v), false),
+        // `f32` sabit en kısa `f32` yazımıyla (`9.80665`): değer `f32`'ye kayıpsız döner.
+        (ConstantValue::Float(v), BridgeType::F32) => {
+            #[allow(clippy::cast_possible_truncation)]
+            let narrow = v as f32;
+            negative(Literal::f32_unsuffixed(narrow.abs()), v.is_sign_negative())
+        }
+        (ConstantValue::Float(v), _) if v.is_finite() => {
+            negative(Literal::f64_unsuffixed(v.abs()), v.is_sign_negative())
+        }
+        (ConstantValue::Float(_), _) => {
+            return Err(CodegenError::Internal(format!(
+                "sonlu olmayan sabit: {}",
+                constant.cpp_name
+            )));
+        }
+    })
 }
 
 // ---- Enum'lar ---------------------------------------------------------------------------------
@@ -517,6 +571,13 @@ impl Body {
                 doc_text
                     .push(" C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.".to_owned());
             }
+            for length in &plan.lengths {
+                doc_text.push(format!(
+                    " `{}` C++'taki uzunluk parametresinin tipine (`{}`) sığmayacak kadar \
+                     uzunsa da `ferrobridge::Error::Cpp`; uzunluk sessizce kırpılmaz.",
+                    plan.params[length.slice].rust_name, length.cpp_type
+                ));
+            }
         }
         doc_text.extend(notes);
         let doc = doc_text.iter().map(|line| doc_line(line));
@@ -763,6 +824,14 @@ fn raw_type(ty: &BridgeType) -> Result<TokenStream, CodegenError> {
         BridgeType::Vector(inner) => {
             let inner = raw_type(inner)?;
             quote!(::cxx::CxxVector<#inner>)
+        }
+        BridgeType::Slice { mutable, element } => {
+            let element = raw_type(element)?;
+            if *mutable {
+                quote!(&mut [#element])
+            } else {
+                quote!(&[#element])
+            }
         }
         BridgeType::Ref {
             mutable: false,

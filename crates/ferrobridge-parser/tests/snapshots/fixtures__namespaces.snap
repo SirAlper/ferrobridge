@@ -3,7 +3,7 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 3,
+  "format_version": 4,
   "items": [
     {
       "kind": "function",
@@ -157,7 +157,7 @@ expression: module
       "kind": "unsupported",
       "construct": "function",
       "name": "(anonim)::hidden",
-      "reason": "İç bağlantılı fonksiyonlar (static veya anonim namespace içinde) header dışından çağrılamaz.",
+      "reason": "Anonim namespace'teki fonksiyonların Rust'tan yazılabilecek bir adı yok.",
       "location": {
         "file": "input.h",
         "line": 22,
@@ -168,7 +168,7 @@ expression: module
       "kind": "unsupported",
       "construct": "function",
       "name": "internal_helper",
-      "reason": "İç bağlantılı fonksiyonlar (static veya anonim namespace içinde) header dışından çağrılamaz.",
+      "reason": "İç bağlantılı (`static`) fonksiyonun tanımı header'da görünmüyor; header dışından çağrılamaz.",
       "location": {
         "file": "input.h",
         "line": 24,

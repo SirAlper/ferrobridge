@@ -23,6 +23,10 @@ pub struct ParseOptions {
     pub std: String,
     /// clang'a olduğu gibi geçirilecek ek argümanlar (ör. `-I include`, `-DFOO=1`).
     pub extra_args: Vec<String>,
+    /// Header'dan önce, sırayla include edilecek dosyalar (clang'ın `-include` argümanı gibi:
+    /// önce çalışma dizinine, sonra include yollarına göre çözülür). Kendi başına derlenmeyen
+    /// header'lar için. Bu dosyalardaki bildirimler IR'a alınmaz.
+    pub prelude: Vec<String>,
 }
 
 impl Default for ParseOptions {
@@ -30,6 +34,7 @@ impl Default for ParseOptions {
         Self {
             std: "c++17".to_owned(),
             extra_args: Vec::new(),
+            prelude: Vec::new(),
         }
     }
 }
@@ -113,8 +118,13 @@ pub fn libclang_version() -> Result<String, ParserError> {
 
 /// Bir C++ header'ını okur ve içindeki bildirimleri IR'a çevirir.
 ///
-/// Yalnızca `header` dosyasının kendi bildirimleri alınır; `#include` edilen dosyalardakiler
-/// alınmaz. Desteklenmeyen yapılar atılmaz, IR'da nedenleriyle birlikte yer alır.
+/// Yalnızca `header` dosyasının kendi bildirimleri alınır; `#include` edilen dosyalardakiler ve
+/// [`ParseOptions::prelude`] alınmaz. Desteklenmeyen yapılar atılmaz, IR'da nedenleriyle
+/// birlikte yer alır.
+///
+/// Header libclang'a doğrudan "ana dosya" olarak verilmez; onu `#include` eden, bellekte
+/// üretilmiş bir çeviri birimi okunur. Böylece header'ın `#pragma once` koruması, header kendini
+/// dolaylı olarak yeniden include ettiğinde de çalışır (ana dosyada `#pragma once` işlemez).
 ///
 /// # Errors
 ///
@@ -125,28 +135,32 @@ pub fn parse_header(header: &Path, options: &ParseOptions) -> Result<Module, Par
     if !header.is_file() {
         return Err(ParserError::FileNotFound(header.to_path_buf()));
     }
-    let file = header
+    let header = std::fs::canonicalize(header)
+        .map_err(|_| ParserError::FileNotFound(header.to_path_buf()))?;
+    let header_text = header
         .to_str()
-        .ok_or_else(|| ParserError::InvalidArgument(header.display().to_string()))
-        .and_then(to_c_string)?;
+        .ok_or_else(|| ParserError::InvalidArgument(header.display().to_string()))?;
+    let unit = synthetic_unit(header_text)?;
+    let header_c = to_c_string(header_text)?;
     // Kaynak dizini yüklenen kütüphanenin yolundan bulunduğu için önce yükle.
     ensure_loaded()?;
     let args = clang_args(options)?;
 
     let index = clang::Index::new().ok_or(ParserError::ClangFailed(clang_sys::CXError_Failure))?;
-    let tu =
-        clang::TranslationUnit::parse(&index, &file, &args).map_err(ParserError::ClangFailed)?;
+    let tu = clang::TranslationUnit::parse(
+        &index,
+        &unit.name,
+        &args,
+        &[(unit.name.clone(), unit.contents)],
+    )
+    .map_err(ParserError::ClangFailed)?;
 
+    let unit_name = unit.name.to_string_lossy();
     let errors: Vec<Diagnostic> = tu
         .diagnostics()
         .into_iter()
         .filter(|d| d.severity >= clang_sys::CXDiagnostic_Error)
-        .map(|d| Diagnostic {
-            file: d.location.file,
-            line: d.location.line,
-            column: d.location.column,
-            message: d.message,
-        })
+        .map(|d| user_facing(d, &unit_name))
         .collect();
     if !errors.is_empty() {
         return Err(ParserError::ParseFailed {
@@ -154,7 +168,66 @@ pub fn parse_header(header: &Path, options: &ParseOptions) -> Result<Module, Par
         });
     }
 
-    Ok(lower::lower(&tu))
+    // Header ayrıştırıldıysa çeviri biriminde mutlaka vardır.
+    let target = tu
+        .file(&header_c)
+        .ok_or(ParserError::ClangFailed(clang_sys::CXError_Failure))?;
+    Ok(lower::lower(&tu, target))
+}
+
+/// Tanıyı kullanıcının gördüğü dosyalara göre konumlandırır.
+///
+/// Konumu sentetik çeviri biriminde olan bir tanı (ör. header'da kapanmamış bir parantez dosya
+/// sonunda fark edilir, dosya sonu da artık sentetik birimdedir) kullanıcıya bir şey söylemez.
+/// Başka bir dosyayı gösteren ilk notu varsa ("to match this '('") tanı oraya taşınır ve notun
+/// metni mesaja eklenir. Yoksa olduğu gibi bırakılır; hiçbir tanı atılmaz.
+fn user_facing(diagnostic: clang::RawDiagnostic, unit_name: &str) -> Diagnostic {
+    let clang::RawDiagnostic {
+        location,
+        message,
+        notes,
+        ..
+    } = diagnostic;
+    if location.file == unit_name {
+        if let Some(note) = notes
+            .into_iter()
+            .find(|n| !n.location.file.is_empty() && n.location.file != unit_name)
+        {
+            return Diagnostic {
+                file: note.location.file,
+                line: note.location.line,
+                column: note.location.column,
+                message: format!("{message} ({})", note.message),
+            };
+        }
+    }
+    Diagnostic {
+        file: location.file,
+        line: location.line,
+        column: location.column,
+        message,
+    }
+}
+
+/// Header'ı include eden, bellekte üretilmiş çeviri birimi.
+struct SyntheticUnit {
+    /// Diskte olmayan dosyanın adı: header'ın yanında, böylece tanılardaki yol anlaşılır olur.
+    name: CString,
+    contents: CString,
+}
+
+/// `header` (mutlak yol) için `#include "<header>"` içeren çeviri birimi.
+///
+/// `#include "..."` içinde kaçış dizisi yoktur; `"` ya da satır sonu içeren yollar bu satıra
+/// yazılamaz ve reddedilir.
+fn synthetic_unit(header: &str) -> Result<SyntheticUnit, ParserError> {
+    if header.contains(['"', '\n', '\r']) {
+        return Err(ParserError::InvalidArgument(header.to_owned()));
+    }
+    Ok(SyntheticUnit {
+        name: to_c_string(&format!("{header}.ferrobridge.cc"))?,
+        contents: to_c_string(&format!("#include \"{header}\"\n"))?,
+    })
 }
 
 fn to_c_string(text: &str) -> Result<CString, ParserError> {
@@ -177,6 +250,10 @@ fn clang_args(options: &ParseOptions) -> Result<Vec<CString>, ParserError> {
         args.push(resource_dir);
     }
     args.extend(options.extra_args.iter().cloned());
+    for file in &options.prelude {
+        args.push("-include".to_owned());
+        args.push(file.clone());
+    }
     args.iter().map(|arg| to_c_string(arg)).collect()
 }
 
@@ -277,6 +354,83 @@ mod tests {
             .filter(|a| a.to_str() == Ok("-isysroot"))
             .count();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn prelude_becomes_include_arguments_after_user_arguments() {
+        let options = ParseOptions {
+            extra_args: vec!["-DX=1".to_owned()],
+            prelude: vec!["a.h".to_owned(), "b.h".to_owned()],
+            ..ParseOptions::default()
+        };
+        let args = clang_args(&options).unwrap();
+        let args: Vec<&str> = args.iter().map(|a| a.to_str().unwrap()).collect();
+        assert_eq!(
+            &args[args.len() - 5..],
+            ["-DX=1", "-include", "a.h", "-include", "b.h"]
+        );
+    }
+
+    #[test]
+    fn synthetic_unit_includes_the_header_by_absolute_path() {
+        let unit = synthetic_unit("/src/geo.h").unwrap();
+        assert_eq!(unit.name.to_str().unwrap(), "/src/geo.h.ferrobridge.cc");
+        assert_eq!(unit.contents.to_str().unwrap(), "#include \"/src/geo.h\"\n");
+    }
+
+    #[test]
+    fn header_path_that_cannot_be_included_is_rejected() {
+        for path in ["/src/a\"b.h", "/src/a\nb.h"] {
+            assert!(matches!(
+                synthetic_unit(path),
+                Err(ParserError::InvalidArgument(_))
+            ));
+        }
+    }
+
+    fn raw(
+        file: &str,
+        line: u32,
+        message: &str,
+        notes: Vec<clang::RawDiagnostic>,
+    ) -> clang::RawDiagnostic {
+        clang::RawDiagnostic {
+            severity: clang_sys::CXDiagnostic_Error,
+            location: clang::Location {
+                file: file.to_owned(),
+                line,
+                column: 1,
+            },
+            message: message.to_owned(),
+            notes,
+        }
+    }
+
+    #[test]
+    fn diagnostic_in_synthetic_unit_moves_to_the_note_in_the_header() {
+        let note = raw("/src/geo.h", 4, "to match this '('", Vec::new());
+        let d = user_facing(
+            raw("/src/geo.h.ferrobridge.cc", 1, "expected ')'", vec![note]),
+            "/src/geo.h.ferrobridge.cc",
+        );
+        assert_eq!(
+            d.to_string(),
+            "/src/geo.h:4:1: expected ')' (to match this '(')"
+        );
+    }
+
+    #[test]
+    fn diagnostic_without_a_usable_note_is_kept() {
+        let d = user_facing(
+            raw("/src/geo.h.ferrobridge.cc", 1, "boom", Vec::new()),
+            "/src/geo.h.ferrobridge.cc",
+        );
+        assert_eq!(d.to_string(), "/src/geo.h.ferrobridge.cc:1:1: boom");
+        let d = user_facing(
+            raw("/src/geo.h", 7, "bad", Vec::new()),
+            "/src/geo.h.ferrobridge.cc",
+        );
+        assert_eq!(d.line, 7);
     }
 
     #[test]
