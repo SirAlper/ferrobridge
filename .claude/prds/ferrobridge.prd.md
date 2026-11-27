@@ -32,7 +32,7 @@ We believe that **automatically generating a safe Rust API from C++ headers and 
 | `AP_Math` public API coverage | ≥ 80% | Supported symbols / total public symbols (the tool's own report + manual check) |
 | `unsafe` in user code | 0 | Scan the demo crate for `unsafe` |
 | Constructs skipped silently | 0 (100% reported with an explanatory warning) | Negative tests for unsupported constructs |
-| Annotation lines needed | TBD — measured in the first prototype (lines per 100 API items) | `ferrobridge.toml` line count / number of generated items |
+| Annotation lines needed | Measured (M6, `AP_Math`): 59 annotation lines (key = value, without table headers) for 337 bound items ≈ **18 per 100 API items** | `ferrobridge.toml` line count / number of generated items |
 | External use after v0.1 | TBD — decided after the release | crates.io downloads, GitHub issues/stars, feedback |
 
 ## Scope
@@ -64,13 +64,13 @@ We believe that **automatically generating a safe Rust API from C++ headers and 
 | 4 | Safe API | The user can create and use a C++ object without writing any `unsafe`; exceptions arrive as `Result` | complete | `.claude/plans/m4-safe-api.plan.md` |
 | 5 | Build pipeline and demo skeleton | `build.rs` integration with `ferrobridge-build`; ≥ 85% of `AP_Math`'s non-template API (≥ 30% overall) usable from Rust against a real ArduPilot checkout | complete | `.claude/plans/m5-build-pipeline-and-demo.plan.md` |
 | 6 | Cross-header types, templates and fields | ≥ 80% of the `AP_Math` API usable from Rust (including `Vector3f`, `Matrix3f`, `Quaternion`). A type defined in one header can be used in functions in other headers too (e.g. `Vector2f` from `vector2.h` in `control.h`). Template instantiation enters the MVP in this milestone, with an ADR | complete | `.claude/plans/m6-templates-and-value-types.plan.md` |
-| 7 | v0.1 release | The tool is on crates.io; README, examples and demo are public | pending | — |
+| 7 | v0.1 release | The tool is on crates.io; README, examples and demo are public | in-progress | `.claude/plans/m7-v0.1-release.plan.md` |
 
 ## Open Questions
 - [x] Code compiled with exceptions disabled (`-fno-exceptions`): the `[library] exceptions = false` promise in `ferrobridge.toml`; functions return values directly, and if the promise is broken the program ends with `std::terminate` (not UB). ferrobridge's own checks stay `Result`. Decided 2026-11-27, ADR-0011.
 - [x] Where ownership annotations live: **a separate `ferrobridge.toml` file** (third-party headers cannot be edited); a C++ attribute in the header may be an extra source in v0.2. Decided 2026-11-27, ADR-0006.
 - [x] Minimum libclang version: **16** (the function needed to detect `= delete` arrived in 16; CI will test 21–23). Decided 2026-11-27, Milestone 2 plan.
-- [ ] Will the project name be finalized? (check availability on crates.io)
+- [x] Project name: **ferrobridge** is kept; all seven crate names were free on crates.io (checked 2026-11-27, M7 plan).
 - [x] License: **MIT OR Apache-2.0**, the project is fully open source (decided 2026-11-26, ADR-0003)
 
 ## Risks

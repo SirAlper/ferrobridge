@@ -1,5 +1,8 @@
 //! ferrobridge's language-independent intermediate model (IR).
 //!
+//! **An implementation detail of [ferrobridge](https://github.com/SirAlper/ferrobridge)**, with no
+//! stability guarantee: use the `ferrobridge` command or `ferrobridge-build` instead.
+//!
 //! The data structures produced by the parser and consumed by the analysis and code generation
 //! layers are defined here. This crate depends on no other ferrobridge crate; even if the parser
 //! changes, the IR stays the same (see `docs/adr/0001-libclang-via-clang-sys.md`).

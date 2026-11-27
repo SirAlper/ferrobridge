@@ -45,6 +45,44 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # The documented minimum libclang (16; README, CHANGELOG). Ubuntu 24.04 ships it as `libclang-16-dev`.
+  libclang-min:
+    name: libclang 16 (ubuntu-24.04)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: libclang 16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-16-dev clang-16
+          echo "LIBCLANG_PATH=/usr/lib/llvm-16/lib" >> "$GITHUB_ENV"
+      - run: cargo run -p ferrobridge-cli -- doctor
+      - run: cargo test --workspace --no-fail-fast
+
+  # The documented minimum Rust (`rust-version` in Cargo.toml). Building needs no libclang
+  # (`clang-sys` loads it at run time), only a C++ compiler for the e2e build script.
+  msrv:
+    name: msrv (Rust 1.85)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --all-features
+
+  # Every published crate builds from its `.crate` archive; dependency licenses and advisories (deny.toml).
+  package:
+    name: package and dependencies
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo package --workspace --exclude ferrobridge-e2e
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
   # The ArduPilot `AP_Math` demo (GPL; ADR-0008): ArduPilot is cloned from outside, at a fixed commit and
   # sparsely (the 28 libraries in demo/ap_math/README.md).
   demo:

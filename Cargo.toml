@@ -3,12 +3,14 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
-# Open source (ADR-0003). Publishing to crates.io opens with v0.1; disabled until then.
-publish = false
+repository = "https://github.com/SirAlper/ferrobridge"
+keywords = ["cpp", "ffi", "bindings", "cxx", "interop"]
+categories = ["development-tools::ffi", "api-bindings"]
+# Open source (ADR-0003). All published crates share one version (ADR-0012).
 
 # The internal dependency graph. When a crate really starts using another, add
 # `<name>.workspace = true` here and in that crate's [dependencies] section:
@@ -20,12 +22,12 @@ publish = false
 #   ferrobridge (runtime) -> cxx only; crates using the generated code depend on it
 # Rule: ir may not depend on any ferrobridge crate.
 [workspace.dependencies]
-ferrobridge-ir = { path = "crates/ferrobridge-ir" }
-ferrobridge-parser = { path = "crates/ferrobridge-parser" }
-ferrobridge-analysis = { path = "crates/ferrobridge-analysis" }
-ferrobridge-codegen = { path = "crates/ferrobridge-codegen" }
-ferrobridge-build = { path = "crates/ferrobridge-build" }
-ferrobridge = { path = "crates/ferrobridge" }
+ferrobridge-ir = { path = "crates/ferrobridge-ir", version = "=0.1.0" }
+ferrobridge-parser = { path = "crates/ferrobridge-parser", version = "=0.1.0" }
+ferrobridge-analysis = { path = "crates/ferrobridge-analysis", version = "=0.1.0" }
+ferrobridge-codegen = { path = "crates/ferrobridge-codegen", version = "=0.1.0" }
+ferrobridge-build = { path = "crates/ferrobridge-build", version = "=0.1.0" }
+ferrobridge = { path = "crates/ferrobridge", version = "=0.1.0" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

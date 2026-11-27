@@ -1,5 +1,8 @@
 //! The layer that reads C++ headers with libclang and turns them into IR.
 //!
+//! **An implementation detail of [ferrobridge](https://github.com/SirAlper/ferrobridge)**, with no
+//! stability guarantee: use the `ferrobridge` command or `ferrobridge-build` instead.
+//!
 //! libclang's C API is reached through `clang-sys` (see
 //! `docs/adr/0001-libclang-via-clang-sys.md`). The library is loaded at run time, not at build
 //! time (the `clang-sys` `runtime` feature). So if libclang cannot be found, the program does not

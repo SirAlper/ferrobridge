@@ -1,5 +1,8 @@
 //! Bindability analysis over the IR.
 //!
+//! **An implementation detail of [ferrobridge](https://github.com/SirAlper/ferrobridge)**, with no
+//! stability guarantee: use the `ferrobridge` command or `ferrobridge-build` instead.
+//!
 //! [`check`] decides, for every item, parameter and return type, whether it can be expressed
 //! safely in cxx, and produces a [`BridgePlan`] consumed by code generation.
 //! The rules are the architecture's type table and the safety rules. If even a single
