@@ -6,6 +6,7 @@ namespace text {
 
 std::string greet(const std::string& name) { return "Merhaba, " + name + "!"; }
 void append_exclamation(std::string& text) { text += "!"; }
+std::string raw_bytes() { return std::string("\xff\xfe"); }
 
 std::size_t count_vowels(const std::string& text) {
   std::size_t count = 0;

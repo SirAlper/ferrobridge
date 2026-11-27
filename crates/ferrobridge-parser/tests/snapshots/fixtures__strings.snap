@@ -79,6 +79,26 @@ expression: module
     },
     {
       "kind": "function",
+      "name": "raw_bytes",
+      "namespace": [
+        "text"
+      ],
+      "params": [],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "string"
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 11,
+        "column": 13
+      }
+    },
+    {
+      "kind": "function",
       "name": "count_vowels",
       "namespace": [
         "text"
@@ -114,7 +134,7 @@ expression: module
       "noexcept": false,
       "location": {
         "file": "input.h",
-        "line": 12,
+        "line": 14,
         "column": 13
       }
     },
@@ -144,7 +164,7 @@ expression: module
       "noexcept": false,
       "location": {
         "file": "input.h",
-        "line": 13,
+        "line": 15,
         "column": 13
       }
     },
@@ -182,7 +202,7 @@ expression: module
           "noexcept": false,
           "location": {
             "file": "input.h",
-            "line": 17,
+            "line": 19,
             "column": 12
           }
         }
@@ -209,7 +229,7 @@ expression: module
           "noexcept": false,
           "location": {
             "file": "input.h",
-            "line": 18,
+            "line": 20,
             "column": 22
           }
         },
@@ -228,7 +248,7 @@ expression: module
           "noexcept": false,
           "location": {
             "file": "input.h",
-            "line": 19,
+            "line": 21,
             "column": 15
           }
         },
@@ -263,7 +283,7 @@ expression: module
           "noexcept": false,
           "location": {
             "file": "input.h",
-            "line": 20,
+            "line": 22,
             "column": 8
           }
         }
@@ -271,7 +291,7 @@ expression: module
       "unsupported_members": [],
       "location": {
         "file": "input.h",
-        "line": 15,
+        "line": 17,
         "column": 7
       }
     }

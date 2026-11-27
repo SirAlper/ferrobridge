@@ -65,15 +65,460 @@ pub mod ffi {
     #[namespace = "own"]
     unsafe extern "C++" {
         type Widget;
-        fn id(self: &Widget) -> i32;
-        fn adopt(self: Pin<&mut Widget>, child_id: i32) -> Result<()>;
-        fn weight(self: Pin<&mut Widget>) -> Result<&mut f64>;
-        fn read_weight(self: &Widget, out: &mut f64) -> Result<()>;
+        #[cxx_name = "id"]
+        fn raw_id(self: &Widget) -> i32;
+        #[cxx_name = "adopt"]
+        fn raw_adopt(self: Pin<&mut Widget>, child_id: i32) -> Result<()>;
+        #[cxx_name = "weight"]
+        fn raw_weight(self: Pin<&mut Widget>) -> Result<&mut f64>;
+        #[cxx_name = "read_weight"]
+        fn raw_read_weight(self: &Widget, out: &mut f64) -> Result<()>;
         type Shape;
-        fn area(self: &Shape) -> Result<f64>;
+        #[cxx_name = "area"]
+        fn raw_area(self: &Shape) -> Result<f64>;
         type Leaky;
-        fn id(self: &Leaky) -> Result<i32>;
+        #[cxx_name = "id"]
+        fn raw_id(self: &Leaky) -> Result<i32>;
         fn live_widgets() -> i32;
         fn live_shapes() -> i32;
     }
+}
+/// Güvenli metotlar: C++ `own::Widget`. Sahip olunan, `&` ve `Pin<&mut>` nesnelerde çalışır.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl ffi::Widget {
+    /// C++: `own::Widget::id`
+    pub fn id(&self) -> i32 {
+        self.raw_id()
+    }
+    /// C++: `own::Widget::adopt`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn adopt(
+        self: ::core::pin::Pin<&mut Self>,
+        child_id: i32,
+    ) -> ::ferrobridge::Result<()> {
+        self.raw_adopt(child_id)
+            .map_err(::ferrobridge::__private::cpp("own::Widget::adopt"))
+    }
+    /// C++: `own::Widget::child`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn child(
+        self: ::core::pin::Pin<&mut Self>,
+    ) -> ::ferrobridge::Result<::core::pin::Pin<&mut ffi::Widget>> {
+        ffi::Widget_child(self)
+            .map_err(::ferrobridge::__private::cpp("own::Widget::child"))
+    }
+    /// C++: `own::Widget::child_view`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn child_view(&self) -> ::ferrobridge::Result<&ffi::Widget> {
+        ffi::Widget_child_view(self)
+            .map_err(::ferrobridge::__private::cpp("own::Widget::child_view"))
+    }
+    /// C++: `own::Widget::child_named`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn child_named(&self, name: &str) -> ::ferrobridge::Result<&ffi::Widget> {
+        ::cxx::let_cxx_string!(name = name);
+        ffi::Widget_child_named(self, &name)
+            .map_err(::ferrobridge::__private::cpp("own::Widget::child_named"))
+    }
+    /// C++: `own::Widget::weight_slot`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn weight_slot(
+        self: ::core::pin::Pin<&mut Self>,
+    ) -> ::ferrobridge::Result<&mut f64> {
+        ffi::Widget_weight_slot(self)
+            .map_err(::ferrobridge::__private::cpp("own::Widget::weight_slot"))
+    }
+    /// C++: `own::Widget::weight`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn weight(self: ::core::pin::Pin<&mut Self>) -> ::ferrobridge::Result<&mut f64> {
+        self.raw_weight().map_err(::ferrobridge::__private::cpp("own::Widget::weight"))
+    }
+    /// C++: `own::Widget::copy_id_from`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn copy_id_from(
+        self: ::core::pin::Pin<&mut Self>,
+        other: &ffi::Widget,
+    ) -> ::ferrobridge::Result<()> {
+        ffi::Widget_copy_id_from(self, other)
+            .map_err(::ferrobridge::__private::cpp("own::Widget::copy_id_from"))
+    }
+    /// C++: `own::Widget::swap_ids`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn swap_ids(
+        self: ::core::pin::Pin<&mut Self>,
+        other: ::core::pin::Pin<&mut ffi::Widget>,
+    ) -> ::ferrobridge::Result<()> {
+        ffi::Widget_swap_ids(self, other)
+            .map_err(::ferrobridge::__private::cpp("own::Widget::swap_ids"))
+    }
+    /// C++: `own::Widget::read_weight`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn read_weight(&self, out: &mut f64) -> ::ferrobridge::Result<()> {
+        self.raw_read_weight(out)
+            .map_err(::ferrobridge::__private::cpp("own::Widget::read_weight"))
+    }
+    /// C++: `own::Widget::read_id`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn read_id(&self, out: &mut i32) -> ::ferrobridge::Result<()> {
+        ffi::Widget_read_id(self, out)
+            .map_err(::ferrobridge::__private::cpp("own::Widget::read_id"))
+    }
+}
+/// Sahip olunan C++ nesnesi: `own::Widget`. Düşünce C++ destructor'ı çalışır. İçindeki `UniquePtr` asla null değildir.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub struct Widget {
+    inner: ::cxx::UniquePtr<ffi::Widget>,
+}
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl Widget {
+    /// Ham `UniquePtr`'ı sarmalar; null ise `None`.
+    pub fn from_unique_ptr(
+        inner: ::cxx::UniquePtr<ffi::Widget>,
+    ) -> ::core::option::Option<Self> {
+        if inner.is_null() {
+            ::core::option::Option::None
+        } else {
+            ::core::option::Option::Some(Self { inner })
+        }
+    }
+    /// İçindeki `UniquePtr`'ı verir (ham `ffi` katmanıyla çalışmak için).
+    pub fn into_inner(self) -> ::cxx::UniquePtr<ffi::Widget> {
+        self.inner
+    }
+    /// `Pin<&mut ffi::T>` bekleyen fonksiyonlara geçirmek için.
+    pub fn pin_mut(&mut self) -> ::core::pin::Pin<&mut ffi::Widget> {
+        self.inner.pin_mut()
+    }
+    /// C++: `own::Widget::Widget`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn new_i32(id: i32) -> ::ferrobridge::Result<Widget> {
+        let value = ffi::Widget_new_i32(id)
+            .map_err(::ferrobridge::__private::cpp("own::Widget::Widget"))?;
+        Widget::from_unique_ptr(value)
+            .ok_or(::ferrobridge::Error::NullPointer {
+                item: "own::Widget::Widget",
+            })
+    }
+    /// C++: `own::Widget::Widget`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn new_Widget_i32(
+        prototype: &ffi::Widget,
+        id: i32,
+    ) -> ::ferrobridge::Result<Widget> {
+        let value = ffi::Widget_new_Widget_i32(prototype, id)
+            .map_err(::ferrobridge::__private::cpp("own::Widget::Widget"))?;
+        Widget::from_unique_ptr(value)
+            .ok_or(::ferrobridge::Error::NullPointer {
+                item: "own::Widget::Widget",
+            })
+    }
+    /// C++: `own::Widget::adopt`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn adopt(&mut self, child_id: i32) -> ::ferrobridge::Result<()> {
+        self.inner.pin_mut().adopt(child_id)
+    }
+    /// C++: `own::Widget::child`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn child(
+        &mut self,
+    ) -> ::ferrobridge::Result<::core::pin::Pin<&mut ffi::Widget>> {
+        self.inner.pin_mut().child()
+    }
+    /// C++: `own::Widget::weight_slot`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn weight_slot(&mut self) -> ::ferrobridge::Result<&mut f64> {
+        self.inner.pin_mut().weight_slot()
+    }
+    /// C++: `own::Widget::weight`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn weight(&mut self) -> ::ferrobridge::Result<&mut f64> {
+        self.inner.pin_mut().weight()
+    }
+    /// C++: `own::Widget::copy_id_from`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn copy_id_from(&mut self, other: &ffi::Widget) -> ::ferrobridge::Result<()> {
+        self.inner.pin_mut().copy_id_from(other)
+    }
+    /// C++: `own::Widget::swap_ids`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn swap_ids(
+        &mut self,
+        other: ::core::pin::Pin<&mut ffi::Widget>,
+    ) -> ::ferrobridge::Result<()> {
+        self.inner.pin_mut().swap_ids(other)
+    }
+}
+#[rustfmt::skip]
+impl ::core::ops::Deref for Widget {
+    type Target = ffi::Widget;
+    fn deref(&self) -> &ffi::Widget {
+        &self.inner
+    }
+}
+/// Güvenli metotlar: C++ `own::Shape`. Sahip olunan, `&` ve `Pin<&mut>` nesnelerde çalışır.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl ffi::Shape {
+    /// C++: `own::Shape::area`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn area(&self) -> ::ferrobridge::Result<f64> {
+        self.raw_area().map_err(::ferrobridge::__private::cpp("own::Shape::area"))
+    }
+}
+/// Sahip olunan C++ nesnesi: `own::Shape`. Düşünce C++ destructor'ı çalışır. İçindeki `UniquePtr` asla null değildir.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub struct Shape {
+    inner: ::cxx::UniquePtr<ffi::Shape>,
+}
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl Shape {
+    /// Ham `UniquePtr`'ı sarmalar; null ise `None`.
+    pub fn from_unique_ptr(
+        inner: ::cxx::UniquePtr<ffi::Shape>,
+    ) -> ::core::option::Option<Self> {
+        if inner.is_null() {
+            ::core::option::Option::None
+        } else {
+            ::core::option::Option::Some(Self { inner })
+        }
+    }
+    /// İçindeki `UniquePtr`'ı verir (ham `ffi` katmanıyla çalışmak için).
+    pub fn into_inner(self) -> ::cxx::UniquePtr<ffi::Shape> {
+        self.inner
+    }
+    /// `Pin<&mut ffi::T>` bekleyen fonksiyonlara geçirmek için.
+    pub fn pin_mut(&mut self) -> ::core::pin::Pin<&mut ffi::Shape> {
+        self.inner.pin_mut()
+    }
+}
+#[rustfmt::skip]
+impl ::core::ops::Deref for Shape {
+    type Target = ffi::Shape;
+    fn deref(&self) -> &ffi::Shape {
+        &self.inner
+    }
+}
+/// Güvenli metotlar: C++ `own::Leaky`. Sahip olunan, `&` ve `Pin<&mut>` nesnelerde çalışır.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl ffi::Leaky {
+    /// C++: `own::Leaky::id`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn id(&self) -> ::ferrobridge::Result<i32> {
+        self.raw_id().map_err(::ferrobridge::__private::cpp("own::Leaky::id"))
+    }
+}
+/// C++: `own::live_widgets`
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn live_widgets() -> i32 {
+    ffi::live_widgets()
+}
+/// C++: `own::live_shapes`
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn live_shapes() -> i32 {
+    ffi::live_shapes()
+}
+/// C++: `own::make_widget`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn make_widget(id: i32) -> ::ferrobridge::Result<::core::option::Option<Widget>> {
+    let value = ffi::make_widget(id)
+        .map_err(::ferrobridge::__private::cpp("own::make_widget"))?;
+    ::core::result::Result::Ok(Widget::from_unique_ptr(value))
+}
+/// C++: `own::make_null_widget`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn make_null_widget() -> ::ferrobridge::Result<::core::option::Option<Widget>> {
+    let value = ffi::make_null_widget()
+        .map_err(::ferrobridge::__private::cpp("own::make_null_widget"))?;
+    ::core::result::Result::Ok(Widget::from_unique_ptr(value))
+}
+/// C++: `own::make_label`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+/// C++ geçerli UTF-8 olmayan bir string döndürürse `ferrobridge::Error::Utf8`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn make_label(
+    text: &str,
+) -> ::ferrobridge::Result<::core::option::Option<::std::string::String>> {
+    ::cxx::let_cxx_string!(text = text);
+    let value = ffi::make_label(&text)
+        .map_err(::ferrobridge::__private::cpp("own::make_label"))?;
+    if value.is_null() {
+        ::core::result::Result::Ok(::core::option::Option::None)
+    } else {
+        ::ferrobridge::__private::string("own::make_label", value)
+            .map(::core::option::Option::Some)
+    }
+}
+/// C++: `own::make_square`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn make_square(side: f64) -> ::ferrobridge::Result<::core::option::Option<Shape>> {
+    let value = ffi::make_square(side)
+        .map_err(::ferrobridge::__private::cpp("own::make_square"))?;
+    ::core::result::Result::Ok(Shape::from_unique_ptr(value))
+}
+/// C++: `own::scale`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn scale(value: &mut f64, factor: f64) -> ::ferrobridge::Result<()> {
+    ffi::scale(value, factor).map_err(::ferrobridge::__private::cpp("own::scale"))
 }

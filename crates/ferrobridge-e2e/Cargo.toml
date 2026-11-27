@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 cxx = "1.0.198"
+ferrobridge.workspace = true
 
 [build-dependencies]
 cxx-build = "1.0.198"

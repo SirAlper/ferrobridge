@@ -6,8 +6,8 @@ expression: files.bridge_rs
 // Kaynak header: strings/input.h
 //
 // Bağlanmayan öğeler (2):
-//   - text::count_vowels (input.h:12): dönüş tipi: `std::size_t` (unsigned long) platformlar arasında farklı genişlikte olabilir; `std::int64_t` gibi sabit genişlikli bir tip kullanın.
-//   - text::upper (input.h:13): parametre `text`: `std::string`'i değerle almak henüz desteklenmiyor (`const std::string&` kullanın).
+//   - text::count_vowels (input.h:14): dönüş tipi: `std::size_t` (unsigned long) platformlar arasında farklı genişlikte olabilir; `std::int64_t` gibi sabit genişlikli bir tip kullanın.
+//   - text::upper (input.h:15): parametre `text`: `std::string`'i değerle almak henüz desteklenmiyor (`const std::string&` kullanın).
 
 #[cxx::bridge]
 #[rustfmt::skip]
@@ -19,12 +19,182 @@ pub mod ffi {
         fn Label_new(text: &CxxString) -> Result<UniquePtr<Label>>;
         fn Label_shout(fb_self: &Label) -> Result<UniquePtr<CxxString>>;
         fn greet(name: &CxxString) -> Result<UniquePtr<CxxString>>;
+        fn raw_bytes() -> Result<UniquePtr<CxxString>>;
     }
     #[namespace = "text"]
     unsafe extern "C++" {
         type Label;
-        fn text(self: &Label) -> Result<&CxxString>;
-        fn set_text(self: Pin<&mut Label>, text: &CxxString) -> Result<()>;
+        #[cxx_name = "text"]
+        fn raw_text(self: &Label) -> Result<&CxxString>;
+        #[cxx_name = "set_text"]
+        fn raw_set_text(self: Pin<&mut Label>, text: &CxxString) -> Result<()>;
         fn append_exclamation(text: Pin<&mut CxxString>) -> Result<()>;
     }
+}
+/// Güvenli metotlar: C++ `text::Label`. Sahip olunan, `&` ve `Pin<&mut>` nesnelerde çalışır.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl ffi::Label {
+    /// C++: `text::Label::text`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    /// C++ geçerli UTF-8 olmayan bir string döndürürse `ferrobridge::Error::Utf8`.
+    pub fn text(&self) -> ::ferrobridge::Result<&str> {
+        let value = self
+            .raw_text()
+            .map_err(::ferrobridge::__private::cpp("text::Label::text"))?;
+        ::ferrobridge::__private::str_ref("text::Label::text", value)
+    }
+    /// C++: `text::Label::shout`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    /// C++ geçerli UTF-8 olmayan bir string döndürürse `ferrobridge::Error::Utf8`.
+    pub fn shout(&self) -> ::ferrobridge::Result<::std::string::String> {
+        let value = ffi::Label_shout(self)
+            .map_err(::ferrobridge::__private::cpp("text::Label::shout"))?;
+        ::ferrobridge::__private::string("text::Label::shout", value)
+    }
+    /// C++: `text::Label::set_text`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn set_text(
+        self: ::core::pin::Pin<&mut Self>,
+        text: &str,
+    ) -> ::ferrobridge::Result<()> {
+        ::cxx::let_cxx_string!(text = text);
+        self.raw_set_text(&text)
+            .map_err(::ferrobridge::__private::cpp("text::Label::set_text"))
+    }
+}
+/// Sahip olunan C++ nesnesi: `text::Label`. Düşünce C++ destructor'ı çalışır. İçindeki `UniquePtr` asla null değildir.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub struct Label {
+    inner: ::cxx::UniquePtr<ffi::Label>,
+}
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl Label {
+    /// Ham `UniquePtr`'ı sarmalar; null ise `None`.
+    pub fn from_unique_ptr(
+        inner: ::cxx::UniquePtr<ffi::Label>,
+    ) -> ::core::option::Option<Self> {
+        if inner.is_null() {
+            ::core::option::Option::None
+        } else {
+            ::core::option::Option::Some(Self { inner })
+        }
+    }
+    /// İçindeki `UniquePtr`'ı verir (ham `ffi` katmanıyla çalışmak için).
+    pub fn into_inner(self) -> ::cxx::UniquePtr<ffi::Label> {
+        self.inner
+    }
+    /// `Pin<&mut ffi::T>` bekleyen fonksiyonlara geçirmek için.
+    pub fn pin_mut(&mut self) -> ::core::pin::Pin<&mut ffi::Label> {
+        self.inner.pin_mut()
+    }
+    /// C++: `text::Label::Label`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn new(text: &str) -> ::ferrobridge::Result<Label> {
+        ::cxx::let_cxx_string!(text = text);
+        let value = ffi::Label_new(&text)
+            .map_err(::ferrobridge::__private::cpp("text::Label::Label"))?;
+        Label::from_unique_ptr(value)
+            .ok_or(::ferrobridge::Error::NullPointer {
+                item: "text::Label::Label",
+            })
+    }
+    /// C++: `text::Label::set_text`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn set_text(&mut self, text: &str) -> ::ferrobridge::Result<()> {
+        self.inner.pin_mut().set_text(text)
+    }
+}
+#[rustfmt::skip]
+impl ::core::ops::Deref for Label {
+    type Target = ffi::Label;
+    fn deref(&self) -> &ffi::Label {
+        &self.inner
+    }
+}
+/// C++: `text::greet`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+/// C++ geçerli UTF-8 olmayan bir string döndürürse `ferrobridge::Error::Utf8`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn greet(name: &str) -> ::ferrobridge::Result<::std::string::String> {
+    ::cxx::let_cxx_string!(name = name);
+    let value = ffi::greet(&name).map_err(::ferrobridge::__private::cpp("text::greet"))?;
+    ::ferrobridge::__private::string("text::greet", value)
+}
+/// C++: `text::append_exclamation`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn append_exclamation(
+    text: ::core::pin::Pin<&mut ::cxx::CxxString>,
+) -> ::ferrobridge::Result<()> {
+    ffi::append_exclamation(text)
+        .map_err(::ferrobridge::__private::cpp("text::append_exclamation"))
+}
+/// C++: `text::raw_bytes`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+/// C++ geçerli UTF-8 olmayan bir string döndürürse `ferrobridge::Error::Utf8`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn raw_bytes() -> ::ferrobridge::Result<::std::string::String> {
+    let value = ffi::raw_bytes()
+        .map_err(::ferrobridge::__private::cpp("text::raw_bytes"))?;
+    ::ferrobridge::__private::string("text::raw_bytes", value)
 }

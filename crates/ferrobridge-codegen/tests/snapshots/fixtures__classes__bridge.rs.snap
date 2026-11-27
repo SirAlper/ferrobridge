@@ -35,21 +35,30 @@ pub mod ffi {
     unsafe extern "C++" {
         type Point;
         type Vehicle;
-        fn wheels(self: &Vehicle) -> Result<i32>;
-        fn odometer(self: &Vehicle) -> f64;
-        fn drive(self: Pin<&mut Vehicle>, km: f64) -> Result<()>;
-        fn honk(self: &Vehicle) -> Result<i32>;
-        fn break_down(self: Pin<&mut Vehicle>) -> Result<()>;
-        fn throw_unknown(self: Pin<&mut Vehicle>) -> Result<()>;
-        fn home(self: &Vehicle) -> Result<&Point>;
+        #[cxx_name = "wheels"]
+        fn raw_wheels(self: &Vehicle) -> Result<i32>;
+        #[cxx_name = "odometer"]
+        fn raw_odometer(self: &Vehicle) -> f64;
+        #[cxx_name = "drive"]
+        fn raw_drive(self: Pin<&mut Vehicle>, km: f64) -> Result<()>;
+        #[cxx_name = "honk"]
+        fn raw_honk(self: &Vehicle) -> Result<i32>;
+        #[cxx_name = "break_down"]
+        fn raw_break_down(self: Pin<&mut Vehicle>) -> Result<()>;
+        #[cxx_name = "throw_unknown"]
+        fn raw_throw_unknown(self: Pin<&mut Vehicle>) -> Result<()>;
+        #[cxx_name = "home"]
+        fn raw_home(self: &Vehicle) -> Result<&Point>;
         #[cxx_name = "move_to"]
-        fn move_to_Point(self: Pin<&mut Vehicle>, target: &Point) -> Result<()>;
+        fn raw_move_to_Point(self: Pin<&mut Vehicle>, target: &Point) -> Result<()>;
         #[cxx_name = "move_to"]
-        fn move_to_f32_f32(self: Pin<&mut Vehicle>, x: f32, y: f32) -> Result<()>;
+        fn raw_move_to_f32_f32(self: Pin<&mut Vehicle>, x: f32, y: f32) -> Result<()>;
         type Shape;
-        fn area(self: &Shape) -> Result<f64>;
+        #[cxx_name = "area"]
+        fn raw_area(self: &Shape) -> Result<f64>;
         type Square;
-        fn area(self: &Square) -> Result<f64>;
+        #[cxx_name = "area"]
+        fn raw_area(self: &Square) -> Result<f64>;
         fn make_unit_square() -> Result<UniquePtr<Shape>>;
         #[cxx_name = "clamp"]
         fn clamp_i32_i32_i32(value: i32, lo: i32, hi: i32) -> Result<i32>;
@@ -63,4 +72,494 @@ pub mod ffi {
         #[cxx_name = "length"]
         fn physics_length(meters: f64) -> Result<f64>;
     }
+}
+/// Sahip olunan C++ nesnesi: `geo::Point`. Düşünce C++ destructor'ı çalışır. İçindeki `UniquePtr` asla null değildir.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub struct Point {
+    inner: ::cxx::UniquePtr<ffi::Point>,
+}
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl Point {
+    /// Ham `UniquePtr`'ı sarmalar; null ise `None`.
+    pub fn from_unique_ptr(
+        inner: ::cxx::UniquePtr<ffi::Point>,
+    ) -> ::core::option::Option<Self> {
+        if inner.is_null() {
+            ::core::option::Option::None
+        } else {
+            ::core::option::Option::Some(Self { inner })
+        }
+    }
+    /// İçindeki `UniquePtr`'ı verir (ham `ffi` katmanıyla çalışmak için).
+    pub fn into_inner(self) -> ::cxx::UniquePtr<ffi::Point> {
+        self.inner
+    }
+    /// `Pin<&mut ffi::T>` bekleyen fonksiyonlara geçirmek için.
+    pub fn pin_mut(&mut self) -> ::core::pin::Pin<&mut ffi::Point> {
+        self.inner.pin_mut()
+    }
+}
+#[rustfmt::skip]
+impl ::core::ops::Deref for Point {
+    type Target = ffi::Point;
+    fn deref(&self) -> &ffi::Point {
+        &self.inner
+    }
+}
+/// Güvenli metotlar: C++ `geo::Vehicle`. Sahip olunan, `&` ve `Pin<&mut>` nesnelerde çalışır.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl ffi::Vehicle {
+    /// C++: `geo::Vehicle::wheels`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn wheels(&self) -> ::ferrobridge::Result<i32> {
+        self.raw_wheels().map_err(::ferrobridge::__private::cpp("geo::Vehicle::wheels"))
+    }
+    /// C++: `geo::Vehicle::odometer`
+    pub fn odometer(&self) -> f64 {
+        self.raw_odometer()
+    }
+    /// C++: `geo::Vehicle::drive`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn drive(
+        self: ::core::pin::Pin<&mut Self>,
+        km: f64,
+    ) -> ::ferrobridge::Result<()> {
+        self.raw_drive(km).map_err(::ferrobridge::__private::cpp("geo::Vehicle::drive"))
+    }
+    /// C++: `geo::Vehicle::honk`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn honk(&self) -> ::ferrobridge::Result<i32> {
+        self.raw_honk().map_err(::ferrobridge::__private::cpp("geo::Vehicle::honk"))
+    }
+    /// C++: `geo::Vehicle::break_down`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn break_down(self: ::core::pin::Pin<&mut Self>) -> ::ferrobridge::Result<()> {
+        self.raw_break_down()
+            .map_err(::ferrobridge::__private::cpp("geo::Vehicle::break_down"))
+    }
+    /// C++: `geo::Vehicle::throw_unknown`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn throw_unknown(
+        self: ::core::pin::Pin<&mut Self>,
+    ) -> ::ferrobridge::Result<()> {
+        self.raw_throw_unknown()
+            .map_err(::ferrobridge::__private::cpp("geo::Vehicle::throw_unknown"))
+    }
+    /// C++: `geo::Vehicle::position`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn position(&self) -> ::ferrobridge::Result<Point> {
+        let value = ffi::Vehicle_position(self)
+            .map_err(::ferrobridge::__private::cpp("geo::Vehicle::position"))?;
+        Point::from_unique_ptr(value)
+            .ok_or(::ferrobridge::Error::NullPointer {
+                item: "geo::Vehicle::position",
+            })
+    }
+    /// C++: `geo::Vehicle::home`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn home(&self) -> ::ferrobridge::Result<&ffi::Point> {
+        self.raw_home().map_err(::ferrobridge::__private::cpp("geo::Vehicle::home"))
+    }
+    /// C++: `geo::Vehicle::move_to`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn move_to_Point(
+        self: ::core::pin::Pin<&mut Self>,
+        target: &ffi::Point,
+    ) -> ::ferrobridge::Result<()> {
+        self.raw_move_to_Point(target)
+            .map_err(::ferrobridge::__private::cpp("geo::Vehicle::move_to"))
+    }
+    /// C++: `geo::Vehicle::move_to`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn move_to_f32_f32(
+        self: ::core::pin::Pin<&mut Self>,
+        x: f32,
+        y: f32,
+    ) -> ::ferrobridge::Result<()> {
+        self.raw_move_to_f32_f32(x, y)
+            .map_err(::ferrobridge::__private::cpp("geo::Vehicle::move_to"))
+    }
+}
+/// Sahip olunan C++ nesnesi: `geo::Vehicle`. Düşünce C++ destructor'ı çalışır. İçindeki `UniquePtr` asla null değildir.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub struct Vehicle {
+    inner: ::cxx::UniquePtr<ffi::Vehicle>,
+}
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl Vehicle {
+    /// Ham `UniquePtr`'ı sarmalar; null ise `None`.
+    pub fn from_unique_ptr(
+        inner: ::cxx::UniquePtr<ffi::Vehicle>,
+    ) -> ::core::option::Option<Self> {
+        if inner.is_null() {
+            ::core::option::Option::None
+        } else {
+            ::core::option::Option::Some(Self { inner })
+        }
+    }
+    /// İçindeki `UniquePtr`'ı verir (ham `ffi` katmanıyla çalışmak için).
+    pub fn into_inner(self) -> ::cxx::UniquePtr<ffi::Vehicle> {
+        self.inner
+    }
+    /// `Pin<&mut ffi::T>` bekleyen fonksiyonlara geçirmek için.
+    pub fn pin_mut(&mut self) -> ::core::pin::Pin<&mut ffi::Vehicle> {
+        self.inner.pin_mut()
+    }
+    /// C++: `geo::Vehicle::max_wheels`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn max_wheels() -> ::ferrobridge::Result<i32> {
+        ffi::Vehicle_max_wheels()
+            .map_err(::ferrobridge::__private::cpp("geo::Vehicle::max_wheels"))
+    }
+    /// C++: `geo::Vehicle::Vehicle`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn new_i32(wheels: i32) -> ::ferrobridge::Result<Vehicle> {
+        let value = ffi::Vehicle_new_i32(wheels)
+            .map_err(::ferrobridge::__private::cpp("geo::Vehicle::Vehicle"))?;
+        Vehicle::from_unique_ptr(value)
+            .ok_or(::ferrobridge::Error::NullPointer {
+                item: "geo::Vehicle::Vehicle",
+            })
+    }
+    /// C++: `geo::Vehicle::Vehicle`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn new_i32_f64(wheels: i32, odometer: f64) -> ::ferrobridge::Result<Vehicle> {
+        let value = ffi::Vehicle_new_i32_f64(wheels, odometer)
+            .map_err(::ferrobridge::__private::cpp("geo::Vehicle::Vehicle"))?;
+        Vehicle::from_unique_ptr(value)
+            .ok_or(::ferrobridge::Error::NullPointer {
+                item: "geo::Vehicle::Vehicle",
+            })
+    }
+    /// C++: `geo::Vehicle::drive`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn drive(&mut self, km: f64) -> ::ferrobridge::Result<()> {
+        self.inner.pin_mut().drive(km)
+    }
+    /// C++: `geo::Vehicle::break_down`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn break_down(&mut self) -> ::ferrobridge::Result<()> {
+        self.inner.pin_mut().break_down()
+    }
+    /// C++: `geo::Vehicle::throw_unknown`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn throw_unknown(&mut self) -> ::ferrobridge::Result<()> {
+        self.inner.pin_mut().throw_unknown()
+    }
+    /// C++: `geo::Vehicle::move_to`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn move_to_Point(&mut self, target: &ffi::Point) -> ::ferrobridge::Result<()> {
+        self.inner.pin_mut().move_to_Point(target)
+    }
+    /// C++: `geo::Vehicle::move_to`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn move_to_f32_f32(&mut self, x: f32, y: f32) -> ::ferrobridge::Result<()> {
+        self.inner.pin_mut().move_to_f32_f32(x, y)
+    }
+}
+#[rustfmt::skip]
+impl ::core::ops::Deref for Vehicle {
+    type Target = ffi::Vehicle;
+    fn deref(&self) -> &ffi::Vehicle {
+        &self.inner
+    }
+}
+/// Güvenli metotlar: C++ `geo::Shape`. Sahip olunan, `&` ve `Pin<&mut>` nesnelerde çalışır.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl ffi::Shape {
+    /// C++: `geo::Shape::area`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn area(&self) -> ::ferrobridge::Result<f64> {
+        self.raw_area().map_err(::ferrobridge::__private::cpp("geo::Shape::area"))
+    }
+}
+/// Sahip olunan C++ nesnesi: `geo::Shape`. Düşünce C++ destructor'ı çalışır. İçindeki `UniquePtr` asla null değildir.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub struct Shape {
+    inner: ::cxx::UniquePtr<ffi::Shape>,
+}
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl Shape {
+    /// Ham `UniquePtr`'ı sarmalar; null ise `None`.
+    pub fn from_unique_ptr(
+        inner: ::cxx::UniquePtr<ffi::Shape>,
+    ) -> ::core::option::Option<Self> {
+        if inner.is_null() {
+            ::core::option::Option::None
+        } else {
+            ::core::option::Option::Some(Self { inner })
+        }
+    }
+    /// İçindeki `UniquePtr`'ı verir (ham `ffi` katmanıyla çalışmak için).
+    pub fn into_inner(self) -> ::cxx::UniquePtr<ffi::Shape> {
+        self.inner
+    }
+    /// `Pin<&mut ffi::T>` bekleyen fonksiyonlara geçirmek için.
+    pub fn pin_mut(&mut self) -> ::core::pin::Pin<&mut ffi::Shape> {
+        self.inner.pin_mut()
+    }
+}
+#[rustfmt::skip]
+impl ::core::ops::Deref for Shape {
+    type Target = ffi::Shape;
+    fn deref(&self) -> &ffi::Shape {
+        &self.inner
+    }
+}
+/// Güvenli metotlar: C++ `geo::Square`. Sahip olunan, `&` ve `Pin<&mut>` nesnelerde çalışır.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl ffi::Square {
+    /// C++: `geo::Square::area`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn area(&self) -> ::ferrobridge::Result<f64> {
+        self.raw_area().map_err(::ferrobridge::__private::cpp("geo::Square::area"))
+    }
+}
+/// Sahip olunan C++ nesnesi: `geo::Square`. Düşünce C++ destructor'ı çalışır. İçindeki `UniquePtr` asla null değildir.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub struct Square {
+    inner: ::cxx::UniquePtr<ffi::Square>,
+}
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl Square {
+    /// Ham `UniquePtr`'ı sarmalar; null ise `None`.
+    pub fn from_unique_ptr(
+        inner: ::cxx::UniquePtr<ffi::Square>,
+    ) -> ::core::option::Option<Self> {
+        if inner.is_null() {
+            ::core::option::Option::None
+        } else {
+            ::core::option::Option::Some(Self { inner })
+        }
+    }
+    /// İçindeki `UniquePtr`'ı verir (ham `ffi` katmanıyla çalışmak için).
+    pub fn into_inner(self) -> ::cxx::UniquePtr<ffi::Square> {
+        self.inner
+    }
+    /// `Pin<&mut ffi::T>` bekleyen fonksiyonlara geçirmek için.
+    pub fn pin_mut(&mut self) -> ::core::pin::Pin<&mut ffi::Square> {
+        self.inner.pin_mut()
+    }
+    /// C++: `geo::Square::Square`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn new(side: f64) -> ::ferrobridge::Result<Square> {
+        let value = ffi::Square_new(side)
+            .map_err(::ferrobridge::__private::cpp("geo::Square::Square"))?;
+        Square::from_unique_ptr(value)
+            .ok_or(::ferrobridge::Error::NullPointer {
+                item: "geo::Square::Square",
+            })
+    }
+}
+#[rustfmt::skip]
+impl ::core::ops::Deref for Square {
+    type Target = ffi::Square;
+    fn deref(&self) -> &ffi::Square {
+        &self.inner
+    }
+}
+/// C++: `geo::make_unit_square`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn make_unit_square() -> ::ferrobridge::Result<::core::option::Option<Shape>> {
+    let value = ffi::make_unit_square()
+        .map_err(::ferrobridge::__private::cpp("geo::make_unit_square"))?;
+    ::core::result::Result::Ok(Shape::from_unique_ptr(value))
+}
+/// C++: `geo::clamp`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn clamp_i32_i32_i32(value: i32, lo: i32, hi: i32) -> ::ferrobridge::Result<i32> {
+    ffi::clamp_i32_i32_i32(value, lo, hi)
+        .map_err(::ferrobridge::__private::cpp("geo::clamp"))
+}
+/// C++: `geo::clamp`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn clamp_f64_f64_f64(value: f64, lo: f64, hi: f64) -> ::ferrobridge::Result<f64> {
+    ffi::clamp_f64_f64_f64(value, lo, hi)
+        .map_err(::ferrobridge::__private::cpp("geo::clamp"))
+}
+/// C++: `geo::length`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn geo_length(p: &ffi::Point) -> ::ferrobridge::Result<f64> {
+    ffi::geo_length(p).map_err(::ferrobridge::__private::cpp("geo::length"))
+}
+/// C++: `physics::length`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn physics_length(meters: f64) -> ::ferrobridge::Result<f64> {
+    ffi::physics_length(meters).map_err(::ferrobridge::__private::cpp("physics::length"))
 }

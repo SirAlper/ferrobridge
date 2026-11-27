@@ -62,7 +62,7 @@ Elinde büyük C++ kod tabanı olan ve yeni kodu Rust'ta yazmak isteyen ekiplerd
 | 1 | Header'ı okuma | Kullanıcı bir C++ header'ını verir, araç içinde ne gördüğünü (fonksiyonlar, tipler) okunabilir biçimde gösterir | complete | `.claude/plans/m1-header-okuma.plan.md` |
 | 2 | İlk köprü | Basit bir C++ sınıfı, elle bridge yazılmadan Rust testinden çağrılabilir | complete | `.claude/plans/m2-ilk-kopru.plan.md` |
 | 3 | Sahiplik açıklamaları | Kullanıcı belirsiz pointer'lar için açıklama yazar; araç belirsiz durumda kod üretmek yerine soru sorar | complete | `.claude/plans/m3-sahiplik-aciklamalari.plan.md` |
-| 4 | Güvenli API | Kullanıcı hiç `unsafe` yazmadan C++ nesnesi oluşturup kullanabilir; exception'lar `Result` olarak gelir | pending | — |
+| 4 | Güvenli API | Kullanıcı hiç `unsafe` yazmadan C++ nesnesi oluşturup kullanabilir; exception'lar `Result` olarak gelir | complete | `.claude/plans/m4-guvenli-api.plan.md` |
 | 5 | Gerçek dünya demosu | `AP_Math` API'sinin ≥ %80'i Rust'tan kullanılabilir | pending | — |
 | 6 | v0.1 yayını | Araç crates.io'da; README, örnekler ve demo herkese açık | pending | — |
 

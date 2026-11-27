@@ -7,6 +7,8 @@ namespace text {
 
 std::string greet(const std::string& name);
 void append_exclamation(std::string& text);
+// Geçerli UTF-8 olmayan baytlar: güvenli katmanda `Error::Utf8` olmalı.
+std::string raw_bytes();
 
 // Bu sürümde desteklenmeyenler.
 std::size_t count_vowels(const std::string& text);

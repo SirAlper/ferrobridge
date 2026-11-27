@@ -19,3 +19,5 @@ workspace = true
 [[bin]]
 name = "ferrobridge"
 path = "src/main.rs"
+# Aynı adlı çalışma zamanı kütüphanesiyle (`crates/ferrobridge`) doküman çakışmasın.
+doc = false

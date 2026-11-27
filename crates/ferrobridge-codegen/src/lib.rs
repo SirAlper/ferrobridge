@@ -10,6 +10,7 @@
 //! Üretilen dosyalar kullanıcı tarafından görülür, incelenir ve commit'lenir (ADR-0004).
 
 mod bridge;
+mod safe;
 mod shim;
 mod spelling;
 

@@ -17,12 +17,14 @@ publish = false
 #   codegen  -> analysis    (bağlı; plan tipleri analizde)
 #   build    -> parser, analysis, codegen
 #   cli      -> parser, analysis, codegen (bağlı); ileride build
+#   ferrobridge (çalışma zamanı) -> yalnızca cxx; üretilen kodu kullanan crate'ler buna bağlanır
 # Kural: ir hiçbir ferrobridge crate'ine bağımlı olamaz.
 [workspace.dependencies]
 ferrobridge-ir = { path = "crates/ferrobridge-ir" }
 ferrobridge-parser = { path = "crates/ferrobridge-parser" }
 ferrobridge-analysis = { path = "crates/ferrobridge-analysis" }
 ferrobridge-codegen = { path = "crates/ferrobridge-codegen" }
+ferrobridge = { path = "crates/ferrobridge" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

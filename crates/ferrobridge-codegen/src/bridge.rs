@@ -52,6 +52,7 @@ pub(crate) fn generate(
         .map(|shim| function_decl(&shim.name, None, shim_receiver(shim.plan), shim.plan))
         .collect::<Result<Vec<_>, _>>()?;
     let namespace_blocks = blocks.into_tokens();
+    let safe_layer = crate::safe::generate(plan, shims)?;
 
     // `#[rustfmt::skip]`: dosya commit'lenir (ADR-0004); `cargo fmt` onu prettyplease'ten farklı
     // biçimlendirip üreticinin çıktısıyla uyumsuz hale getirmesin.
@@ -70,6 +71,8 @@ pub(crate) fn generate(
 
             #(#namespace_blocks)*
         }
+
+        #safe_layer
     };
     let file: syn::File =
         syn::parse2(module).map_err(|error| CodegenError::Internal(error.to_string()))?;
@@ -93,14 +96,21 @@ fn add_class(blocks: &mut NamespaceBlocks, class: &ClassPlan) -> Result<(), Code
             class: owner,
             mutable: *receiver_mutable,
         };
+        // Ham metot `raw_<ad>` olur: asıl ad, aynı tipe yazılan güvenli metoda kalır.
         block.push(function_decl(
-            &method.rust_name,
+            &raw_method_name(&method.rust_name),
             Some(cpp_name),
             Some(receiver),
             method,
         )?);
     }
     Ok(())
+}
+
+/// cxx katmanındaki metodun Rust adı. Güvenli katman metodu asıl adla aynı tipe yazar
+/// (`impl ffi::Vehicle { pub fn wheels(..) }`); ikisi çakışmasın diye ham olana ön ek gelir.
+pub(crate) fn raw_method_name(rust_name: &str) -> String {
+    format!("raw_{rust_name}")
 }
 
 /// Paylaşılan enum: cxx, değerlerin C++'takiyle aynı olduğunu derleme zamanında doğrular.

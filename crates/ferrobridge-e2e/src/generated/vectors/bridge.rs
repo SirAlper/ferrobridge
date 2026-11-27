@@ -22,10 +22,195 @@ pub mod ffi {
     #[namespace = "geo"]
     unsafe extern "C++" {
         type Sample;
-        fn value(self: &Sample) -> Result<i32>;
+        #[cxx_name = "value"]
+        fn raw_value(self: &Sample) -> Result<i32>;
         fn sum(values: &CxxVector<i32>) -> Result<i32>;
         fn append_halves(values: Pin<&mut CxxVector<f64>>) -> Result<()>;
         fn count_words(words: &CxxVector<CxxString>) -> Result<i32>;
         fn first_value(samples: &CxxVector<Sample>) -> Result<i32>;
     }
+}
+/// Güvenli metotlar: C++ `geo::Sample`. Sahip olunan, `&` ve `Pin<&mut>` nesnelerde çalışır.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl ffi::Sample {
+    /// C++: `geo::Sample::value`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn value(&self) -> ::ferrobridge::Result<i32> {
+        self.raw_value().map_err(::ferrobridge::__private::cpp("geo::Sample::value"))
+    }
+}
+/// Sahip olunan C++ nesnesi: `geo::Sample`. Düşünce C++ destructor'ı çalışır. İçindeki `UniquePtr` asla null değildir.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub struct Sample {
+    inner: ::cxx::UniquePtr<ffi::Sample>,
+}
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+impl Sample {
+    /// Ham `UniquePtr`'ı sarmalar; null ise `None`.
+    pub fn from_unique_ptr(
+        inner: ::cxx::UniquePtr<ffi::Sample>,
+    ) -> ::core::option::Option<Self> {
+        if inner.is_null() {
+            ::core::option::Option::None
+        } else {
+            ::core::option::Option::Some(Self { inner })
+        }
+    }
+    /// İçindeki `UniquePtr`'ı verir (ham `ffi` katmanıyla çalışmak için).
+    pub fn into_inner(self) -> ::cxx::UniquePtr<ffi::Sample> {
+        self.inner
+    }
+    /// `Pin<&mut ffi::T>` bekleyen fonksiyonlara geçirmek için.
+    pub fn pin_mut(&mut self) -> ::core::pin::Pin<&mut ffi::Sample> {
+        self.inner.pin_mut()
+    }
+    /// C++: `geo::Sample::Sample`
+    ///
+    /// # Errors
+    ///
+    /// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+    pub fn new(value: i32) -> ::ferrobridge::Result<Sample> {
+        let value = ffi::Sample_new(value)
+            .map_err(::ferrobridge::__private::cpp("geo::Sample::Sample"))?;
+        Sample::from_unique_ptr(value)
+            .ok_or(::ferrobridge::Error::NullPointer {
+                item: "geo::Sample::Sample",
+            })
+    }
+}
+#[rustfmt::skip]
+impl ::core::ops::Deref for Sample {
+    type Target = ffi::Sample;
+    fn deref(&self) -> &ffi::Sample {
+        &self.inner
+    }
+}
+/// C++: `geo::sum`
+///
+/// `values` her çağrıda yeni bir C++ vector'üne kopyalanır.
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn sum(values: &[i32]) -> ::ferrobridge::Result<i32> {
+    let values = ::ferrobridge::__private::cxx_vector(values);
+    ffi::sum(&values).map_err(::ferrobridge::__private::cpp("geo::sum"))
+}
+/// C++: `geo::append_halves`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn append_halves(
+    values: ::core::pin::Pin<&mut ::cxx::CxxVector<f64>>,
+) -> ::ferrobridge::Result<()> {
+    ffi::append_halves(values)
+        .map_err(::ferrobridge::__private::cpp("geo::append_halves"))
+}
+/// C++: `geo::split_words`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+/// C++ geçerli UTF-8 olmayan bir string döndürürse `ferrobridge::Error::Utf8`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn split_words(
+    text: &str,
+) -> ::ferrobridge::Result<::std::vec::Vec<::std::string::String>> {
+    ::cxx::let_cxx_string!(text = text);
+    let value = ffi::split_words(&text)
+        .map_err(::ferrobridge::__private::cpp("geo::split_words"))?;
+    ::ferrobridge::__private::strings("geo::split_words", value)
+}
+/// C++: `geo::count_words`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn count_words(
+    words: &::cxx::CxxVector<::cxx::CxxString>,
+) -> ::ferrobridge::Result<i32> {
+    ffi::count_words(words).map_err(::ferrobridge::__private::cpp("geo::count_words"))
+}
+/// C++: `geo::make_samples`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn make_samples(
+    count: i32,
+) -> ::ferrobridge::Result<::cxx::UniquePtr<::cxx::CxxVector<ffi::Sample>>> {
+    ffi::make_samples(count).map_err(::ferrobridge::__private::cpp("geo::make_samples"))
+}
+/// C++: `geo::first_value`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn first_value(
+    samples: &::cxx::CxxVector<ffi::Sample>,
+) -> ::ferrobridge::Result<i32> {
+    ffi::first_value(samples).map_err(::ferrobridge::__private::cpp("geo::first_value"))
 }

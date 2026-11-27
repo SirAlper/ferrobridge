@@ -241,7 +241,11 @@ fn suggest_prints_a_draft_that_resolves_the_warnings_once_filled() {
     assert!(stderr.contains("raw_handle"), "stderr: {stderr}");
     let bridge = fs::read_to_string(out.join("bridge.rs")).unwrap();
     assert!(
-        bridge.contains("fn read_odometer(self: &Vehicle, out: &mut f64)"),
+        bridge.contains("fn raw_read_odometer(self: &Vehicle, out: &mut f64)"),
+        "{bridge}"
+    );
+    assert!(
+        bridge.contains("pub fn read_odometer(&self, out: &mut f64)"),
         "{bridge}"
     );
     assert!(

@@ -212,6 +212,30 @@ expression: module
         "line": 13,
         "column": 7
       }
+    },
+    {
+      "kind": "function",
+      "name": "broken_mode",
+      "namespace": [
+        "io"
+      ],
+      "params": [],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "enum",
+          "name": "Mode",
+          "namespace": [
+            "io"
+          ]
+        }
+      },
+      "noexcept": true,
+      "location": {
+        "file": "input.h",
+        "line": 15,
+        "column": 6
+      }
     }
   ]
 }

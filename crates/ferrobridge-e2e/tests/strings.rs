@@ -1,30 +1,30 @@
-//! `tests/fixtures/strings`: `std::string` gönderme, alma ve yerinde değiştirme.
+//! `tests/fixtures/strings`, güvenli API ile: `&str` girer, `String` çıkar.
 
-use cxx::let_cxx_string;
-use ferrobridge_e2e::strings::ffi;
+use ferrobridge::Error;
+use ferrobridge_e2e::strings::{self as text, Label};
 
 #[test]
-fn string_in_string_out() {
-    let_cxx_string!(name = "Dünya");
-    let greeting = ffi::greet(&name).unwrap();
-    assert_eq!(greeting.to_str().unwrap(), "Merhaba, Dünya!");
+fn str_in_string_out() -> ferrobridge::Result<()> {
+    assert_eq!(text::greet("Dünya")?, "Merhaba, Dünya!");
+    Ok(())
 }
 
 #[test]
-fn string_modified_in_place() {
-    let_cxx_string!(text = "Dikkat");
-    ffi::append_exclamation(text.as_mut()).unwrap();
-    assert_eq!(text.to_str().unwrap(), "Dikkat!");
+fn class_holding_a_string() -> ferrobridge::Result<()> {
+    let mut label = Label::new("selam")?;
+    assert_eq!(label.text()?, "selam");
+    assert_eq!(label.shout()?, "SELAM");
+    label.set_text("güle güle")?;
+    assert_eq!(label.text()?, "güle güle");
+    Ok(())
 }
 
 #[test]
-fn class_holding_a_string() {
-    let_cxx_string!(initial = "selam");
-    let mut label = ffi::Label_new(&initial).unwrap();
-    assert_eq!(label.text().unwrap().to_str().unwrap(), "selam");
-    assert_eq!(ffi::Label_shout(&label).unwrap().to_str().unwrap(), "SELAM");
-
-    let_cxx_string!(updated = "güle güle");
-    label.pin_mut().set_text(&updated).unwrap();
-    assert_eq!(label.text().unwrap().to_str().unwrap(), "güle güle");
+fn invalid_utf8_from_cpp_is_an_error_not_a_panic() {
+    assert_eq!(
+        text::raw_bytes(),
+        Err(Error::Utf8 {
+            item: "text::raw_bytes"
+        })
+    );
 }

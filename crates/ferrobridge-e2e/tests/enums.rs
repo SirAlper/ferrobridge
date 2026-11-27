@@ -1,25 +1,42 @@
-//! `tests/fixtures/enums`: değerler C++'takilerle derleme zamanında doğrulandı; burada
-//! çalışma zamanında gidip gelmeleri test ediliyor.
+//! `tests/fixtures/enums`, güvenli API ile: gerçek Rust `enum`'ları.
 
-use ferrobridge_e2e::enums::ffi::{self, Color, Level, Mode, Offset};
+use ferrobridge::Error;
+use ferrobridge_e2e::enums::{self as io, Color, Level, Mode};
 
 #[test]
-fn scoped_enums_round_trip() {
-    assert_eq!(ffi::next(Mode::Manual).unwrap(), Mode::Auto);
-    assert_eq!(ffi::next(Mode::Auto).unwrap(), Mode::Hybrid);
-    assert_eq!(ffi::next(Mode::Hybrid).unwrap(), Mode::Manual);
+fn scoped_enums_round_trip() -> ferrobridge::Result<()> {
+    assert_eq!(io::next(Mode::Manual)?, Mode::Auto);
+    assert_eq!(io::next(Mode::Auto)?, Mode::Hybrid);
+    assert_eq!(io::next(Mode::Hybrid)?, Mode::Manual);
+    Ok(())
 }
 
 #[test]
-fn unscoped_enum_parameter_and_noexcept_function() {
-    assert_eq!(ffi::level_for(Color::Red), Level::High);
-    assert_eq!(ffi::level_for(Color::Green), Level::Low);
+fn matches_are_exhaustive() -> ferrobridge::Result<()> {
+    // `_` kolu yok: gerçek bir Rust enum'u olduğu için derleyici kapsamı denetler.
+    let label = match io::next(Mode::Manual)? {
+        Mode::Manual => "elle",
+        Mode::Auto => "otomatik",
+        Mode::Hybrid => "karma",
+    };
+    assert_eq!(label, "otomatik");
+    Ok(())
 }
 
 #[test]
-fn discriminants_match_cpp() {
-    assert_eq!(Mode::Hybrid.repr, 10);
-    assert_eq!(Level::High.repr, 200);
-    assert_eq!(Color::Blue.repr, 6);
-    assert_eq!(Offset::Minus.repr, -3);
+fn unscoped_enum_parameter_and_noexcept_function() -> ferrobridge::Result<()> {
+    assert_eq!(io::level_for(Color::Red)?, Level::High);
+    assert_eq!(io::level_for(Color::Green)?, Level::Low);
+    Ok(())
+}
+
+#[test]
+fn undefined_enum_value_from_cpp_is_an_error() {
+    assert_eq!(
+        io::broken_mode(),
+        Err(Error::UnknownEnumValue {
+            ty: "io::Mode",
+            value: 42
+        })
+    );
 }

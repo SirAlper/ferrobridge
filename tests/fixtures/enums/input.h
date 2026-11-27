@@ -11,5 +11,7 @@ enum class Offset : short { Minus = -3, Zero = 0 };
 
 Mode next(Mode current);
 Level level_for(Color color) noexcept;
+// Enum'da tanımlı olmayan bir değer: güvenli katmanda `Error::UnknownEnumValue` olmalı.
+Mode broken_mode() noexcept;
 
 }  // namespace io

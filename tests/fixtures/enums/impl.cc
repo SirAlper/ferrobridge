@@ -14,5 +14,6 @@ Mode next(Mode current) {
 }
 
 Level level_for(Color color) noexcept { return color == Red ? Level::High : Level::Low; }
+Mode broken_mode() noexcept { return static_cast<Mode>(42); }
 
 }  // namespace io

@@ -2,8 +2,8 @@
 // Kaynak header: strings/input.h
 //
 // Bağlanmayan öğeler (2):
-//   - text::count_vowels (input.h:12): dönüş tipi: `std::size_t` (unsigned long) platformlar arasında farklı genişlikte olabilir; `std::int64_t` gibi sabit genişlikli bir tip kullanın.
-//   - text::upper (input.h:13): parametre `text`: `std::string`'i değerle almak henüz desteklenmiyor (`const std::string&` kullanın).
+//   - text::count_vowels (input.h:14): dönüş tipi: `std::size_t` (unsigned long) platformlar arasında farklı genişlikte olabilir; `std::int64_t` gibi sabit genişlikli bir tip kullanın.
+//   - text::upper (input.h:15): parametre `text`: `std::string`'i değerle almak henüz desteklenmiyor (`const std::string&` kullanın).
 
 #include "strings/shim.h"
 
@@ -19,6 +19,10 @@ namespace ferrobridge::strings {
 
 ::std::unique_ptr<::std::string> greet(const ::std::string& name) {
   return ::std::make_unique<::std::string>(::text::greet(name));
+}
+
+::std::unique_ptr<::std::string> raw_bytes() {
+  return ::std::make_unique<::std::string>(::text::raw_bytes());
 }
 
 }  // namespace ferrobridge::strings

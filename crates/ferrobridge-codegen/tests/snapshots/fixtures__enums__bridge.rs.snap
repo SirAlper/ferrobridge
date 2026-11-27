@@ -51,5 +51,220 @@ pub mod ffi {
         type Offset;
         fn next(current: Mode) -> Result<Mode>;
         fn level_for(color: Color) -> Level;
+        fn broken_mode() -> Mode;
     }
+}
+/// C++: `io::Mode`
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Mode {
+    /// C++: `io::Mode::Manual` (= 0)
+    Manual,
+    /// C++: `io::Mode::Auto` (= 1)
+    Auto,
+    /// C++: `io::Mode::Hybrid` (= 10)
+    Hybrid,
+}
+#[rustfmt::skip]
+impl ::core::convert::From<Mode> for ffi::Mode {
+    fn from(value: Mode) -> Self {
+        match value {
+            Mode::Manual => ffi::Mode::Manual,
+            Mode::Auto => ffi::Mode::Auto,
+            Mode::Hybrid => ffi::Mode::Hybrid,
+        }
+    }
+}
+#[rustfmt::skip]
+impl ::core::convert::TryFrom<ffi::Mode> for Mode {
+    type Error = ::ferrobridge::Error;
+    fn try_from(value: ffi::Mode) -> ::ferrobridge::Result<Self> {
+        match value {
+            ffi::Mode::Manual => ::core::result::Result::Ok(Mode::Manual),
+            ffi::Mode::Auto => ::core::result::Result::Ok(Mode::Auto),
+            ffi::Mode::Hybrid => ::core::result::Result::Ok(Mode::Hybrid),
+            other => {
+                ::core::result::Result::Err(
+                    ::ferrobridge::__private::unknown_enum("io::Mode", other.repr),
+                )
+            }
+        }
+    }
+}
+/// C++: `io::Level`
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Level {
+    /// C++: `io::Level::Low` (= 1)
+    Low,
+    /// C++: `io::Level::High` (= 200)
+    High,
+}
+#[rustfmt::skip]
+impl ::core::convert::From<Level> for ffi::Level {
+    fn from(value: Level) -> Self {
+        match value {
+            Level::Low => ffi::Level::Low,
+            Level::High => ffi::Level::High,
+        }
+    }
+}
+#[rustfmt::skip]
+impl ::core::convert::TryFrom<ffi::Level> for Level {
+    type Error = ::ferrobridge::Error;
+    fn try_from(value: ffi::Level) -> ::ferrobridge::Result<Self> {
+        match value {
+            ffi::Level::Low => ::core::result::Result::Ok(Level::Low),
+            ffi::Level::High => ::core::result::Result::Ok(Level::High),
+            other => {
+                ::core::result::Result::Err(
+                    ::ferrobridge::__private::unknown_enum("io::Level", other.repr),
+                )
+            }
+        }
+    }
+}
+/// C++: `io::Color`
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Color {
+    /// C++: `io::Color::Red` (= 0)
+    Red,
+    /// C++: `io::Color::Green` (= 5)
+    Green,
+    /// C++: `io::Color::Blue` (= 6)
+    Blue,
+}
+#[rustfmt::skip]
+impl ::core::convert::From<Color> for ffi::Color {
+    fn from(value: Color) -> Self {
+        match value {
+            Color::Red => ffi::Color::Red,
+            Color::Green => ffi::Color::Green,
+            Color::Blue => ffi::Color::Blue,
+        }
+    }
+}
+#[rustfmt::skip]
+impl ::core::convert::TryFrom<ffi::Color> for Color {
+    type Error = ::ferrobridge::Error;
+    fn try_from(value: ffi::Color) -> ::ferrobridge::Result<Self> {
+        match value {
+            ffi::Color::Red => ::core::result::Result::Ok(Color::Red),
+            ffi::Color::Green => ::core::result::Result::Ok(Color::Green),
+            ffi::Color::Blue => ::core::result::Result::Ok(Color::Blue),
+            other => {
+                ::core::result::Result::Err(
+                    ::ferrobridge::__private::unknown_enum("io::Color", other.repr),
+                )
+            }
+        }
+    }
+}
+/// C++: `io::Offset`
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Offset {
+    /// C++: `io::Offset::Minus` (= -3)
+    Minus,
+    /// C++: `io::Offset::Zero` (= 0)
+    Zero,
+}
+#[rustfmt::skip]
+impl ::core::convert::From<Offset> for ffi::Offset {
+    fn from(value: Offset) -> Self {
+        match value {
+            Offset::Minus => ffi::Offset::Minus,
+            Offset::Zero => ffi::Offset::Zero,
+        }
+    }
+}
+#[rustfmt::skip]
+impl ::core::convert::TryFrom<ffi::Offset> for Offset {
+    type Error = ::ferrobridge::Error;
+    fn try_from(value: ffi::Offset) -> ::ferrobridge::Result<Self> {
+        match value {
+            ffi::Offset::Minus => ::core::result::Result::Ok(Offset::Minus),
+            ffi::Offset::Zero => ::core::result::Result::Ok(Offset::Zero),
+            other => {
+                ::core::result::Result::Err(
+                    ::ferrobridge::__private::unknown_enum("io::Offset", other.repr),
+                )
+            }
+        }
+    }
+}
+/// C++: `io::next`
+///
+/// # Errors
+///
+/// C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.
+/// C++ enum'da tanımlı olmayan bir değer döndürürse `ferrobridge::Error::UnknownEnumValue`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn next(current: Mode) -> ::ferrobridge::Result<Mode> {
+    let value = ffi::next(ffi::Mode::from(current))
+        .map_err(::ferrobridge::__private::cpp("io::next"))?;
+    Mode::try_from(value)
+}
+/// C++: `io::level_for`
+///
+/// # Errors
+///
+/// C++ enum'da tanımlı olmayan bir değer döndürürse `ferrobridge::Error::UnknownEnumValue`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn level_for(color: Color) -> ::ferrobridge::Result<Level> {
+    let value = ffi::level_for(ffi::Color::from(color));
+    Level::try_from(value)
+}
+/// C++: `io::broken_mode`
+///
+/// # Errors
+///
+/// C++ enum'da tanımlı olmayan bir değer döndürürse `ferrobridge::Error::UnknownEnumValue`.
+#[rustfmt::skip]
+#[allow(
+    non_snake_case,
+    non_camel_case_types,
+    clippy::should_implement_trait,
+    clippy::too_many_arguments
+)]
+pub fn broken_mode() -> ::ferrobridge::Result<Mode> {
+    let value = ffi::broken_mode();
+    Mode::try_from(value)
 }

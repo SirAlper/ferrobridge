@@ -2,7 +2,7 @@
 
 C++ header'larından **güvenli ve idiomatik** Rust binding'leri üreten araç. cxx üzerine kuruludur, sahiplik bilgisini bir açıklama dosyasından (`ferrobridge.toml`) alır ve Bazel gerektirmez.
 
-> Durum: erken geliştirme (Milestone 3 / v0.1 öncesi). Henüz yayınlanmış bir sürüm yok.
+> Durum: erken geliştirme (Milestone 4 / v0.1 öncesi). Henüz yayınlanmış bir sürüm yok.
 
 ## Gereksinimler
 
@@ -34,20 +34,48 @@ cargo run -p ferrobridge-cli -- generate include/vehicle.h --out-dir src/ffi \
 
 | Dosya | İçerik |
 |---|---|
-| `bridge.rs` | `#[cxx::bridge] pub mod ffi`: sınıflar (opak tip), metotlar, enum'lar, serbest fonksiyonlar |
+| `bridge.rs` | Güvenli Rust API'si (sarmalayıcılar, metotlar, gerçek `enum`'lar, serbest fonksiyonlar) ve altındaki ham `#[cxx::bridge] pub mod ffi` |
 | `shim.h`, `shim.cc` | cxx'in doğrudan çağıramadıkları için C++ yardımcıları: constructor fabrikaları (`Vehicle_new_i32`), statik metotlar, değerle dönen sınıf/`std::string`/`std::vector` sarmalayıcıları, açıklamalı pointer'lar ve bütün C++ exception'larını `Err`'e çeviren işleyici |
 
 Bağlanamayan her öğe uyarı olarak basılır ve üretilen dosyaların başında nedeniyle listelenir; hiçbir şey sessizce atlanmaz. Üretilen dosyalar commit'lenir ve elle düzenlenmez (ADR-0004). `generate`, ferrobridge'in üretmediği bir dosyanın üzerine `--force` olmadan yazmaz.
 
-Rust tarafında (cxx ve `cxx-build` ile derlendikten sonra) hiç `unsafe` gerekmez:
+Üretilen `bridge.rs`'i bir modül olarak dahil edin ve crate'inize `cxx` ile `ferrobridge` (çalışma zamanı: ortak hata tipi) bağımlılıklarını ekleyin:
 
 ```rust
-let mut vehicle = ffi::Vehicle_new_i32(4)?;   // C++ constructor
-vehicle.pin_mut().drive(12.5)?;                  // C++ exception → Err
-let km = vehicle.odometer();                     // noexcept → doğrudan değer
+#[path = "ffi/bridge.rs"]
+pub mod vehicle;
 ```
 
-Adlandırma kuralları (overload'lar için `clamp_i32_i32_i32`, namespace çakışmaları için `geo_length`) ADR-0005'te. Gerçek bir örnek için `crates/ferrobridge-e2e/`.
+Rust tarafında hiç `unsafe`, `Pin` ya da cxx tipi gerekmez (gerçek fixture'larla derlenen kopyası: `crates/ferrobridge-e2e/tests/readme.rs`):
+
+```rust
+use vehicle::{Vehicle, Mode};
+
+fn main() -> ferrobridge::Result<()> {
+    let mut car = Vehicle::new_i32(4)?;           // C++ constructor; sahip olan sarmalayıcı
+    car.drive(12.5)?;                             // &mut self; C++ exception → Err
+    let km = car.odometer();                      // noexcept → doğrudan değer
+    let text: String = vehicle::greet("Ada")?;    // &str girer, String çıkar
+    match vehicle::next(Mode::Auto)? {            // gerçek Rust enum'u, kapsam denetimli
+        Mode::Manual | Mode::Auto | Mode::Hybrid => {}
+    }
+    Ok(())
+}
+```
+
+| C++ | Güvenli API |
+|---|---|
+| Constructor, değerle dönen sınıf | Sahip olan sarmalayıcı `T` (düşünce C++ destructor'ı çalışır) |
+| `owned` pointer, `std::unique_ptr<T>` dönüşü | `Option<T>` |
+| Metotlar | `&self` / `&mut self`; ödünç nesnelerde (`&ffi::T`, `Pin<&mut ffi::T>`) aynı metotlar |
+| `const std::string&` / `std::string` dönüşü | `&str` / `String` (geçersiz UTF-8 → `Err`) |
+| `const std::vector<T>&` (T sayı) / değerle dönen vector | `&[T]` / `Vec<T>`, `Vec<String>` (kopyalanır) |
+| `enum` | Gerçek Rust `enum`'u; C++'tan tanımsız değer → `Err` |
+| Exception fırlatabilen her şey | `ferrobridge::Result<T>`; hata C++ öğesinin adını taşır (`geo::Vehicle::break_down: motor arızası`) |
+
+Değiştirilebilir `std::string&` / `std::vector<T>&` ve sınıf elemanlı vector'ler cxx tipleri olarak kalır: kopyala-geri yaz, C++ referansı saklıyorsa sessizce yanlış olurdu. Ham cxx katmanı `vehicle::ffi` altında kaçış kapısı olarak durur (metotlar `raw_<ad>`). Sarmalayıcıyı `&ffi::T` bekleyen bir fonksiyona `&araba` diye verebilirsiniz (deref coercion); bunun için değer bir değişkene bağlı olmalı. Tasarım: ADR-0007.
+
+Adlandırma kuralları (overload'lar için `clamp_i32_i32_i32`, namespace çakışmaları için `geo_length`, constructor'lar için `Vehicle::new_i32`) ADR-0005'te. Gerçek bir örnek için `crates/ferrobridge-e2e/`.
 
 ### Sahiplik açıklamaları (`ferrobridge.toml`)
 
@@ -115,9 +143,10 @@ cargo run -p ferrobridge-cli -- parse include/mylib.h --std c++20 -- -I include 
 | `ferrobridge-ir` | Dilden bağımsız ara model (başka ferrobridge crate'ine bağımlı değil) |
 | `ferrobridge-parser` | libclang ile C++ header okuma |
 | `ferrobridge-analysis` | Neyin güvenle bağlanabileceğine karar verir (güvenlik kuralları), Rust adlarını atar |
-| `ferrobridge-codegen` | cxx bridge ve C++ shim üretimi |
+| `ferrobridge-codegen` | Güvenli Rust API, cxx bridge ve C++ shim üretimi |
+| `ferrobridge` | Üretilen kodun çalışma zamanı: `ferrobridge::Error` ve dönüşüm yardımcıları (yalnızca `cxx`'e bağlı, `unsafe` yok) |
 | `ferrobridge-build` | `build.rs` içinden çağrılan API |
-| `ferrobridge-cli` | `ferrobridge` komut satırı aracı (`doctor`, `parse`, `generate`) |
+| `ferrobridge-cli` | `ferrobridge` komut satırı aracı (`doctor`, `parse`, `generate`, `suggest`) |
 | `ferrobridge-e2e` | Uçtan uca testler: üretilen bridge'ler gerçek C++ ile derlenip Rust'tan çağrılır |
 
 Test fixture'ları `tests/fixtures/<konu>/input.h` altında, beklenen çıktılar `crates/*/tests/snapshots/` altında [insta](https://insta.rs) snapshot'ı olarak tutulur. Çıktı değiştiğinde `cargo insta review` ile inceleyin.
