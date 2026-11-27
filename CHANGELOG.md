@@ -23,7 +23,7 @@ The first release. ferrobridge reads C++ headers with libclang, takes ownership 
 
 ### Requirements
 
-- Rust 1.85 or later, libclang 16 or later, a C++17 compiler. Tested on Linux (libclang 16 and 18) and macOS (Homebrew LLVM, Apple libclang).
+- Rust 1.85 or later, libclang 16 or later, a C++17 compiler. Tested on Linux (libclang 16 and 18) and macOS (Homebrew LLVM 23, Apple libclang). On macOS the libc++ headers of a recent Xcode SDK need a recent libclang; libclang 16 cannot read them.
 
 ### Known limits
 

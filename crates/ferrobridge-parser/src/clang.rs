@@ -442,6 +442,37 @@ impl<'tu> Cursor<'tu> {
         Type::new(unsafe { cx::clang_getTypedefDeclUnderlyingType(self.raw) })
     }
 
+    /// The spellings of the first `limit` tokens of the cursor's source range (fewer if the range is
+    /// shorter, empty if the cursor has no range).
+    pub(crate) fn leading_tokens(&self, limit: usize) -> Vec<String> {
+        // SAFETY: `self.raw` is valid; the translation unit that owns it lives for `'tu`.
+        let tu = unsafe { cx::clang_Cursor_getTranslationUnit(self.raw) };
+        if tu.is_null() {
+            return Vec::new();
+        }
+        // SAFETY: `self.raw` is valid.
+        let extent = unsafe { cx::clang_getCursorExtent(self.raw) };
+        let mut tokens: *mut cx::CXToken = ptr::null_mut();
+        let mut count: c_uint = 0;
+        // SAFETY: `tu` and `extent` are valid; `tokens` and `count` are valid output pointers.
+        // The returned array is released once below with `clang_disposeTokens`.
+        unsafe { cx::clang_tokenize(tu, extent, &mut tokens, &mut count) };
+        if tokens.is_null() {
+            return Vec::new();
+        }
+        let taken = usize::try_from(count).map_or(limit, |count| count.min(limit));
+        let spellings = (0..taken)
+            .map(|index| {
+                // SAFETY: `tokens` points to `count` tokens and `index < count`; the tokens belong to `tu`.
+                // Ownership of the returned `CXString` passes to `take_string`.
+                take_string(unsafe { cx::clang_getTokenSpelling(tu, *tokens.add(index)) })
+            })
+            .collect();
+        // SAFETY: `tokens` and `count` come from `clang_tokenize` on `tu` and are released exactly once.
+        unsafe { cx::clang_disposeTokens(tu, tokens, count) };
+        spellings
+    }
+
     /// The semantic parent containing the declaration (namespace, class or translation unit).
     pub(crate) fn semantic_parent(&self) -> Cursor<'tu> {
         // SAFETY: `self.raw` is valid; returns a null cursor if there is no parent.
