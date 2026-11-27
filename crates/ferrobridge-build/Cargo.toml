@@ -1,6 +1,6 @@
 [package]
 name = "ferrobridge-build"
-description = "ferrobridge bridge'lerini `build.rs`'ten derler: commit'li üretilmiş dosyaları ya da (`generate` özelliğiyle) derleme sırasında üretilenleri."
+description = "Builds ferrobridge bridges from `build.rs`: committed generated files or (with the `generate` feature) files generated during the build."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,7 +11,7 @@ publish.workspace = true
 workspace = true
 
 [features]
-# `build.rs` içinde header'ı libclang ile okuyup bridge'i `OUT_DIR`'e üretir. libclang gerekir.
+# Reads the header with libclang inside `build.rs` and generates the bridge into `OUT_DIR`. Needs libclang.
 generate = ["dep:ferrobridge-parser", "dep:ferrobridge-analysis", "dep:ferrobridge-codegen"]
 
 [dependencies]

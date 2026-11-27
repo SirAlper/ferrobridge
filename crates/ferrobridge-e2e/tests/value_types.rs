@@ -1,5 +1,5 @@
-//! `tests/fixtures/value_types`: alanları public, bit bit kopyalanabilen sınıflar Rust'ta
-//! struct; alanlar doğrudan okunup yazılır, değerle geçer.
+//! `tests/fixtures/value_types`: classes whose fields are public and that are trivially copyable are
+//! structs in Rust; fields are read and written directly, passed by value.
 
 use ferrobridge_e2e::value_types::{self as geo, Account, Frozen, Line, PairIF, Pt, Vec3f};
 
@@ -9,7 +9,7 @@ fn fields_are_plain_rust_fields() -> ferrobridge::Result<()> {
     assert_eq!((p.x, p.y), (3.0, 4.0));
     p.y = 0.0;
     assert_eq!(p.norm2()?, 9.0);
-    // Alanlardan da kurulabilir: bütün alanlar public, gizli bir değişmez yok.
+    // It can also be constructed from its fields: all fields are public, there is no hidden invariant.
     let q = Pt { x: 1.0, y: 1.0 };
     assert_eq!(q.norm2()?, 2.0);
     Ok(())
@@ -29,7 +29,7 @@ fn values_go_in_and_come_out_by_value() -> ferrobridge::Result<()> {
     let b = Pt { x: 4.0, y: 2.0 };
     let m = geo::midpoint(a, &b)?;
     assert_eq!((m.x, m.y), (2.0, 1.0));
-    // Kopya: `a` hâlâ kullanılabilir.
+    // A copy: `a` is still usable.
     let line: Line = geo::make_line(a, Pt { x: 3.0, y: 4.0 })?;
     assert_eq!(line.to.y, 4.0);
     assert_eq!(line.length()?, 5.0);
@@ -73,7 +73,7 @@ fn instances_with_commas_in_their_spelling_work() -> ferrobridge::Result<()> {
 
 #[test]
 fn classes_with_const_fields_stay_opaque() -> ferrobridge::Result<()> {
-    // Değer tipi olsaydı `frozen.limit = ...` yazılabilirdi.
+    // If it were a value type, `frozen.limit = ...` could be written.
     let frozen = Frozen::new()?;
     assert_eq!(frozen.get()?, 1.5);
     Ok(())

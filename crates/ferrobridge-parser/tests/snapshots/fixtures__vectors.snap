@@ -27,7 +27,7 @@ expression: portable(&module)
                 "type": {
                   "kind": "integer",
                   "spelling": "std::int32_t",
-                  "builtin": "(platforma bağlı)",
+                  "builtin": "(platform-dependent)",
                   "size_bytes": 4,
                   "signed": true,
                   "fixed_width": true
@@ -52,7 +52,7 @@ expression: portable(&module)
             "type": {
               "kind": "integer",
               "spelling": "std::int32_t",
-              "builtin": "(platforma bağlı)",
+              "builtin": "(platform-dependent)",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -78,7 +78,7 @@ expression: portable(&module)
             "type": {
               "kind": "integer",
               "spelling": "std::int32_t",
-              "builtin": "(platforma bağlı)",
+              "builtin": "(platform-dependent)",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -142,7 +142,7 @@ expression: portable(&module)
         "type": {
           "kind": "integer",
           "spelling": "std::int32_t",
-          "builtin": "(platforma bağlı)",
+          "builtin": "(platform-dependent)",
           "size_bytes": 4,
           "signed": true,
           "fixed_width": true
@@ -275,7 +275,7 @@ expression: portable(&module)
         "type": {
           "kind": "integer",
           "spelling": "std::int32_t",
-          "builtin": "(platforma bağlı)",
+          "builtin": "(platform-dependent)",
           "size_bytes": 4,
           "signed": true,
           "fixed_width": true
@@ -302,7 +302,7 @@ expression: portable(&module)
             "type": {
               "kind": "integer",
               "spelling": "std::int32_t",
-              "builtin": "(platforma bağlı)",
+              "builtin": "(platform-dependent)",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -371,7 +371,7 @@ expression: portable(&module)
         "type": {
           "kind": "integer",
           "spelling": "std::int32_t",
-          "builtin": "(platforma bağlı)",
+          "builtin": "(platform-dependent)",
           "size_bytes": 4,
           "signed": true,
           "fixed_width": true
@@ -524,7 +524,7 @@ expression: portable(&module)
       "kind": "unsupported",
       "construct": "class_template",
       "name": "geo::Arena",
-      "reason": "Sınıf template'i: somut bir tiple örneklenmeden bağlanamaz; `ferrobridge.toml`'da `[templates]` ile örnekleyin (ör. `Vector3f = \"Vector3<float>\"`).",
+      "reason": "Class template: cannot be bound without being instantiated with a concrete type; instantiate it with `[templates]` in `ferrobridge.toml` (e.g. `Vector3f = \"Vector3<float>\"`).",
       "location": {
         "file": "input.h",
         "line": 33,
@@ -549,7 +549,7 @@ expression: portable(&module)
                 "type": {
                   "kind": "unsupported",
                   "spelling": "std::vector<int, Arena<int>>",
-                  "reason": "Özel allocator'lı `std::vector` desteklenmiyor."
+                  "reason": "`std::vector` with a custom allocator is not supported."
                 }
               }
             }

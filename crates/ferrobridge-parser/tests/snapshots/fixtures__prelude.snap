@@ -56,7 +56,7 @@ expression: portable(&module)
             "type": {
               "kind": "integer",
               "spelling": "uint8_t",
-              "builtin": "(platforma bağlı)",
+              "builtin": "(platform-dependent)",
               "size_bytes": 1,
               "signed": false,
               "fixed_width": true
@@ -69,7 +69,7 @@ expression: portable(&module)
         "type": {
           "kind": "integer",
           "spelling": "uint8_t",
-          "builtin": "(platforma bağlı)",
+          "builtin": "(platform-dependent)",
           "size_bytes": 1,
           "signed": false,
           "fixed_width": true

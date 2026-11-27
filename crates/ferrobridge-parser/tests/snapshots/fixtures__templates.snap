@@ -1,6 +1,6 @@
 ---
 source: crates/ferrobridge-parser/tests/fixtures.rs
-expression: module
+expression: portable(&module)
 ---
 {
   "format_version": 5,
@@ -9,7 +9,7 @@ expression: module
       "kind": "unsupported",
       "construct": "template_instance",
       "name": "Fixed3",
-      "reason": "Yalnızca tip parametreli sınıf template'leri örneklenebiliyor (`template <typename T>`).",
+      "reason": "Only class templates with type parameters can be instantiated (`template <typename T>`).",
       "location": {
         "file": "input.h.ferrobridge.cc",
         "line": 6,
@@ -20,7 +20,7 @@ expression: module
       "kind": "unsupported",
       "construct": "class_template",
       "name": "geo::Fixed",
-      "reason": "Sınıf template'i: somut bir tiple örneklenmeden bağlanamaz; `ferrobridge.toml`'da `[templates]` ile örnekleyin (ör. `Vector3f = \"Vector3<float>\"`).",
+      "reason": "Class template: cannot be bound without being instantiated with a concrete type; instantiate it with `[templates]` in `ferrobridge.toml` (e.g. `Vector3f = \"Vector3<float>\"`).",
       "location": {
         "file": "input.h",
         "line": 38,
@@ -31,7 +31,7 @@ expression: module
       "kind": "unsupported",
       "construct": "class_template",
       "name": "geo::Unused",
-      "reason": "Sınıf template'i: somut bir tiple örneklenmeden bağlanamaz; `ferrobridge.toml`'da `[templates]` ile örnekleyin (ör. `Vector3f = \"Vector3<float>\"`).",
+      "reason": "Class template: cannot be bound without being instantiated with a concrete type; instantiate it with `[templates]` in `ferrobridge.toml` (e.g. `Vector3f = \"Vector3<float>\"`).",
       "location": {
         "file": "input.h",
         "line": 45,
@@ -119,7 +119,7 @@ expression: module
                 "type": {
                   "kind": "unsupported",
                   "spelling": "Vec3<double>",
-                  "reason": "`const geo::Vec3<double>` örneklenmemiş bir template; `ferrobridge.toml`'da `[templates]`'e ekleyin."
+                  "reason": "`const geo::Vec3<double>` is a template that is not instantiated; add it to `[templates]` in `ferrobridge.toml`."
                 }
               }
             }
@@ -164,7 +164,7 @@ expression: module
             "type": {
               "kind": "unsupported",
               "spelling": "int",
-              "reason": "Bit alanları Rust'ta karşılığı olan bir düzene sahip değil."
+              "reason": "Bit fields do not have a layout with a counterpart in Rust."
             }
           },
           "public": true,
@@ -438,7 +438,7 @@ expression: module
         {
           "construct": "method_template",
           "name": "geo::Vec3<float>::first_as",
-          "reason": "Template'ler MVP kapsamı dışında (v0.2 hedefi).",
+          "reason": "Templates are outside the MVP scope (a v0.2 goal).",
           "location": {
             "file": "input.h",
             "line": 26,

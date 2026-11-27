@@ -1,6 +1,6 @@
 ---
 source: crates/ferrobridge-parser/tests/fixtures.rs
-expression: module
+expression: portable(&module)
 ---
 {
   "format_version": 5,
@@ -142,7 +142,7 @@ expression: module
       "kind": "unsupported",
       "construct": "function_template",
       "name": "identity",
-      "reason": "Template'ler MVP kapsamı dışında (v0.2 hedefi).",
+      "reason": "Templates are outside the MVP scope (a v0.2 goal).",
       "location": {
         "file": "input.h",
         "line": 16,
@@ -153,7 +153,7 @@ expression: module
       "kind": "unsupported",
       "construct": "variable",
       "name": "global_counter",
-      "reason": "Global ve statik değişkenler henüz desteklenmiyor.",
+      "reason": "Global and static variables are not supported yet.",
       "location": {
         "file": "input.h",
         "line": 18,
@@ -194,7 +194,7 @@ expression: module
       "kind": "unsupported",
       "construct": "variadic_function",
       "name": "sum",
-      "reason": "Değişken sayıda argüman alan (`...`) fonksiyonlar desteklenmiyor.",
+      "reason": "Functions taking a variable number of arguments (`...`) are not supported.",
       "location": {
         "file": "input.h",
         "line": 23,

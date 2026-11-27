@@ -1,7 +1,7 @@
-//! IR tiplerini bridge tiplerine çeviren kurallar (Obsidian `03 Mimari` tip tablosu ve
-//! güvenlik kuralları). Bir tip güvenle ifade edilemiyorsa nedeniyle reddedilir; hiçbir
-//! durumda tahmin yürütülmez. Header'ın söylemediği bilgi (pointer'ların sahipliği) yalnızca
-//! `ferrobridge.toml` açıklamasından gelir.
+//! Rules that turn IR types into bridge types (the architecture's type table and the
+//! safety rules). If a type cannot be expressed safely, it is rejected with a reason; nothing
+//! is ever guessed. Information the header does not give (the ownership of pointers) comes only
+//! from a `ferrobridge.toml` annotation.
 
 use std::collections::HashMap;
 
@@ -10,61 +10,59 @@ use ferrobridge_ir::{ConstantValue, Destructor, QualType, Type};
 use crate::config::{ParamAnnotation, ReturnAnnotation};
 use crate::plan::{BridgeType, IntType, Pass, Returns, TypeRef};
 
-const REASON_POINTER_PARAM: &str = "Ham pointer'ın sahibi ve ömrü header'dan anlaşılamıyor; \
-     `ferrobridge.toml`'da `borrowed` olarak açıklanmalı (`ferrobridge suggest` taslak basar).";
-const REASON_POINTER_RETURN: &str = "Dönen ham pointer'ın sahibi header'dan anlaşılamıyor; \
-     `ferrobridge.toml`'da açıklanmalı (`ferrobridge suggest` taslak basar).";
-const REASON_MUT_PRIMITIVE_REF: &str = "Const olmayan primitif referans (ör. `double&`) \
-     saklanabilir; `ferrobridge.toml`'da `borrowed` olarak açıklanmalı.";
-const REASON_VALUE_CONTAINER: &str = "Değer tipleri henüz `std::vector` ya da `std::unique_ptr` \
-     içinde bağlanmıyor.";
-const REASON_CLASS_BY_VALUE: &str = "Sınıfı değerle almak kopyalama/taşıma gerektiriyor; henüz \
-     desteklenmiyor (`const T&` kullanın).";
+const REASON_POINTER_PARAM: &str = "The owner and lifetime of a raw pointer cannot be told from the header; \
+     it must be annotated as `borrowed` in `ferrobridge.toml` (`ferrobridge suggest` prints a draft).";
+const REASON_POINTER_RETURN: &str = "The owner of a returned raw pointer cannot be told from the header; \
+     it must be annotated in `ferrobridge.toml` (`ferrobridge suggest` prints a draft).";
+const REASON_MUT_PRIMITIVE_REF: &str = "A non-const primitive reference (e.g. `double&`) \
+     may be kept; it must be annotated as `borrowed` in `ferrobridge.toml`.";
+const REASON_VALUE_CONTAINER: &str = "Value types are not bound inside `std::vector` or `std::unique_ptr` \
+     yet.";
+const REASON_CLASS_BY_VALUE: &str = "Taking a class by value needs copying/moving; not \
+     supported yet (use `const T&`).";
 const REASON_STRING_BY_VALUE: &str =
-    "`std::string`'i değerle almak henüz desteklenmiyor (`const std::string&` kullanın).";
+    "Taking `std::string` by value is not supported yet (use `const std::string&`).";
 const REASON_VECTOR_BY_VALUE: &str =
-    "`std::vector`'ü değerle almak henüz desteklenmiyor (`const std::vector<T>&` kullanın).";
-const REASON_RVALUE: &str = "Rvalue referanslar (`T&&`) henüz desteklenmiyor.";
-const REASON_REF_RETURN_FREE: &str = "Serbest veya statik fonksiyonun döndürdüğü referansın \
-     ömrü belirsiz (`'static` olmalı); sonraki milestone'da ele alınacak.";
-const REASON_BORROWED_RETURN_FREE: &str = "`borrowed` dönüş yalnızca metotlarda destekleniyor \
-     (referans nesneye bağlanır); serbest/statik fonksiyonlarda ömür `'static` olmalı, sonraki \
-     milestone'da ele alınacak.";
-const REASON_OWNED_REF: &str =
-    "Referans dönüşünün sahipliği devredilemez; `owned` yalnızca pointer dönüşlerinde geçerli.";
-const REASON_OWNED_CONST: &str = "`const T*` dönüşü `owned` olarak bağlanmıyor: Rust tarafı \
-     nesneyi değiştirebilir hale gelirdi.";
-const REASON_OWNED_PRIMITIVE: &str = "`owned` yalnızca sınıf, `std::string` ve `std::vector` \
-     pointer'larında destekleniyor (cxx `UniquePtr<primitif>` desteklemiyor).";
+    "Taking `std::vector` by value is not supported yet (use `const std::vector<T>&`).";
+const REASON_RVALUE: &str = "Rvalue references (`T&&`) are not supported yet.";
+const REASON_REF_RETURN_FREE: &str = "The lifetime of a reference returned by a free or static function \
+     is unclear (it would have to be `'static`); to be handled in a later milestone.";
+const REASON_BORROWED_RETURN_FREE: &str = "A `borrowed` return is supported only on methods \
+     (the reference is tied to the object); on free/static functions the lifetime would have to be `'static`, \
+     to be handled in a later milestone.";
+const REASON_OWNED_REF: &str = "The ownership of a returned reference cannot be transferred; `owned` is valid only for pointer returns.";
+const REASON_OWNED_CONST: &str = "A `const T*` return is not bound as `owned`: the Rust side \
+     would be able to change the object.";
+const REASON_OWNED_PRIMITIVE: &str = "`owned` is supported only for pointers to classes, `std::string` \
+     and `std::vector` (cxx does not support `UniquePtr<primitive>`).";
 const REASON_MUT_REF_FROM_CONST: &str =
-    "Const metot değiştirilebilir referans döndüremez (Rust ödünç alma kuralları).";
-const REASON_ABSTRACT_BY_VALUE: &str = "Soyut sınıf değerle döndürülemez.";
-const REASON_VOID_PARAM: &str = "`void` parametre olamaz.";
-const REASON_VOID_POINTER: &str = "`void*` tipsiz bir pointer; güvenli bir Rust karşılığı yok.";
-const REASON_C_STRING: &str =
-    "`char*` C string'leri henüz desteklenmiyor (`std::string` kullanın).";
-const REASON_POINTER_TO_POINTER: &str = "Pointer'a pointer (`T**`) desteklenmiyor.";
-const REASON_UNSUPPORTED_POINTEE: &str = "Bu tipe pointer henüz desteklenmiyor.";
-const REASON_UNSUPPORTED_REF: &str = "Bu tipe referans henüz desteklenmiyor.";
-const REASON_UNSUPPORTED_UNIQUE: &str = "`std::unique_ptr` yalnızca bu header'daki sınıflar, \
-     `std::string` ve `std::vector` için destekleniyor.";
+    "A const method cannot return a mutable reference (Rust borrowing rules).";
+const REASON_ABSTRACT_BY_VALUE: &str = "An abstract class cannot be returned by value.";
+const REASON_VOID_PARAM: &str = "`void` cannot be a parameter.";
+const REASON_VOID_POINTER: &str = "`void*` is an untyped pointer; it has no safe Rust counterpart.";
+const REASON_C_STRING: &str = "`char*` C strings are not supported yet (use `std::string`).";
+const REASON_POINTER_TO_POINTER: &str = "Pointers to pointers (`T**`) are not supported.";
+const REASON_UNSUPPORTED_POINTEE: &str = "Pointers to this type are not supported yet.";
+const REASON_UNSUPPORTED_REF: &str = "References to this type are not supported yet.";
+const REASON_UNSUPPORTED_UNIQUE: &str = "`std::unique_ptr` is supported only for classes in this header, \
+     `std::string` and `std::vector`.";
 const REASON_VECTOR_BOOL: &str =
-    "`std::vector<bool>` C++'ta bit paketli özel bir tip; cxx desteklemiyor.";
-const REASON_VECTOR_ELEMENT: &str = "`std::vector` elemanı yalnızca sabit genişlikli tamsayı, \
-     `float`/`double`, `std::string` ya da bu header'daki bir sınıf olabilir.";
-const REASON_FLOAT_SIZE: &str = "Yalnızca `float` ve `double` destekleniyor.";
-const REASON_CONSTANT_VALUE: &str = "Sabitin değeri Rust tipine sığmıyor (`char` sabitleri \
-     yalnızca 0–127 arasında bağlanır: `c_char`'ın işareti platforma bağlı).";
-const REASON_SLICE_NOT_POINTER: &str = "`slice` yalnızca pointer parametrelerine uygulanabilir.";
-const REASON_SLICE_ELEMENT: &str = "`slice` yalnızca sayı dizilerini gösteren pointer'lara \
-     uygulanabilir (sabit genişlikli tamsayı, `float`, `double`).";
-const REASON_SLICE_CHAR: &str = "`char` dizileri `slice` olarak bağlanmıyor (işareti platforma \
-     bağlı); bayt dizileri için header'da `uint8_t` kullanılmalı.";
+    "`std::vector<bool>` is a special bit-packed type in C++; cxx does not support it.";
+const REASON_VECTOR_ELEMENT: &str = "A `std::vector` element can only be a fixed-width integer, \
+     `float`/`double`, `std::string` or a class in this header.";
+const REASON_FLOAT_SIZE: &str = "Only `float` and `double` are supported.";
+const REASON_CONSTANT_VALUE: &str = "The constant's value does not fit the Rust type (`char` constants \
+     are bound only between 0 and 127: the signedness of `c_char` depends on the platform).";
+const REASON_SLICE_NOT_POINTER: &str = "`slice` can only be applied to pointer parameters.";
+const REASON_SLICE_ELEMENT: &str = "`slice` can only be applied to pointers to arrays of numbers \
+     (fixed-width integers, `float`, `double`).";
+const REASON_SLICE_CHAR: &str = "`char` arrays are not bound as `slice` (their signedness depends on \
+     the platform); the header should use `uint8_t` for byte arrays.";
 const REASON_SLICE_LENGTH: &str =
-    "`slice` uzunluk parametresi değerle geçirilen bir tamsayı olmalı.";
+    "The `slice` length parameter must be an integer passed by value.";
 
-/// Her platformda aynı genişlikte olan C++ temel tamsayı tipleri. `long` (Windows'ta 32,
-/// diğerlerinde 64 bit) ve `long long` (`std::int64_t` bazı platformlarda `long`) dışarıda.
+/// Underlying C++ integer types with the same width on every platform. `long` (32 bits on
+/// Windows, 64 elsewhere) and `long long` (`std::int64_t` is `long` on some platforms) are left out.
 const PORTABLE_BUILTINS: [&str; 6] = [
     "signed char",
     "unsigned char",
@@ -74,22 +72,22 @@ const PORTABLE_BUILTINS: [&str; 6] = [
     "unsigned int",
 ];
 
-/// Bir sınıfın ya da enum'un anahtarı: (namespace yolu, ad).
+/// The key of a class or enum: (namespace path, name).
 pub(crate) type TypeKey = (Vec<String>, String);
 
-/// Bridge'de adı geçebilecek bir sınıf.
+/// A class whose name may appear in the bridge.
 #[derive(Clone)]
 pub(crate) struct KnownClass {
     pub(crate) type_ref: TypeRef,
     pub(crate) is_abstract: bool,
     pub(crate) is_polymorphic: bool,
     pub(crate) destructor: Destructor,
-    /// Değer tipi mi (Rust'ta `#[repr(C)]` struct)?
+    /// Is it a value type (a `#[repr(C)]` struct in Rust)?
     pub(crate) value: bool,
 }
 
 impl KnownClass {
-    /// Bridge'deki tipi: değer tipiyse `Value`, değilse opak `Class`.
+    /// Its type in the bridge: `Value` if it is a value type, the opaque `Class` otherwise.
     pub(crate) fn bridge_type(&self) -> BridgeType {
         if self.value {
             BridgeType::Value(self.type_ref.clone())
@@ -99,27 +97,27 @@ impl KnownClass {
     }
 }
 
-/// Bridge'de adı geçebilecek sınıf ve enum'lar: (namespace, ad) → bilgi.
+/// Classes and enums whose names may appear in the bridge: (namespace, name) → information.
 #[derive(Default)]
 pub(crate) struct Known {
     pub(crate) classes: HashMap<(Vec<String>, String), KnownClass>,
     pub(crate) enums: HashMap<(Vec<String>, String), TypeRef>,
 }
 
-/// Açıklama eklenince çözülebilecek bir reddin türü.
+/// The kind of rejection that an annotation could resolve.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Need {
-    /// Parametreye `borrowed` açıklaması.
+    /// A `borrowed` annotation on the parameter.
     Param,
-    /// Dönüşe bu açıklamalardan biri.
+    /// One of these annotations on the return.
     Return(Vec<ReturnAnnotation>),
 }
 
-/// Bir tipin reddedilme nedeni.
+/// Why a type was rejected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Rejection {
     pub(crate) reason: String,
-    /// Açıklama eklenirse bağlanabilir mi?
+    /// Could it be bound if an annotation were added?
     pub(crate) need: Option<Need>,
 }
 
@@ -135,27 +133,27 @@ impl From<&str> for Rejection {
     }
 }
 
-/// Bağlanabilen bir parametre.
+/// A parameter that can be bound.
 #[derive(Debug)]
 pub(crate) struct ParamRule {
     pub(crate) ty: BridgeType,
     pub(crate) pass: Pass,
-    /// Verilen açıklama gerçekten kullanıldı mı (kullanılmadıysa gereksizdir)?
+    /// Was the given annotation really used (if not, it is unnecessary)?
     pub(crate) applied: bool,
 }
 
-/// Bağlanabilen bir dönüş.
+/// A return that can be bound.
 #[derive(Debug)]
 pub(crate) struct ReturnRule {
     pub(crate) returns: Returns,
-    /// Verilen açıklama gerçekten kullanıldı mı?
+    /// Was the given annotation really used?
     pub(crate) applied: bool,
 }
 
-/// Bir parametre tipini çevirir.
+/// Lowers a parameter type.
 ///
-/// `slice` açıklamaları burada değil, fonksiyon düzeyinde (uzunluk parametresiyle birlikte)
-/// işlenir; buraya yalnızca `borrowed` gelir.
+/// `slice` annotations are handled not here but at the function level (together with the length
+/// parameter); only `borrowed` comes here.
 pub(crate) fn param_type(
     qt: &QualType,
     known: &Known,
@@ -220,8 +218,8 @@ pub(crate) fn param_type(
     }
 }
 
-/// Bir dönüş tipini çevirir. `receiver_mutable`: metotsa alıcının değiştirilebilir olup
-/// olmadığı; serbest/statik fonksiyonsa `None`.
+/// Lowers a return type. `receiver_mutable`: for a method, whether the receiver is mutable;
+/// `None` for a free/static function.
 pub(crate) fn return_type(
     qt: &QualType,
     known: &Known,
@@ -266,7 +264,7 @@ pub(crate) fn return_type(
     }
 }
 
-/// Metodun döndürdüğü `T&`. Primitif `T&` açıklama ister; diğerleri tip tablosuna uyar.
+/// A `T&` returned by a method. A primitive `T&` needs an annotation; the others follow the type table.
 fn ref_return(
     referent: &QualType,
     known: &Known,
@@ -298,7 +296,7 @@ fn ref_return(
     Ok((reference, false))
 }
 
-/// Dönen `T*`: açıklama olmadan bağlanmaz.
+/// A returned `T*`: not bound without an annotation.
 fn pointer_return(
     pointee: &QualType,
     known: &Known,
@@ -320,8 +318,8 @@ fn pointer_return(
                 options.push(ReturnAnnotation::Borrowed);
             }
             if options.is_empty() {
-                // Serbest/statik fonksiyon ve sahiplenilemeyen pointer: hiçbir açıklama
-                // işe yaramıyor.
+                // A free/static function and a pointer that cannot be owned: no annotation
+                // helps.
                 let owned = if pointee.is_const {
                     REASON_OWNED_CONST
                 } else {
@@ -375,8 +373,8 @@ fn pointer_return(
     }
 }
 
-/// Değer tipi bir alanın Rust tipi: sayı, `bool`, `c_char` ya da değer tipi olarak işaretlenmiş
-/// bir sınıf (`value_classes`). Uymuyorsa `None`.
+/// The Rust type of a value-type field: a number, `bool`, `c_char` or a class marked as a value
+/// type (`value_classes`). `None` if it does not fit.
 pub(crate) fn value_field_type(
     ty: &Type,
     known: &Known,
@@ -402,7 +400,7 @@ pub(crate) fn value_field_type(
     }
 }
 
-/// Bir sabitin Rust tipi; değer tipe uymuyorsa ya da sığmıyorsa reddedilir.
+/// The Rust type of a constant; rejected if the value does not match the type or does not fit.
 pub(crate) fn constant_type(ty: &Type, value: ConstantValue) -> Result<BridgeType, String> {
     let bridge = non_ref(ty, &Known::default())?;
     let as_int = |value: ConstantValue| match value {
@@ -417,8 +415,8 @@ pub(crate) fn constant_type(ty: &Type, value: ConstantValue) -> Result<BridgeTyp
             let (min, max) = int.range();
             as_int(value).is_some_and(|v| (min..=max).contains(&v))
         }
-        // `c_char` bir platformda işaretli, diğerinde işaretsiz: yalnızca ikisinde de aynı
-        // olan değerler.
+        // `c_char` is signed on one platform and unsigned on another: only values that are the same
+        // on both.
         (BridgeType::Char, value) => as_int(value).is_some_and(|v| (0..=127).contains(&v)),
         _ => false,
     };
@@ -429,7 +427,7 @@ pub(crate) fn constant_type(ty: &Type, value: ConstantValue) -> Result<BridgeTyp
     }
 }
 
-/// `slice` açıklamalı bir parametre: eleman tipi ve dizinin değiştirilebilir olup olmadığı.
+/// A parameter annotated with `slice`: the element type and whether the array is mutable.
 pub(crate) fn slice_element(qt: &QualType, known: &Known) -> Result<(BridgeType, bool), String> {
     let Type::Pointer { pointee } = &qt.ty else {
         return Err(REASON_SLICE_NOT_POINTER.to_owned());
@@ -445,8 +443,8 @@ pub(crate) fn slice_element(qt: &QualType, known: &Known) -> Result<(BridgeType,
     }
 }
 
-/// `slice` uzunluk parametresinin C++ temel tipi (ör. `"unsigned short"`). Rust'a görünmediği
-/// için `size_t` gibi platforma bağlı tipler de kabul edilir.
+/// The underlying C++ type of a `slice` length parameter (e.g. `"unsigned short"`). Because it is
+/// not visible to Rust, platform-dependent types such as `size_t` are accepted too.
 pub(crate) fn slice_length(qt: &QualType) -> Result<String, String> {
     match &qt.ty {
         Type::Integer { builtin, .. } => Ok(builtin.clone()),
@@ -454,12 +452,12 @@ pub(crate) fn slice_length(qt: &QualType) -> Result<String, String> {
     }
 }
 
-/// Sayı dizisi olabilecek bir pointer mı (`slice` önerisi için)?
+/// Is it a pointer that could be an array of numbers (for a `slice` suggestion)?
 pub(crate) fn could_be_slice(qt: &QualType, known: &Known) -> bool {
     slice_element(qt, known).is_ok()
 }
 
-/// `const` olmayan primitif ya da enum mu (`double&` gibi)?
+/// Is it a non-`const` primitive or enum (like `double&`)?
 fn is_mut_primitive(referent: &QualType) -> bool {
     !referent.is_const
         && matches!(
@@ -475,7 +473,7 @@ fn mutable_ref(inner: BridgeType) -> BridgeType {
     }
 }
 
-/// Bir pointer'ın gösterebileceği (açıklamayla referansa çevrilebilecek) tipler.
+/// The types a pointer can point to (that an annotation can turn into a reference).
 fn pointee_type(pointee: &QualType, known: &Known) -> Result<BridgeType, Rejection> {
     match &pointee.ty {
         Type::Record {
@@ -502,7 +500,7 @@ fn pointee_type(pointee: &QualType, known: &Known) -> Result<BridgeType, Rejecti
     }
 }
 
-/// Değerle taşınabilen tipler ve kesin reddedilenler.
+/// Types that can be passed by value, and the ones rejected for certain.
 fn non_ref(ty: &Type, known: &Known) -> Result<BridgeType, String> {
     match ty {
         Type::Bool => Ok(BridgeType::Bool),
@@ -518,13 +516,13 @@ fn non_ref(ty: &Type, known: &Known) -> Result<BridgeType, String> {
             }
             if !fixed_width && !PORTABLE_BUILTINS.contains(&builtin.as_str()) {
                 return Err(format!(
-                    "`{spelling}` ({builtin}) platformlar arasında farklı genişlikte olabilir; \
-                     `std::int64_t` gibi sabit genişlikli bir tip kullanın."
+                    "`{spelling}` ({builtin}) may have a different width on different platforms; \
+                     use a fixed-width type such as `std::int64_t`."
                 ));
             }
             IntType::from_layout(*size_bytes, *signed)
                 .map(BridgeType::Int)
-                .ok_or_else(|| format!("`{spelling}` için uygun tamsayı tipi yok."))
+                .ok_or_else(|| format!("no suitable integer type for `{spelling}`."))
         }
         Type::Float { size_bytes, .. } => match size_bytes {
             4 => Ok(BridgeType::F32),
@@ -553,7 +551,7 @@ fn non_ref(ty: &Type, known: &Known) -> Result<BridgeType, String> {
     }
 }
 
-/// `T&` / `const T&` için tip tablosu (const olmayan primitifler hariç; onlar açıklama ister).
+/// The type table for `T&` / `const T&` (except non-const primitives; they need an annotation).
 fn ref_type(referent: &QualType, known: &Known) -> Result<BridgeType, Rejection> {
     let mutable = !referent.is_const;
     let inner = match &referent.ty {
@@ -585,7 +583,7 @@ fn ref_type(referent: &QualType, known: &Known) -> Result<BridgeType, Rejection>
     })
 }
 
-/// `std::vector` eleman tipi: cxx'in `CxxVector<T>` için kabul ettikleri.
+/// The element type of a `std::vector`: what cxx accepts for `CxxVector<T>`.
 fn vector_element(element: &QualType, known: &Known) -> Result<BridgeType, String> {
     match &element.ty {
         Type::Bool => Err(REASON_VECTOR_BOOL.to_owned()),
@@ -603,7 +601,7 @@ fn vector_element(element: &QualType, known: &Known) -> Result<BridgeType, Strin
             if class.value {
                 return Err(REASON_VALUE_CONTAINER.to_owned());
             }
-            // `std::vector<T>`'nin kendi destructor'ı elemanları siler.
+            // The destructor of `std::vector<T>` itself deletes the elements.
             deletable(&class, false)?;
             Ok(BridgeType::Class(class.type_ref))
         }
@@ -634,26 +632,26 @@ fn unique_inner(pointee: &QualType, known: &Known) -> Result<BridgeType, String>
     }
 }
 
-/// Rust tarafının (`UniquePtr` düşünce) nesneyi `delete` ile silmesi güvenli mi?
+/// Is it safe for the Rust side to delete the object with `delete` (when a `UniquePtr` is dropped)?
 ///
-/// `through_base_pointer`: nesne bir pointer'dan geliyor ve gerçek tipi bir alt sınıf
-/// olabilir. O zaman polimorfik sınıfın destructor'ı sanal olmalı; değilse `delete` UB'dir.
+/// `through_base_pointer`: the object comes from a pointer and its real type may be a
+/// subclass. Then the destructor of a polymorphic class must be virtual; otherwise `delete` is UB.
 pub(crate) fn deletable(class: &KnownClass, through_base_pointer: bool) -> Result<(), String> {
     let path = class.type_ref.cpp_path.trim_start_matches("::");
     match class.destructor {
         Destructor::NotPublic => Err(format!(
-            "`{path}`'ın destructor'ı public değil; Rust tarafı nesneyi silemez, `UniquePtr` \
-             üretilmiyor."
+            "the destructor of `{path}` is not public; the Rust side cannot delete the object, no `UniquePtr` \
+             is generated."
         )),
         Destructor::Deleted => Err(format!(
-            "`{path}`'ın destructor'ı silinmiş (`= delete`); `UniquePtr` üretilmiyor."
+            "the destructor of `{path}` is deleted (`= delete`); no `UniquePtr` is generated."
         )),
         Destructor::Public { is_virtual: false }
             if through_base_pointer && class.is_polymorphic =>
         {
             Err(format!(
-                "`{path}` polimorfik ama destructor'ı sanal değil: dönen pointer bir alt sınıfı \
-                 gösteriyorsa `delete` tanımsız davranış olur, `UniquePtr` üretilmiyor."
+                "`{path}` is polymorphic but its destructor is not virtual: if the returned pointer points to a \
+                 subclass, `delete` is undefined behavior, no `UniquePtr` is generated."
             ))
         }
         Destructor::Public { .. } => Ok(()),
@@ -673,32 +671,32 @@ fn class(
         .ok_or_else(|| not_defined(namespace, name, declared_in))
 }
 
-/// Bilinmeyen bir tip: bridge'in dışındaki bir header'daysa hangisi olduğu ve ne yapılacağı.
+/// An unknown type: if it is in a header outside the bridge, which one and what to do.
 fn not_defined(namespace: &[String], name: &str, declared_in: Option<&str>) -> String {
     let mut path = namespace.to_vec();
     path.push(name.to_owned());
     let path = path.join("::");
     match declared_in {
         Some(header) => format!(
-            "`{path}` `{header}`'de bildirilmiş ve bu header bridge'e dahil değil; header'ı da \
-             bridge'e ekleyin (`ferrobridge generate a.h {header} ...`)."
+            "`{path}` is declared in `{header}`, and this header is not part of the bridge; add the header \
+             to the bridge too (`ferrobridge generate a.h {header} ...`)."
         ),
         None => {
-            format!("`{path}` bridge'in header'larında bağlanabilir bir tip olarak tanımlı değil.")
+            format!("`{path}` is not defined as a bindable type in the bridge's headers.")
         }
     }
 }
 
-/// Enum'un altta yatan tipi için tamsayı tipi.
+/// The integer type for the underlying type of an enum.
 pub(crate) fn enum_repr(underlying: &Type) -> Result<IntType, String> {
     match non_ref(underlying, &Known::default())? {
         BridgeType::Int(int) => Ok(int),
-        BridgeType::Char => Err("`char` tabanlı enum'lar desteklenmiyor.".to_owned()),
-        _ => Err("Enum'un altta yatan tipi tamsayı değil.".to_owned()),
+        BridgeType::Char => Err("`char`-based enums are not supported.".to_owned()),
+        _ => Err("The enum's underlying type is not an integer.".to_owned()),
     }
 }
 
-/// Bir tipin okunabilir C++ yazımı (öneri ve uyarılarda kullanılır).
+/// A readable C++ spelling of a type (used in suggestions and warnings).
 pub(crate) fn spell(qt: &QualType) -> String {
     let base = match &qt.ty {
         Type::Void => "void".to_owned(),

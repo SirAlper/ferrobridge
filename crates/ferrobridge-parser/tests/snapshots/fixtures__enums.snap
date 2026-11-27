@@ -50,7 +50,7 @@ expression: portable(&module)
       "underlying": {
         "kind": "integer",
         "spelling": "std::uint8_t",
-        "builtin": "(platforma bağlı)",
+        "builtin": "(platform-dependent)",
         "size_bytes": 1,
         "signed": false,
         "fixed_width": true

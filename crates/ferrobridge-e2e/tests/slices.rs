@@ -1,8 +1,8 @@
-//! `tests/fixtures/slices`, güvenli API ile: `{ slice = "len" }` açıklamalı pointer + uzunluk
-//! çiftleri Rust'ta tek bir `&[T]` / `&mut [T]`.
+//! `tests/fixtures/slices`, with the safe API: pointer + length pairs annotated `{ slice = "len" }`
+//! are a single `&[T]` / `&mut [T]` in Rust.
 
-// Bu dosya yalnızca test kodu; `clippy.toml`'daki test istisnası yardımcı fonksiyonları
-// kapsamadığı için burada açıkça izin veriliyor.
+// This file is test code only; the test exception in `clippy.toml` does not cover helper
+// functions, so it is allowed explicitly here.
 #![allow(clippy::unwrap_used)]
 
 use ferrobridge::Error;
@@ -10,7 +10,7 @@ use ferrobridge_e2e::slices::{self as buf, Buffer};
 
 #[test]
 fn crc8_matches_the_reference_check_value() -> ferrobridge::Result<()> {
-    // CRC-8 (polinom 0x07, başlangıç 0, yansıtmasız): "123456789" → 0xF4.
+    // CRC-8 (polynomial 0x07, initial value 0, not reflected): "123456789" → 0xF4.
     assert_eq!(buf::crc8(b"123456789")?, 0xF4);
     assert_eq!(buf::crc8(&[])?, 0);
     Ok(())
@@ -18,15 +18,15 @@ fn crc8_matches_the_reference_check_value() -> ferrobridge::Result<()> {
 
 #[test]
 fn a_slice_longer_than_the_cpp_length_type_is_an_error_not_a_truncation() {
-    // `uint8_t len`: 255 eleman sığar, 256 sığmaz.
+    // `uint8_t len`: 255 elements fit, 256 do not.
     assert!(buf::crc8(&[0xAB; 255]).is_ok());
     let error = buf::crc8(&[0xAB; 256]).unwrap_err();
     let Error::Cpp { item, message } = &error else {
         panic!("Error::Cpp bekleniyordu: {error:?}");
     };
     assert_eq!(*item, "buf::crc8");
-    assert!(message.contains("sığmayacak"), "{message}");
-    // `noexcept` fonksiyonda da kontrol `Err` döner (program sonlanmaz).
+    assert!(message.contains("too long"), "{message}");
+    // The check returns `Err` in a `noexcept` function too (the program does not end).
     assert_eq!(buf::count_nonzero(&[0, 1, 2, 0]).unwrap(), 2);
     assert!(buf::count_nonzero(&vec![0; 65_536]).is_err());
 }
@@ -50,7 +50,7 @@ fn mutable_slices_are_changed_in_place() -> ferrobridge::Result<()> {
 #[test]
 fn two_slices_carry_their_own_lengths() -> ferrobridge::Result<()> {
     assert_eq!(buf::dot(&[1, 2, 3], &[4, 5, 6])?, 32);
-    // C++ kısa olanın boyunu kullanıyor: uzunluklar gerçekten ayrı geçiyor.
+    // C++ uses the length of the shorter one: the lengths really are passed separately.
     assert_eq!(buf::dot(&[1, 2, 3], &[10])?, 10);
     Ok(())
 }

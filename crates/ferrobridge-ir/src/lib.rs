@@ -1,8 +1,8 @@
-//! ferrobridge'in dilden bağımsız ara modeli (IR).
+//! ferrobridge's language-independent intermediate model (IR).
 //!
-//! Parser'ın ürettiği, analiz ve kod üretimi katmanlarının tükettiği veri yapıları burada
-//! tanımlanır. Bu crate başka hiçbir ferrobridge crate'ine bağımlı değildir; parser değişse
-//! bile IR aynı kalır (bkz. `docs/adr/0001-libclang-via-clang-sys.md`).
+//! The data structures produced by the parser and consumed by the analysis and code generation
+//! layers are defined here. This crate depends on no other ferrobridge crate; even if the parser
+//! changes, the IR stays the same (see `docs/adr/0001-libclang-via-clang-sys.md`).
 
 mod item;
 mod types;
@@ -15,20 +15,20 @@ pub use types::{QualType, Type};
 
 use serde::{Deserialize, Serialize};
 
-/// IR'ın JSON biçiminin sürümü. Biçim uyumsuz şekilde değiştiğinde artırılır.
+/// The version of the IR's JSON format. Incremented when the format changes incompatibly.
 pub const IR_FORMAT_VERSION: u32 = 5;
 
-/// Bir C++ header'ından okunan sembollerin kökü.
+/// The root of the symbols read from a C++ header.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Module {
-    /// Bu modülün üretildiği IR biçim sürümü.
+    /// The IR format version this module was produced with.
     pub format_version: u32,
-    /// Header'da bulunan öğeler, kaynak dosyadaki sırayla.
+    /// The items found in the header, in source order.
     pub items: Vec<Item>,
 }
 
 impl Module {
-    /// Güncel biçim sürümüyle boş bir modül oluşturur.
+    /// Creates an empty module with the current format version.
     pub fn new() -> Self {
         Self {
             format_version: IR_FORMAT_VERSION,
@@ -126,7 +126,7 @@ mod tests {
                     unsupported_members: vec![Unsupported {
                         construct: "operator".to_owned(),
                         name: "geo::Vehicle::operator==".to_owned(),
-                        reason: "operatör".to_owned(),
+                        reason: "operator".to_owned(),
                         location: location(6),
                     }],
                     fields: vec![Field {
@@ -259,7 +259,7 @@ mod tests {
                                 is_const: false,
                                 ty: Type::Unsupported {
                                     spelling: "Point".to_owned(),
-                                    reason: "sınıf".to_owned(),
+                                    reason: "class".to_owned(),
                                 },
                             },
                         },

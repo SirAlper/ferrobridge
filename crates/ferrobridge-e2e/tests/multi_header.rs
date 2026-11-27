@@ -1,5 +1,5 @@
-//! `tests/fixtures/multi_header`: `geometry.h`'taki tipler, aynı bridge'deki `input.h`'ın
-//! fonksiyonlarında.
+//! `tests/fixtures/multi_header`: types from `geometry.h` in the functions of `input.h` in the
+//! same bridge.
 
 use ferrobridge_e2e::multi_header::{self as geo, Axis, Point};
 

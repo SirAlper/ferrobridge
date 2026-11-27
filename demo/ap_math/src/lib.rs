@@ -1,22 +1,22 @@
-//! ArduPilot `AP_Math`, ferrobridge'in derleme sırasında ürettiği güvenli Rust API'siyle.
+//! ArduPilot `AP_Math`, with the safe Rust API ferrobridge generates during the build.
 //!
-//! Bütün `AP_Math` header'ları tek bir bridge'dir: `Vector3f`, `Matrix3f`, `Quaternion` gerçek
-//! Rust struct'larıdır (alanlar, metotlar, `+ - * /` operatörleri); CRC'ler `&[u8]` alır;
-//! ArduPilot exception kullanmadığı için (`ferrobridge.toml`: `[library] exceptions = false`)
-//! fonksiyonlar doğrudan değer döndürür.
+//! All `AP_Math` headers form a single bridge: `Vector3f`, `Matrix3f`, `Quaternion` are real
+//! Rust structs (fields, methods, the `+ - * /` operators); CRCs take `&[u8]`; because
+//! ArduPilot does not use exceptions (`ferrobridge.toml`: `[library] exceptions = false`),
+//! functions return values directly.
 //!
-//! Bağlanmayan öğeler ve açıklamalara dayanan varsayımlar üretilen dosyanın
-//! (`$OUT_DIR/ferrobridge/ap_math/bridge.rs`) başında listelenir.
+//! The unbound items and the assumptions based on annotations are listed at the top of the
+//! generated file (`$OUT_DIR/ferrobridge/ap_math/bridge.rs`).
 //!
-//! Bu crate'te elle yazılmış `unsafe` yok (`deny(unsafe_code)`). Bridge modülündeki
-//! `#[allow(unsafe_code)]` yalnızca üretilen iç katmanı (cxx'in `ffi`'si ve değer tiplerinin
-//! `ExternType` gerekçeli impl'leri) kapsar; testler ve örnekler `forbid(unsafe_code)` ile
-//! derlenir.
+//! This crate has no hand-written `unsafe` (`deny(unsafe_code)`). The `#[allow(unsafe_code)]`
+//! on the bridge module covers only the generated inner layer (cxx's `ffi` and the justified
+//! `ExternType` impls of the value types); the tests and examples are compiled with
+//! `forbid(unsafe_code)`.
 
 #![deny(unsafe_code)]
 
-/// `AP_Math`'in bütün header'ları.
-#[allow(unsafe_code)] // Üretilen iç katman (cxx `ffi`, `ExternType`).
+/// All headers of `AP_Math`.
+#[allow(unsafe_code)] // The generated inner layer (cxx `ffi`, `ExternType`).
 pub mod ap_math {
     ferrobridge::include_bridge!("ap_math");
 }

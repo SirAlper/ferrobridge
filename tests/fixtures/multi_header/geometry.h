@@ -1,4 +1,4 @@
-// Bridge'in iki header'ından biri: tipler burada tanımlı, `input.h`'taki fonksiyonlar kullanır.
+// One of the bridge's two headers: the types are defined here, and the functions in `input.h` use them.
 #pragma once
 
 namespace geo {

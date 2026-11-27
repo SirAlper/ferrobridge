@@ -1,14 +1,14 @@
-//! Güvenli katman: cxx'in `ffi` modülünün üstünde idiomatik Rust API'si (ADR-0007).
+//! The safe layer: an idiomatic Rust API on top of cxx's `ffi` module (ADR-0007).
 //!
-//! - Gerçek Rust `enum`'ları (`TryFrom<ffi::E>` / `From<E> for ffi::E`).
-//! - Güvenli metotlar cxx'in opak tipine inherent `impl` olarak yazılır. Böylece sahip olunan,
-//!   ödünç (`&ffi::T`) ve `Pin<&mut ffi::T>` nesnelerde aynı API çalışır.
-//! - Bridge'de `UniquePtr<T>` olarak geçen her sınıf için sahip olan bir sarmalayıcı: null
-//!   olmayan bir `UniquePtr`, `Deref`, değiştiren metotlar için `&mut self` iletici.
-//! - Bütün hatalar `ferrobridge::Error`; `&str` / `String`, `&[T]` / `Vec<T>` dönüşümleri.
+//! - Real Rust `enum`s (`TryFrom<ffi::E>` / `From<E> for ffi::E`).
+//! - Safe methods are written as an inherent `impl` on cxx's opaque type. So the same API works
+//!   on owned, borrowed (`&ffi::T`) and `Pin<&mut ffi::T>` objects.
+//! - An owning wrapper for every class that appears in the bridge as `UniquePtr<T>`: a non-null
+//!   `UniquePtr`, `Deref`, `&mut self` forwarders for mutating methods.
+//! - All errors are `ferrobridge::Error`; `&str` / `String`, `&[T]` / `Vec<T>` conversions.
 //!
-//! Üretilen koddaki bütün yollar tam niteliklidir (`::std::string::String`): C++'tan gelen bir
-//! ad (`String`, `Result`, `Pin`) üretilen kodu bozamaz.
+//! All paths in the generated code are fully qualified (`::std::string::String`): a name coming
+//! from C++ (`String`, `Result`, `Pin`) cannot break the generated code.
 
 use std::collections::BTreeSet;
 
@@ -23,10 +23,10 @@ use crate::bridge::raw_method_name;
 use crate::spelling::ident;
 use crate::{CodegenError, ShimFn};
 
-/// Sarmalayıcının kendi metotları; C++'tan gelen bir adla çakışırsa C++ adına `_` eklenir.
+/// The wrapper's own methods; if one clashes with a name from C++, `_` is added to the C++ name.
 const WRAPPER_HELPERS: [&str; 3] = ["from_unique_ptr", "into_inner", "pin_mut"];
 
-/// Güvenli katmanın bütün öğeleri.
+/// All items of the safe layer.
 pub(crate) fn generate(
     plan: &BridgePlan,
     shims: &[ShimFn<'_>],
@@ -74,10 +74,10 @@ pub(crate) fn generate(
     Ok(quote!(#(#items)*))
 }
 
-/// Üretim boyunca gereken bilgiler.
+/// Information needed throughout generation.
 struct Ctx<'a, 'p> {
     shims: &'a [ShimFn<'p>],
-    /// Sahip olan sarmalayıcısı üretilen sınıfların Rust adları.
+    /// The Rust names of the classes for which an owning wrapper is generated.
     wrapped: &'a BTreeSet<String>,
 }
 
@@ -94,9 +94,9 @@ impl Ctx<'_, '_> {
     }
 }
 
-/// Bridge'de `UniquePtr<T>` olarak geçen sınıflar. cxx `UniquePtr<T>` için gereken C++
-/// kodunu yalnızca bridge'de geçen tipler için üretir; analiz bu sınıfların silinebildiğini
-/// (public destructor) zaten doğruladı.
+/// Classes that appear in the bridge as `UniquePtr<T>`. cxx generates the C++ code needed for
+/// `UniquePtr<T>` only for types that appear in the bridge; analysis already verified that these
+/// classes can be deleted (a public destructor).
 fn wrapped_classes(plan: &BridgePlan) -> BTreeSet<String> {
     let mut wrapped = BTreeSet::new();
     let all = plan
@@ -127,7 +127,7 @@ fn wrapped_classes(plan: &BridgePlan) -> BTreeSet<String> {
     wrapped
 }
 
-/// Hata mesajlarındaki tam C++ adı (`own::Widget::adopt`; constructor için `own::Widget::Widget`).
+/// The full C++ name in error messages (`own::Widget::adopt`; `own::Widget::Widget` for a constructor).
 pub(crate) fn cpp_item(callee: &Callee) -> String {
     let name = match callee {
         Callee::Method {
@@ -154,12 +154,12 @@ fn doc_line(text: &str) -> TokenStream {
     quote!(#[doc = #text])
 }
 
-/// C++ adları olduğu gibi korunur (`getValue`, `vec3_t`); kullanıcının crate'inde lint
-/// uyarısına dönüşmesinler. `should_implement_trait`: C++ metodu `next`/`add` gibi bir trait
-/// metoduyla aynı adı taşıyabilir. `too_many_arguments`: C++ imzası olduğu gibi gelir.
+/// C++ names are kept as they are (`getValue`, `vec3_t`); they must not turn into lint warnings
+/// in the user's crate. `should_implement_trait`: a C++ method may have the same name as a trait
+/// method such as `next`/`add`. `too_many_arguments`: the C++ signature comes as it is.
 ///
-/// `#[rustfmt::skip]`: dosya commit'lenir (ADR-0004); `cargo fmt` onu prettyplease'ten farklı
-/// biçimlendirip üreticinin çıktısıyla uyumsuz hale getirmesin.
+/// `#[rustfmt::skip]`: the file is committed (ADR-0004); `cargo fmt` must not format it differently
+/// from prettyplease and make it inconsistent with the generator's output.
 fn item_allows() -> TokenStream {
     quote!(#[rustfmt::skip] #[allow(
         non_snake_case,
@@ -171,8 +171,8 @@ fn item_allows() -> TokenStream {
 
 // ---- Sabitler ---------------------------------------------------------------------------------
 
-/// `pub const WGS84_A: f64 = 6378137.0;`. Değer header'dan üretim anında hesaplandı
-/// (`ferrobridge-parser`); C++ tarafı çağrılmaz.
+/// `pub const WGS84_A: f64 = 6378137.0;`. The value was computed from the header at generation time
+/// (`ferrobridge-parser`); the C++ side is not called.
 fn safe_constant(constant: &ConstantPlan) -> Result<TokenStream, CodegenError> {
     let name = ident(&constant.rust_name)?;
     let ty = raw_type(&constant.ty)?;
@@ -201,7 +201,7 @@ fn constant_literal(constant: &ConstantPlan) -> Result<TokenStream, CodegenError
         (ConstantValue::Bool(false), _) => quote!(false),
         (ConstantValue::Signed(v), _) => negative(Literal::u64_unsuffixed(v.unsigned_abs()), v < 0),
         (ConstantValue::Unsigned(v), _) => negative(Literal::u64_unsuffixed(v), false),
-        // `f32` sabit en kısa `f32` yazımıyla (`9.80665`): değer `f32`'ye kayıpsız döner.
+        // An `f32` constant with the shortest `f32` spelling (`9.80665`): the value converts to `f32` without loss.
         (ConstantValue::Float(v), BridgeType::F32) => {
             #[allow(clippy::cast_possible_truncation)]
             let narrow = v as f32;
@@ -212,7 +212,7 @@ fn constant_literal(constant: &ConstantPlan) -> Result<TokenStream, CodegenError
         }
         (ConstantValue::Float(_), _) => {
             return Err(CodegenError::Internal(format!(
-                "sonlu olmayan sabit: {}",
+                "non-finite constant: {}",
                 constant.cpp_name
             )));
         }
@@ -245,7 +245,7 @@ fn safe_enum(enumeration: &EnumPlan) -> Result<TokenStream, CodegenError> {
         from_raw.push(quote!(ffi::#name::#v => ::core::result::Result::Ok(#name::#v)));
         duplicate_values |= !seen_values.insert(variant.value);
     }
-    // Aynı değeri paylaşan C++ değerleri (`A = 1, B = 1`): C++'tan gelen değer ilkine çevrilir.
+    // C++ values sharing the same value (`A = 1, B = 1`): a value from C++ is turned into the first one.
     let allow_duplicates = duplicate_values.then(|| quote!(#[allow(unreachable_patterns)]));
     let allows = item_allows();
     Ok(quote! {
@@ -282,18 +282,18 @@ fn safe_enum(enumeration: &EnumPlan) -> Result<TokenStream, CodegenError> {
     })
 }
 
-// ---- Değer tipleri ----------------------------------------------------------------------------
+// ---- Value types ----------------------------------------------------------------------------
 
-/// Değer tipi sınıf: `#[repr(C)]` struct, cxx için `ExternType` (`Trivial`) ve Rust tarafında
-/// düzen kontrolleri (C++ tarafındakiler `shim.cc`'de). `unsafe impl`'in `// SAFETY:` yorumu
-/// biçimlendirmeden sonra eklenir (`bridge::with_safety_comments`).
+/// A value-type class: a `#[repr(C)]` struct, an `ExternType` (`Trivial`) for cxx and layout
+/// checks on the Rust side (the C++ ones are in `shim.cc`). The `// SAFETY:` comment of the
+/// `unsafe impl` is added after formatting (`bridge::with_safety_comments`).
 fn value_struct(class: &ClassPlan, shim_namespace: &str) -> Result<TokenStream, CodegenError> {
     let Some(layout) = &class.value else {
         return Ok(quote!());
     };
     let name = ident(&class.type_ref.rust_name)?;
     let cpp = class.type_ref.cpp_path.trim_start_matches("::").to_owned();
-    // cxx'in gördüğü C++ adı: örneklemeler shim namespace'indeki takma adla.
+    // The C++ name cxx sees: for instantiations, the alias in the shim namespace.
     let type_id = if class.instance_spelling.is_some() {
         format!("{shim_namespace}::{}", class.type_ref.rust_name)
     } else {
@@ -302,7 +302,7 @@ fn value_struct(class: &ClassPlan, shim_namespace: &str) -> Result<TokenStream, 
         path.join("::")
     };
     let doc = doc_line(&format!(
-        " C++: `{cpp}`. Değer tipi: alanlar doğrudan okunup yazılır, değerle kopyalanır."
+        " C++: `{cpp}`. A value type: fields are read and written directly, copied by value."
     ));
     let mut fields = Vec::with_capacity(layout.fields.len());
     let mut offsets = Vec::with_capacity(layout.fields.len());
@@ -341,10 +341,10 @@ fn value_struct(class: &ClassPlan, shim_namespace: &str) -> Result<TokenStream, 
     })
 }
 
-/// Değer tipinin operatör metotları için `std::ops` impl'leri. Yalnızca hata dönmeyen
-/// (`Result`'suz) operatörler: trait metotları `Result` döndüremez. Adlı metotlar (`op_add`)
-/// her durumda vardır; impl onları çağırır. Karşılaştırmalar (`<`...) adlı metot kalır:
-/// `PartialOrd`'un anlamı C++'takiyle örtüşmeyebilir.
+/// `std::ops` impls for the operator methods of a value type. Only operators that do not return
+/// errors (no `Result`): trait methods cannot return `Result`. The named methods (`op_add`)
+/// always exist; the impl calls them. Comparisons (`<`...) stay named methods:
+/// the meaning of `PartialOrd` may not match C++.
 fn operator_impls(ctx: &Ctx<'_, '_>, class: &ClassPlan) -> Result<TokenStream, CodegenError> {
     let this = ident(&class.type_ref.rust_name)?;
     let mut seen = BTreeSet::new();
@@ -368,7 +368,7 @@ fn operator_impls(ctx: &Ctx<'_, '_>, class: &ClassPlan) -> Result<TokenStream, C
             continue;
         }
         let call = ident(&method.rust_name)?;
-        // Sağ taraf: (Rust tipi, adlı metoda geçen ifade).
+        // The right-hand side: (Rust type, the expression passed to the named method).
         let rhs = match method.params.as_slice() {
             [] => None,
             [param] => match &param.ty {
@@ -431,7 +431,7 @@ fn operator_impls(ctx: &Ctx<'_, '_>, class: &ClassPlan) -> Result<TokenStream, C
         let fn_ident = ident(&fn_name)?;
         let assign = trait_name.ends_with("Assign");
         let tokens = match (kind, &rhs, &output.ty) {
-            // `a == b`: sağ taraf `Self` olmalı.
+            // `a == b`: the right-hand side must be `Self`.
             (OperatorKind::Eq, Some((ty, arg)), Some(out)) if this == ty.to_string() => {
                 let arg = if arg.to_string() == "rhs" {
                     quote!(*other)
@@ -486,7 +486,7 @@ fn operator_impls(ctx: &Ctx<'_, '_>, class: &ClassPlan) -> Result<TokenStream, C
     Ok(quote!(#(#impls)*))
 }
 
-// ---- Sınıflar ---------------------------------------------------------------------------------
+// ---- Classes --------------------------------------------------------------------------------
 
 fn class_items(ctx: &Ctx<'_, '_>, class: &ClassPlan) -> Result<TokenStream, CodegenError> {
     let raw = ident(&class.type_ref.rust_name)?;
@@ -551,7 +551,7 @@ fn class_items(ctx: &Ctx<'_, '_>, class: &ClassPlan) -> Result<TokenStream, Code
     let mut out = Vec::new();
     if !methods.is_empty() || (!wrapped && !associated.is_empty()) {
         let doc = doc_line(&format!(
-            " Güvenli metotlar: C++ `{cpp}`. Sahip olunan, `&` ve `Pin<&mut>` nesnelerde çalışır."
+            " Safe methods: C++ `{cpp}`. Work on owned, `&` and `Pin<&mut>` objects."
         ));
         let statics = if wrapped {
             Vec::new()
@@ -574,7 +574,7 @@ fn class_items(ctx: &Ctx<'_, '_>, class: &ClassPlan) -> Result<TokenStream, Code
     Ok(quote!(#(#out)*))
 }
 
-/// Sarmalayıcıdaki metot adı: yardımcılarla çakışırsa sonuna `_` eklenir.
+/// The method name on the wrapper: `_` is added at the end if it clashes with the helpers.
 fn wrapper_name(name: &str) -> String {
     if WRAPPER_HELPERS.contains(&name) {
         format!("{name}_")
@@ -583,7 +583,7 @@ fn wrapper_name(name: &str) -> String {
     }
 }
 
-/// Constructor ya da statik metot: `Vehicle_new_i32` → `Vehicle::new_i32`.
+/// A constructor or static method: `Vehicle_new_i32` → `Vehicle::new_i32`.
 fn associated_fn(
     ctx: &Ctx<'_, '_>,
     class: &ClassPlan,
@@ -623,8 +623,8 @@ fn wrapper(
     forwarders: &[TokenStream],
 ) -> TokenStream {
     let doc = doc_line(&format!(
-        " Sahip olunan C++ nesnesi: `{cpp}`. Düşünce C++ destructor'ı çalışır. İçindeki \
-         `UniquePtr` asla null değildir."
+        " An owned C++ object: `{cpp}`. The C++ destructor runs when it is dropped. The \
+         `UniquePtr` inside is never null."
     ));
     let name = raw;
     let allows = item_allows();
@@ -637,7 +637,7 @@ fn wrapper(
 
         #allows
         impl #name {
-            /// Ham `UniquePtr`'ı sarmalar; null ise `None`.
+            /// Wraps a raw `UniquePtr`; `None` if it is null.
             pub fn from_unique_ptr(inner: ::cxx::UniquePtr<ffi::#raw>) -> ::core::option::Option<Self> {
                 if inner.is_null() {
                     ::core::option::Option::None
@@ -646,12 +646,12 @@ fn wrapper(
                 }
             }
 
-            /// İçindeki `UniquePtr`'ı verir (ham `ffi` katmanıyla çalışmak için).
+            /// Gives the `UniquePtr` inside (for working with the raw `ffi` layer).
             pub fn into_inner(self) -> ::cxx::UniquePtr<ffi::#raw> {
                 self.inner
             }
 
-            /// `Pin<&mut ffi::T>` bekleyen fonksiyonlara geçirmek için.
+            /// For passing to functions expecting `Pin<&mut ffi::T>`.
             pub fn pin_mut(&mut self) -> ::core::pin::Pin<&mut ffi::#raw> {
                 self.inner.pin_mut()
             }
@@ -665,16 +665,16 @@ fn wrapper(
             type Target = ffi::#raw;
 
             fn deref(&self) -> &ffi::#raw {
-                // `from_unique_ptr` null'ı reddettiği için burada panik olmaz.
+                // No panic here, because `from_unique_ptr` rejects null.
                 &self.inner
             }
         }
     }
 }
 
-// ---- Fonksiyon gövdeleri ----------------------------------------------------------------------
+// ---- Function bodies ------------------------------------------------------------------------
 
-/// Bir güvenli fonksiyonun imzası (alıcı hariç) ve gövdesi.
+/// The signature (excluding the receiver) and body of a safe function.
 struct Body {
     inputs: Vec<TokenStream>,
     output: TokenStream,
@@ -713,7 +713,7 @@ impl Body {
                         .push(quote!(let #name = ::ferrobridge::__private::cxx_vector(#name);));
                     args.push(quote!(&#name));
                     copies.push(format!(
-                        " `{}` her çağrıda yeni bir C++ vector'üne kopyalanır.",
+                        " `{}` is copied into a new C++ vector on every call.",
                         param.rust_name
                     ));
                 }
@@ -730,13 +730,13 @@ impl Body {
 
         let call = raw_call(ctx, plan, receiver.is_some(), &args)?;
         let conversion = match &plan.callee {
-            // Değer tipinin constructor'ı değer döndürür.
+            // The constructor of a value type returns a value.
             Callee::Constructor { .. }
                 if matches!(plan.returns, Returns::Value(BridgeType::Value(_))) =>
             {
                 safe_return(ctx, &plan.returns, item)?
             }
-            // Constructor shim'i `make_unique` döndürür: null olamaz, sarmalayıcı doğrudan döner.
+            // The constructor shim returns `make_unique`: it cannot be null, the wrapper is returned directly.
             Callee::Constructor { class } => {
                 safe_return(ctx, &Returns::BoxedClass(class.clone()), item)?
             }
@@ -760,7 +760,7 @@ impl Body {
         };
         statements.push(
             match (&conversion.convert, plan.fallible, conversion.fallible) {
-                // Dönüşüm yok: sonuç olduğu gibi döner.
+                // No conversion: the result is returned as is.
                 (None, _, _) => mapped,
                 (Some(convert), true, true) => quote! {
                     let value = #mapped?;
@@ -787,13 +787,12 @@ impl Body {
             doc_text.push(" # Errors".to_owned());
             doc_text.push(String::new());
             if plan.fallible {
-                doc_text
-                    .push(" C++ bir exception fırlatırsa `ferrobridge::Error::Cpp`.".to_owned());
+                doc_text.push(" `ferrobridge::Error::Cpp` if C++ throws an exception.".to_owned());
             }
             for length in &plan.lengths {
                 doc_text.push(format!(
-                    " `{}` C++'taki uzunluk parametresinin tipine (`{}`) sığmayacak kadar \
-                     uzunsa da `ferrobridge::Error::Cpp`; uzunluk sessizce kırpılmaz.",
+                    " `ferrobridge::Error::Cpp` also if `{}` is too long for the type of the C++ length \
+                     parameter (`{}`); the length is never truncated silently.",
                     plan.params[length.slice].rust_name, length.cpp_type
                 ));
             }
@@ -809,7 +808,7 @@ impl Body {
     }
 }
 
-/// Ham katmandaki çağrı ifadesi.
+/// The call expression in the raw layer.
 fn raw_call(
     ctx: &Ctx<'_, '_>,
     plan: &FunctionPlan,
@@ -836,17 +835,17 @@ fn raw_call(
     }
 }
 
-/// Bir parametrenin güvenli katmandaki biçimi.
+/// The form of a parameter in the safe layer.
 enum SafeParam {
-    /// Ham tiple aynı (tam nitelikli yazımı).
+    /// The same as the raw type (its fully qualified spelling).
     Same(TokenStream),
     /// `&CxxString` → `&str`.
     Str,
-    /// `&CxxVector<T>` (T sayı) → `&[T]`.
+    /// `&CxxVector<T>` (T a number) → `&[T]`.
     Slice(TokenStream),
-    /// Paylaşılan enum → gerçek Rust enum'u.
+    /// A shared enum → a real Rust enum.
     Enum(proc_macro2::Ident),
-    /// `UniquePtr<T>` (sahiplik C++'a geçer) → sarmalayıcı, değerle.
+    /// `UniquePtr<T>` (ownership passes to C++) → the wrapper, by value.
     Wrapper(proc_macro2::Ident),
 }
 
@@ -877,15 +876,15 @@ fn is_number(ty: &BridgeType) -> bool {
     matches!(ty, BridgeType::Int(_) | BridgeType::F32 | BridgeType::F64)
 }
 
-/// Dönüşün güvenli katmandaki biçimi.
+/// The form of a return in the safe layer.
 struct SafeReturn {
-    /// Güvenli tip (`Result` sarmalaması hariç); `()` için `None`.
+    /// The safe type (without the `Result` wrapping); `None` for `()`.
     ty: Option<TokenStream>,
-    /// Ham sonucu (`value`) çeviren ifade; `None` ise olduğu gibi döner.
+    /// The expression converting the raw result (`value`); returned as is if `None`.
     convert: Option<TokenStream>,
-    /// Dönüşüm başarısız olabilir mi (UTF-8, tanımsız enum, null)?
+    /// Can the conversion fail (UTF-8, undefined enum, null)?
     fallible: bool,
-    /// Dönüşüm başarısız olabiliyorsa dokümana eklenecek açıklama.
+    /// A note added to the documentation if the conversion can fail.
     note: &'static str,
 }
 
@@ -900,7 +899,7 @@ fn safe_return(
         fallible: false,
         note: "",
     };
-    let utf8 = " C++ geçerli UTF-8 olmayan bir string döndürürse `ferrobridge::Error::Utf8`.";
+    let utf8 = " `ferrobridge::Error::Utf8` if C++ returns a string that is not valid UTF-8.";
     Ok(match returns {
         Returns::Unit => SafeReturn {
             ty: None,
@@ -914,8 +913,8 @@ fn safe_return(
                 ty: Some(quote!(#safe)),
                 convert: Some(quote!(#safe::try_from(value))),
                 fallible: true,
-                note: " C++ enum'da tanımlı olmayan bir değer döndürürse \
-                       `ferrobridge::Error::UnknownEnumValue`.",
+                note: " `ferrobridge::Error::UnknownEnumValue` if C++ returns a value not defined \
+                       in the enum.",
             }
         }
         Returns::Value(BridgeType::Ref {
@@ -1020,7 +1019,7 @@ fn safe_return(
     })
 }
 
-/// Bir bridge tipinin güvenli katmandan (bridge modülünün dışından) tam nitelikli yazımı.
+/// The fully qualified spelling of a bridge type from the safe layer (outside the bridge module).
 fn raw_type(ty: &BridgeType) -> Result<TokenStream, CodegenError> {
     Ok(match ty {
         BridgeType::Bool => quote!(bool),
@@ -1035,7 +1034,7 @@ fn raw_type(ty: &BridgeType) -> Result<TokenStream, CodegenError> {
             let name = ident(&r.rust_name)?;
             quote!(ffi::#name)
         }
-        // Değer tipi güvenli katmanın kendi struct'ı.
+        // A value type is the safe layer's own struct.
         BridgeType::Value(r) => {
             let name = ident(&r.rust_name)?;
             quote!(#name)
@@ -1120,11 +1119,11 @@ mod tests {
 
     fn param(ty: &BridgeType) -> String {
         with_ctx(|ctx| match safe_param(ctx, ty).unwrap() {
-            SafeParam::Same(t) => format!("aynı {}", flat(&t)),
+            SafeParam::Same(t) => format!("same {}", flat(&t)),
             SafeParam::Str => "&str".to_owned(),
             SafeParam::Slice(t) => format!("&[{}]", flat(&t)),
             SafeParam::Enum(e) => format!("enum {e}"),
-            SafeParam::Wrapper(w) => format!("sarmalayıcı {w}"),
+            SafeParam::Wrapper(w) => format!("wrapper {w}"),
         })
     }
 
@@ -1139,7 +1138,7 @@ mod tests {
     fn params_follow_the_safe_type_table() {
         let i32_ty = BridgeType::Int(IntType::I32);
         let cases = [
-            (i32_ty.clone(), "aynı i32"),
+            (i32_ty.clone(), "same i32"),
             (reference(false, BridgeType::String), "&str"),
             (
                 reference(false, BridgeType::Vector(Box::new(BridgeType::F64))),
@@ -1147,28 +1146,28 @@ mod tests {
             ),
             (
                 reference(false, BridgeType::Vector(Box::new(BridgeType::String))),
-                "aynı &::cxx::CxxVector<::cxx::CxxString>",
+                "same &::cxx::CxxVector<::cxx::CxxString>",
             ),
             (
                 reference(true, BridgeType::String),
-                "aynı ::core::pin::Pin<&mut::cxx::CxxString>",
+                "same ::core::pin::Pin<&mut::cxx::CxxString>",
             ),
-            (reference(false, class("Point")), "aynı &ffi::Point"),
+            (reference(false, class("Point")), "same &ffi::Point"),
             (
                 reference(true, class("Widget")),
-                "aynı ::core::pin::Pin<&mutffi::Widget>",
+                "same ::core::pin::Pin<&mutffi::Widget>",
             ),
-            (reference(true, BridgeType::F64), "aynı &mutf64"),
+            (reference(true, BridgeType::F64), "same &mutf64"),
             (BridgeType::Enum(type_ref("Mode")), "enum Mode"),
             (
                 BridgeType::UniquePtr(Box::new(class("Widget"))),
-                "sarmalayıcı Widget",
+                "wrapper Widget",
             ),
             (
                 BridgeType::UniquePtr(Box::new(class("Point"))),
-                "aynı ::cxx::UniquePtr<ffi::Point>",
+                "same ::cxx::UniquePtr<ffi::Point>",
             ),
-            (BridgeType::Char, "aynı ::core::ffi::c_char"),
+            (BridgeType::Char, "same ::core::ffi::c_char"),
         ];
         for (ty, expected) in cases {
             assert_eq!(param(&ty), expected, "{ty:?}");

@@ -1,14 +1,14 @@
-//! IR üzerinde bağlanabilirlik analizi.
+//! Bindability analysis over the IR.
 //!
-//! [`check`] her öğe, parametre ve dönüş tipi için cxx'te güvenle ifade edilip
-//! edilemeyeceğine karar verir ve kod üretiminin tükettiği bir [`BridgePlan`] üretir.
-//! Kurallar Obsidian `03 Mimari` notundaki tip tablosu ve güvenlik kurallarıdır. Bir
-//! fonksiyonun tek bir parametresi bile desteklenmiyorsa fonksiyon **tümüyle** atlanır ve
-//! nedeni bildirilir; yarım bağlama yapılmaz.
+//! [`check`] decides, for every item, parameter and return type, whether it can be expressed
+//! safely in cxx, and produces a [`BridgePlan`] consumed by code generation.
+//! The rules are the architecture's type table and the safety rules. If even a single
+//! parameter of a function is unsupported, the function is skipped **entirely** and the
+//! reason is reported; there are no half bindings.
 //!
-//! Header'ın söylemediği sahiplik bilgisi [`Annotations`]'tan (`ferrobridge.toml`) gelir.
-//! Kullanılan her açıklama planda bir [`Assumption`] olarak görünür; açıklama eksikliği
-//! yüzünden bağlanamayan her yer bir [`Suggestion`] olur.
+//! Ownership information the header does not give comes from [`Annotations`] (`ferrobridge.toml`).
+//! Every annotation used shows up in the plan as an [`Assumption`]; every place that could not
+//! be bound because an annotation is missing becomes a [`Suggestion`].
 
 mod config;
 mod naming;
@@ -36,36 +36,37 @@ pub use suggest::render_suggestions;
 
 use rules::{Known, KnownClass, Need};
 
-const REASON_ABSTRACT: &str = "Sınıf soyut (saf sanal metodu var); doğrudan oluşturulamaz.";
-const NOTE_NO_CONSTRUCTOR: &str = "Açıkça bildirilmiş public constructor yok; Rust'ta yalnızca \
-     başka fonksiyonların döndürdüğü nesnelerle kullanılabilir.";
+const REASON_ABSTRACT: &str =
+    "The class is abstract (it has a pure virtual method); it cannot be created directly.";
+const NOTE_NO_CONSTRUCTOR: &str = "No explicitly declared public constructor; in Rust it can only be used \
+     with objects returned by other functions.";
 const REASON_ANONYMOUS_NAMESPACE: &str =
-    "Anonim namespace'teki tipler header dışından kullanılamaz.";
-const REASON_OPERATOR_KIND: &str = "Bu operatörün Rust karşılığı tanımlı değil.";
-const REASON_FIELD: &str = "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.";
+    "Types in an anonymous namespace cannot be used from outside the header.";
+const REASON_OPERATOR_KIND: &str = "This operator has no defined Rust counterpart.";
+const REASON_FIELD: &str = "Direct access to fields is a v0.2 goal; use accessor methods.";
 const REASON_ANONYMOUS_CONSTANT: &str =
-    "Anonim namespace'teki sabitlerin Rust'tan yazılabilecek bir adı yok.";
+    "Constants in an anonymous namespace have no name that can be written from Rust.";
 
-const PROMISE_BORROWED_POINTER: &str = "pointer tek bir nesneyi gösteriyor (dizi değil), null \
-     değil, yalnızca çağrı süresince kullanılıyor ve saklanmıyor";
-const PROMISE_BORROWED_REF: &str = "referans yalnızca çağrı süresince kullanılıyor ve saklanmıyor";
-const PROMISE_OWNED: &str = "pointer `new` ile ayrıldı ve sahipliği çağırana geçiyor; Rust'ta \
-     `UniquePtr` düşünce `delete` edilir";
-const PROMISE_BORROWED_RETURN: &str = "pointer nesnenin sahip olduğu bir şeyi gösteriyor ve \
-     nesne yaşadıkça geçerli; silinmez (null gelirse `Err` döner)";
+const PROMISE_BORROWED_POINTER: &str = "the pointer points to a single object (not an array), is not \
+     null, and is used only during the call and not kept";
+const PROMISE_BORROWED_REF: &str = "the reference is used only during the call and not kept";
+const PROMISE_OWNED: &str = "the pointer was allocated with `new` and its ownership passes to the caller; in Rust \
+     it is `delete`d when the `UniquePtr` is dropped";
+const PROMISE_BORROWED_RETURN: &str = "the pointer points to something the object owns and is \
+     valid while the object lives; it is not deleted (a null returns `Err`)";
 const PROMISE_BORROWED_REF_RETURN: &str =
-    "referans nesnenin sahip olduğu bir şeyi gösteriyor ve nesne yaşadıkça geçerli";
-const PROMISE_NO_EXCEPTIONS: &str = "kütüphanenin hiçbir fonksiyonu exception fırlatmıyor; \
-     fonksiyonlar `Result` yerine doğrudan değer döndürür. Söz bozulursa program `std::terminate` \
-     ile sonlanır (tanımsız davranış değil). ferrobridge'in kendi kontrolleri (slice uzunluğu, \
-     null dönüş) `Result` olarak kalır";
+    "the reference points to something the object owns and is valid while the object lives";
+const PROMISE_NO_EXCEPTIONS: &str = "no function of the library throws exceptions; \
+     functions return values directly instead of `Result`. If the promise is broken, the program ends with \
+     `std::terminate` (not undefined behavior). ferrobridge's own checks (slice length, \
+     null return) stay `Result`";
 const REASON_INVALID_SLICE: &str =
-    "`ferrobridge.toml`'daki `slice` açıklaması bu imzaya uymuyor (hatalara bakın).";
+    "The `slice` annotation in `ferrobridge.toml` does not match this signature (see the errors).";
 
-/// IR modülünün bağlama planını çıkarır.
+/// Works out the binding plan of an IR module.
 ///
-/// `annotations` header'daki hiçbir öğeye uymuyorsa (yazım hatası, olmayan parametre...)
-/// plan üretilmez; bütün uyumsuzluklar birlikte döner.
+/// If `annotations` do not match any item in the header (a typo, a nonexistent parameter...),
+/// no plan is produced; all mismatches are returned together.
 pub fn check(
     module: &Module,
     annotations: &Annotations,
@@ -93,7 +94,7 @@ pub fn check(
                     checker.plan.classes.push(bound);
                 }
             }
-            Item::Enum(_) => {} // `known_types` içinde işlendi.
+            Item::Enum(_) => {} // Handled in `known_types`.
             Item::Constant(constant) => match constant_plan(constant) {
                 Ok(bound) => checker.plan.constants.push(bound),
                 Err(reason) => checker.plan.skipped.push(skipped(
@@ -112,7 +113,7 @@ pub fn check(
 
     if let Some(line) = annotations.no_exceptions {
         checker.plan.assumptions.push(Assumption {
-            name: "(kütüphane)".to_owned(),
+            name: "(library)".to_owned(),
             subject: "exception'lar".to_owned(),
             annotation: "exceptions = false".to_owned(),
             promise: PROMISE_NO_EXCEPTIONS.to_owned(),
@@ -130,44 +131,44 @@ pub fn check(
     Ok(plan)
 }
 
-/// [`check`] boyunca taşınan durum.
+/// The state carried through [`check`].
 struct Checker<'a> {
     known: Known,
     annotations: &'a Annotations,
     plan: BridgePlan,
-    /// Header'da karşılığı bulunan açıklama anahtarları → herhangi bir overload'daki
-    /// parametre adları.
+    /// Annotation keys with a counterpart in the header → the parameter names in any
+    /// overload.
     seen: BTreeMap<String, BTreeSet<String>>,
-    /// Dönüşü olan (constructor olmayan) öğelerin anahtarları.
+    /// Keys of items that have a return (not constructors).
     returns_seen: BTreeSet<String>,
-    /// Açıklaması gerçekten uygulanan overload'ların imzaları, anahtara göre.
+    /// Signatures of the overloads an annotation was really applied to, by key.
     applied_overloads: BTreeMap<String, Vec<String>>,
-    /// İmzaya uymayan `slice` açıklamaları.
+    /// `slice` annotations that do not match the signature.
     slice_errors: Vec<AnnotationIssue>,
 }
 
-/// Bir `slice` açıklamasının bir overload'a uygulanışı.
+/// How a `slice` annotation applies to an overload.
 struct SliceBinding {
-    /// Uzunluk parametresinin C++ parametre listesindeki yeri.
+    /// The position of the length parameter in the C++ parameter list.
     len_index: usize,
     len_name: String,
-    /// Uzunluğun C++ temel tipi.
+    /// The underlying C++ type of the length.
     len_type: String,
     element: BridgeType,
     mutable: bool,
-    /// Açıklamanın satırı.
+    /// The annotation's line.
     line: usize,
 }
 
-/// Bağlanmaya çalışılan bir fonksiyon, metot ya da constructor.
+/// A function, method or constructor being bound.
 struct Candidate<'c> {
-    /// `ferrobridge.toml` anahtarı (tam C++ adı).
+    /// The `ferrobridge.toml` key (the full C++ name).
     key: String,
-    /// Atlanma mesajlarındaki ad.
+    /// The name in skip messages.
     display: String,
     callee: Callee,
     params: &'c [Param],
-    /// Constructor'lar için `None`.
+    /// `None` for constructors.
     return_type: Option<&'c QualType>,
     receiver_mutable: Option<bool>,
     noexcept: bool,
@@ -204,8 +205,8 @@ impl Checker<'_> {
         let mut constructors = Vec::new();
         let mut methods = Vec::new();
 
-        // Opak sınıfların public alanlarına Rust'tan erişilemiyor. Atlanan üyeler kaynaktaki
-        // sırayla listelenir.
+        // The public fields of opaque classes cannot be reached from Rust. Skipped members are listed
+        // in source order.
         let value = if known_class.value {
             value_layout(class, &self.known)
         } else {
@@ -249,7 +250,7 @@ impl Checker<'_> {
                 ));
             }
         } else {
-            // Değer tipi alanlarından kurulabilir; not gereksiz.
+            // A value type can be constructed from its fields; the note is unnecessary.
             if class.constructors.is_empty() && value.is_none() {
                 self.plan
                     .notes
@@ -268,8 +269,8 @@ impl Checker<'_> {
                     noexcept: constructor.noexcept,
                     location: &constructor.location,
                 }) {
-                    // Constructor shim'i nesneyi `std::unique_ptr` içinde döndürür; değer tipini
-                    // değerle.
+                    // The constructor shim returns the object inside a `std::unique_ptr`; a value type
+                    // by value.
                     bound.returns = if value.is_some() {
                         Returns::Value(BridgeType::Value(type_ref.clone()))
                     } else {
@@ -341,8 +342,8 @@ impl Checker<'_> {
         })
     }
 
-    /// Bir fonksiyonu bağlamayı dener. Tek bir tip bile desteklenmiyorsa atlar ve ilk nedeni
-    /// yazar. Bütün sorunlar açıklamayla çözülebiliyorsa her biri için bir öneri kaydeder.
+    /// Tries to bind a function. If even one type is unsupported, it skips it and writes the first
+    /// reason. If all problems can be solved with annotations, it records a suggestion for each.
     fn bind(&mut self, candidate: Candidate<'_>) -> Option<FunctionPlan> {
         let Candidate {
             key,
@@ -363,8 +364,8 @@ impl Checker<'_> {
         let mut all_annotatable = true;
         let mut assumptions = Vec::new();
         let mut warnings = Vec::new();
-        // `fix`: sorun bir açıklamayla çözülebilir mi? `Some(Some(_))` ise bu yer için öneri
-        // yazılır; `Some(None)` ise başka bir yerin açıklaması çözer (ör. slice uzunluğu).
+        // `fix`: can the problem be solved with an annotation? With `Some(Some(_))` a suggestion is
+        // written for this place; with `Some(None)` another place's annotation solves it (e.g. a slice length).
         let mut fail = |message: String, fix: Option<Option<Need>>, target, cpp_type| {
             first_failure.get_or_insert(message);
             match fix {
@@ -413,7 +414,7 @@ impl Checker<'_> {
         let mut lengths = Vec::new();
         for (index, param) in params.iter().enumerate() {
             if length_positions.contains(&index) {
-                continue; // Slice'ın boyundan doldurulur (aşağıda `lengths`).
+                continue; // Filled from the slice's length (`lengths` below).
             }
             let rust_name = naming::param_name(param.name.as_deref(), index);
             let shown = shown_names[index].clone();
@@ -421,12 +422,12 @@ impl Checker<'_> {
                 let given = format!("{{ slice = \"{}\" }}", binding.len_name);
                 assumptions.push(Assumption {
                     name: key.clone(),
-                    subject: format!("parametre `{shown}`"),
+                    subject: format!("parameter `{shown}`"),
                     annotation: given,
                     promise: format!(
-                        "pointer `{}` elemanlık bir diziyi gösteriyor; dizi yalnızca çağrı \
-                         süresince kullanılıyor ve saklanmıyor; uzunluk 0 iken pointer okunmuyor \
-                         (Rust boş slice için null olmayan bir pointer verir)",
+                        "the pointer points to an array of `{}` elements; the array is used only during the call \
+                         and not kept; when the length is 0 the pointer is not read \
+                         (Rust gives a non-null pointer for an empty slice)",
                         binding.len_name
                     ),
                     origin: origin(binding.line),
@@ -450,7 +451,7 @@ impl Checker<'_> {
             match rules::param_type(&param.ty, &self.known, given.map(|l| &l.value)) {
                 Ok(rule) => {
                     if let Some(given) = given {
-                        let subject = format!("parametre `{shown}`");
+                        let subject = format!("parameter `{shown}`");
                         if rule.applied {
                             let promise =
                                 if matches!(param.ty.ty, ferrobridge_ir::Type::Pointer { .. }) {
@@ -486,15 +487,15 @@ impl Checker<'_> {
                     } else {
                         Vec::new()
                     };
-                    // Değerle alınan bir tamsayı (ör. `size_t`), aynı fonksiyondaki bir sayı
-                    // pointer'ının `slice` uzunluğu yapılırsa Rust imzasından çıkar.
+                    // An integer taken by value (e.g. `size_t`) leaves the Rust signature if it is made the
+                    // `slice` length of a numeric pointer in the same function.
                     let fix = match rejection.need {
                         Some(need) => Some(Some(need)),
                         None if slice_length_candidates.contains(&index) => Some(None),
                         None => None,
                     };
                     fail(
-                        format!("parametre `{shown}`: {}", rejection.reason),
+                        format!("parameter `{shown}`: {}", rejection.reason),
                         fix,
                         SuggestionTarget::Param {
                             name: shown,
@@ -526,7 +527,7 @@ impl Checker<'_> {
                             };
                             assumptions.push(Assumption {
                                 name: key.clone(),
-                                subject: "dönüş".to_owned(),
+                                subject: "return".to_owned(),
                                 annotation: given.value.to_string(),
                                 promise: promise.to_owned(),
                                 origin: origin(given.line),
@@ -535,7 +536,7 @@ impl Checker<'_> {
                             warnings.push(unneeded(
                                 &origin(given.line),
                                 &key,
-                                "dönüş",
+                                "return",
                                 return_type,
                             ));
                         }
@@ -553,7 +554,7 @@ impl Checker<'_> {
                         },
                     };
                     fail(
-                        format!("dönüş tipi: {}", rejection.reason),
+                        format!("return type: {}", rejection.reason),
                         rejection.need.map(Some),
                         target,
                         rules::spell(return_type),
@@ -596,8 +597,8 @@ impl Checker<'_> {
             callee,
             params: bound_params,
             returns,
-            // Uzunluk kontrolü (slice C++ uzunluk tipine sığmıyorsa) exception fırlatır.
-            // `[library] exceptions = false`: kütüphane fırlatmaz, söz bozulursa `terminate`.
+            // The length check (when the slice does not fit the C++ length type) throws an exception.
+            // `[library] exceptions = false`: the library does not throw; if the promise is broken, `terminate`.
             fallible: !(noexcept || self.annotations.no_exceptions.is_some())
                 || always_fallible
                 || !lengths.is_empty(),
@@ -607,9 +608,9 @@ impl Checker<'_> {
         })
     }
 
-    /// Bu overload'a uygulanan `slice` açıklamaları: slice parametresinin yeri → uygulanış.
-    /// Açıklama imzaya uymuyorsa hatalar döner. Açıklanan parametre bu overload'da yoksa
-    /// açıklama bu overload'ı ilgilendirmez (hiç yoksa `unmatched_annotations` yakalar).
+    /// The `slice` annotations applied to this overload: position of the slice parameter → application.
+    /// Returns errors if an annotation does not match the signature. If the annotated parameter is not
+    /// in this overload, the annotation does not concern it (`unmatched_annotations` catches it if it is nowhere).
     fn slice_bindings(
         &self,
         key: &str,
@@ -631,17 +632,17 @@ impl Checker<'_> {
             let mut error = |message: String| {
                 errors.push(AnnotationIssue {
                     origin: self.origin(located.line),
-                    message: format!("`{key}` parametre `{name}`: {message}"),
+                    message: format!("`{key}` parameter `{name}`: {message}"),
                 });
             };
             if len == name {
-                error("`slice` uzunluğu parametrenin kendisi olamaz.".to_owned());
+                error("the `slice` length cannot be the parameter itself.".to_owned());
                 continue;
             }
             let Some(len_index) = position(len) else {
                 let known: Vec<String> = shown_names.iter().map(|n| format!("`{n}`")).collect();
                 error(format!(
-                    "`{key}`'in `{len}` adında parametresi yok (`slice` uzunluğu; parametreler: \
+                    "`{key}` has no parameter named `{len}` (the `slice` length; parameters: \
                      {}).",
                     known.join(", ")
                 ));
@@ -665,14 +666,14 @@ impl Checker<'_> {
             };
             if annotation.params.contains_key(len) {
                 error(format!(
-                    "`{len}` slice'ın uzunluk parametresi; ona ayrıca açıklama verilemez."
+                    "`{len}` is the slice's length parameter; it cannot be annotated separately."
                 ));
                 continue;
             }
             if let Some(other) = used_lengths.insert(len_index, name.clone()) {
                 error(format!(
-                    "`{other}` ve `{name}` iki ayrı slice aynı uzunluk parametresini (`{len}`) \
-                     paylaşamaz."
+                    "two separate slices `{other}` and `{name}` cannot share the same length \
+                     parameter (`{len}`)."
                 ));
                 continue;
             }
@@ -691,7 +692,7 @@ impl Checker<'_> {
         (bindings, errors)
     }
 
-    /// Bu anahtarın header'da bir karşılığı olduğunu ve parametre adlarını kaydeder.
+    /// Records that this key has a counterpart in the header, and its parameter names.
     fn mark_seen(&mut self, key: &str, params: &[Param], has_return: bool) {
         let names = self.seen.entry(key.to_owned()).or_default();
         for (index, param) in params.iter().enumerate() {
@@ -707,8 +708,8 @@ impl Checker<'_> {
         }
     }
 
-    /// Bir açıklama birden fazla overload'a uygulandıysa uyarır: hepsi için doğru olmayabilir
-    /// (ör. biri pointer'ı saklıyor olabilir). Overload'ları ayrı açıklamak v0.2 hedefi.
+    /// Warns if an annotation was applied to more than one overload: it may not be right for all of
+    /// them (e.g. one of them may keep the pointer). Annotating overloads separately is a v0.2 goal.
     fn warn_shared_overloads(&mut self) {
         for (key, signatures) in &self.applied_overloads {
             if signatures.len() < 2 {
@@ -718,8 +719,8 @@ impl Checker<'_> {
             self.plan.annotation_warnings.push(AnnotationIssue {
                 origin: self.origin(line),
                 message: format!(
-                    "`{key}` açıklaması {} overload'a birden uygulandı: {}. Sözün hepsi için \
-                     doğru olduğundan emin ol; overload'ları ayrı açıklamak henüz mümkün değil.",
+                    "the `{key}` annotation was applied to {} overloads at once: {}. Make sure the promise is \
+                     right for all of them; annotating overloads separately is not possible yet.",
                     signatures.len(),
                     signatures.join("; ")
                 ),
@@ -727,7 +728,7 @@ impl Checker<'_> {
         }
     }
 
-    /// Header'da karşılığı olmayan açıklamalar.
+    /// Annotations with no counterpart in the header.
     fn unmatched_annotations(&self) -> Vec<AnnotationIssue> {
         let mut errors = Vec::new();
         for (key, function) in &self.annotations.functions {
@@ -735,8 +736,8 @@ impl Checker<'_> {
                 errors.push(AnnotationIssue {
                     origin: self.origin(function.line),
                     message: format!(
-                        "`{key}` header'da bulunamadı. Tam C++ adı yazılmalı: `ns::f`, \
-                         `ns::Sınıf::metot`, constructor için `ns::Sınıf::Sınıf`."
+                        "`{key}` was not found in the header. Write the full C++ name: `ns::f`, \
+                         `ns::Class::method`, `ns::Class::Class` for a constructor."
                     ),
                 });
                 continue;
@@ -745,7 +746,9 @@ impl Checker<'_> {
                 if !self.returns_seen.contains(key) {
                     errors.push(AnnotationIssue {
                         origin: self.origin(returns.line),
-                        message: format!("`{key}` bir constructor; dönüşü açıklanamaz."),
+                        message: format!(
+                            "`{key}` is a constructor; its return cannot be annotated."
+                        ),
                     });
                 }
             }
@@ -755,9 +758,9 @@ impl Checker<'_> {
                     errors.push(AnnotationIssue {
                         origin: self.origin(annotation.line),
                         message: format!(
-                            "`{key}`'in `{param}` adında parametresi yok (parametreler: {}).",
+                            "`{key}` has no parameter named `{param}` (parameters: {}).",
                             if known.is_empty() {
-                                "yok".to_owned()
+                                "none".to_owned()
                             } else {
                                 known.join(", ")
                             }
@@ -769,8 +772,8 @@ impl Checker<'_> {
         errors
     }
 
-    /// `ferrobridge.toml:3` biçiminde yer; yalnızca dosya adı (üretilen dosyalara yerel yol
-    /// sızmasın).
+    /// The location in the form `ferrobridge.toml:3`; the file name only (so no local path leaks
+    /// into generated files).
     fn origin(&self, line: usize) -> String {
         let name = Path::new(&self.annotations.source_name)
             .file_name()
@@ -786,13 +789,13 @@ fn unneeded(origin: &str, key: &str, subject: &str, ty: &QualType) -> Annotation
     AnnotationIssue {
         origin: origin.to_owned(),
         message: format!(
-            "`{key}` {subject} (`{}`) açıklama gerektirmiyor; açıklama yok sayıldı.",
+            "`{key}` {subject} (`{}`) does not need an annotation; the annotation was ignored.",
             rules::spell(ty)
         ),
     }
 }
 
-/// Okunabilir imza: `geo::Widget::attach(geo::Widget* target)`.
+/// A readable signature: `geo::Widget::attach(geo::Widget* target)`.
 fn signature(key: &str, params: &[Param]) -> String {
     let params: Vec<String> = params
         .iter()
@@ -804,9 +807,9 @@ fn signature(key: &str, params: &[Param]) -> String {
     format!("{key}({})", params.join(", "))
 }
 
-/// Bridge'de adı geçebilecek sınıf ve enum'ları toplar; enum planlarını da oluşturur.
+/// Collects the classes and enums whose names may appear in the bridge; also builds the enum plans.
 fn known_types(module: &Module, plan: &mut BridgePlan) -> Known {
-    /// Bridge'e girecek bir tip, kaynak sırasıyla.
+    /// A type entering the bridge, in source order.
     enum Entry<'m> {
         Class(&'m Class),
         Enum { decl: &'m Enum, repr: IntType },
@@ -845,7 +848,7 @@ fn known_types(module: &Module, plan: &mut BridgePlan) -> Known {
     let rust_names = naming::type_names(&keys);
     let mut known = Known::default();
     for ((key, entry), rust_name) in entries.into_iter().zip(rust_names) {
-        // Template örneklemesinin C++ adı yazımıdır (`::geo::Vec3<float>`), Rust adı değil.
+        // The C++ name of a template instantiation is its spelling (`::geo::Vec3<float>`), not the Rust name.
         let cpp = match &entry {
             Entry::Class(Class {
                 instance_of: Some(instance),
@@ -886,12 +889,12 @@ fn known_types(module: &Module, plan: &mut BridgePlan) -> Known {
     known
 }
 
-/// Değer tipi olabilecek sınıfları işaretler (ADR-0010). Bir sınıf değer tipidir, eğer:
-/// polimorfik değilse, taban sınıfı yoksa, kullanıcı kopyalama/taşıma/destructor bildirmemişse,
-/// düzeni biliniyorsa ve bütün alanları public olup sayı, `bool`, `c_char` ya da başka bir
-/// değer tipiyse (`const` alan olmadan). Alan tipleri birbirine bağlı olduğundan (`Matrix3f` içinde `Vector3f`) küme
-/// değişmeyene kadar elenir. Son sözü C++ derleyicisi söyler: shim düzeni `static_assert` ile
-/// doğrular.
+/// Marks the classes that can be value types (ADR-0010). A class is a value type if it is not
+/// polymorphic, has no base class, the user declares no copy/move/destructor, its layout is known,
+/// and all its fields are public and are numbers, `bool`, `c_char` or another value type (with no
+/// `const` field). Because field types depend on each other (`Vector3f` inside `Matrix3f`), the set
+/// is reduced until it stops changing. The C++ compiler has the final word: the shim checks the
+/// layout with `static_assert`.
 fn mark_value_types(module: &Module, known: &mut Known) {
     let classes: Vec<&Class> = module
         .items
@@ -942,7 +945,7 @@ fn mark_value_types(module: &Module, known: &mut Known) {
     }
 }
 
-/// Alan tiplerinden bağımsız değer tipi koşulları.
+/// Value type conditions that do not depend on field types.
 fn value_shape(class: &Class) -> bool {
     !class.is_polymorphic
         && !class.is_abstract
@@ -953,7 +956,7 @@ fn value_shape(class: &Class) -> bool {
         && class
             .fields
             .iter()
-            // `const` alan: Rust'tan yazılırsa C++'ta `const` nesneyi değiştirmek olurdu.
+            // A `const` field: writing it from Rust would change a `const` object in C++.
             .all(|f| f.public && !f.ty.is_const && f.offset_bits.is_some_and(|bits| bits % 8 == 0))
         && !class
             .unsupported_members
@@ -961,7 +964,7 @@ fn value_shape(class: &Class) -> bool {
             .any(|m| m.construct == "base_class")
 }
 
-/// Değer tipinin Rust düzeni.
+/// The Rust layout of a value type.
 fn value_layout(class: &Class, known: &Known) -> Option<ValueLayout> {
     let layout = class.layout?;
     let mut fields = Vec::with_capacity(class.fields.len());
@@ -993,14 +996,14 @@ fn enum_bindable(enumeration: &Enum) -> Result<IntType, String> {
         .find(|v| naming::is_rust_keyword(&v.name))
     {
         return Err(format!(
-            "Enum değeri `{}` bir Rust anahtar kelimesi; bağlanamıyor.",
+            "The enum value `{}` is a Rust keyword; it cannot be bound.",
             variant.name
         ));
     }
     rules::enum_repr(&enumeration.underlying)
 }
 
-/// Rust adlarını atar (ADR-0005).
+/// Assigns Rust names (ADR-0005).
 fn assign_names(plan: &mut BridgePlan) {
     let BridgePlan {
         functions, classes, ..
@@ -1038,9 +1041,9 @@ fn constant_plan(constant: &Constant) -> Result<ConstantPlan, String> {
     })
 }
 
-/// Sabit adları: aynı ad birden fazla namespace'te varsa namespace ön eki (`units_FEET`);
-/// anahtar kelimeler `_` ile kaçılır. Bir güvenli fonksiyonla (Rust'ta aynı ad alanında)
-/// çakışan sabit bağlanmaz.
+/// Constant names: if the same name exists in more than one namespace, a namespace prefix (`units_FEET`);
+/// keywords are escaped with `_`. A constant that clashes with a safe function (in the same
+/// namespace in Rust) is not bound.
 fn name_constants(plan: &mut BridgePlan) {
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     for constant in &plan.constants {
@@ -1065,8 +1068,8 @@ fn name_constants(plan: &mut BridgePlan) {
             plan.skipped.push(skipped(
                 &qualified(&constant.namespace, &constant.cpp_name),
                 &format!(
-                    "Rust'ta sabitler ve fonksiyonlar aynı ad alanında; `{name}` adlı fonksiyonla \
-                     çakışıyor."
+                    "In Rust, constants and functions share a namespace; it clashes with the function named \
+                     `{name}`."
                 ),
                 &constant.location,
             ));

@@ -1,14 +1,14 @@
-//! libclang C API'si üstünde ince, güvenli sarmalayıcı (ADR-0001).
+//! A thin, safe wrapper over the libclang C API (ADR-0001).
 //!
-//! Crate'teki bütün `unsafe` çağrılar bu modülde toplanır. libclang kaynakları (`CXIndex`,
-//! `CXTranslationUnit`, `CXString`, `CXDiagnostic`) `Drop` ile ya da oluşturuldukları yerde bir
-//! kez serbest bırakılır. `Cursor` ve `Type`, ait oldukları `TranslationUnit`'ten uzun
-//! yaşayamaz (ömür parametresi).
+//! All `unsafe` calls in the crate are gathered in this module. libclang resources (`CXIndex`,
+//! `CXTranslationUnit`, `CXString`, `CXDiagnostic`) are released once, with `Drop` or where they
+//! are created. `Cursor` and `Type` cannot outlive the `TranslationUnit` they belong to
+//! (a lifetime parameter).
 //!
-//! Tipler ham pointer içerdiği için `Send`/`Sync` değildir. Bu istenen bir durum: `clang-sys`
-//! `runtime` modunda libclang iş parçacığına özel yüklenir.
+//! Because the types contain raw pointers, they are not `Send`/`Sync`. This is intended: in
+//! `runtime` mode, `clang-sys` loads libclang per thread.
 //!
-//! Desen olarak bindgen'in `clang.rs` dosyası örnek alındı.
+//! bindgen's `clang.rs` file was used as a model for the patterns.
 
 use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_ulong};
 use std::marker::PhantomData;
@@ -17,11 +17,11 @@ use std::ptr;
 
 use clang_sys as cx;
 
-/// libclang'ın döndürdüğü bir `CXString`'i Rust `String`'ine kopyalar ve serbest bırakır.
+/// Copies a `CXString` returned by libclang into a Rust `String` and releases it.
 fn take_string(s: cx::CXString) -> String {
-    // SAFETY: `s` libclang'ın döndürdüğü, sahibi çağıran olan bir `CXString`.
-    // `clang_getCString` ya null ya da `s` serbest bırakılana kadar geçerli, NUL ile biten bir
-    // C string'i döndürür; metin serbest bırakmadan önce kopyalanıyor.
+    // SAFETY: `s` is a `CXString` returned by libclang and owned by the caller.
+    // `clang_getCString` returns either null or a NUL-terminated C string that is valid until
+    // `s` is released; the text is copied before it is released.
     let text = unsafe {
         let ptr = cx::clang_getCString(s);
         if ptr.is_null() {
@@ -30,18 +30,18 @@ fn take_string(s: cx::CXString) -> String {
             CStr::from_ptr(ptr).to_string_lossy().into_owned()
         }
     };
-    // SAFETY: `s` yalnızca burada, bir kez serbest bırakılıyor.
+    // SAFETY: `s` is released only here, once.
     unsafe { cx::clang_disposeString(s) };
     text
 }
 
-/// Yüklü libclang'ın sürüm metni. Okunamazsa boş döner.
+/// The version text of the loaded libclang. Empty if it cannot be read.
 pub(crate) fn version() -> String {
-    // SAFETY: argüman almaz; dönen `CXString`'in sahipliği `take_string`'e geçer.
+    // SAFETY: takes no arguments; ownership of the returned `CXString` passes to `take_string`.
     take_string(unsafe { cx::clang_getClangVersion() })
 }
 
-/// Bir kaynak konumunun dosya, satır ve sütun bilgisi.
+/// The file, line and column of a source location.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Location {
     pub(crate) file: String,
@@ -52,29 +52,29 @@ pub(crate) struct Location {
 fn file_location(location: cx::CXSourceLocation) -> Location {
     let mut file: cx::CXFile = ptr::null_mut();
     let (mut line, mut column, mut offset) = (0, 0, 0);
-    // SAFETY: `location` libclang'dan geldi; çıktı işaretçileri geçerli yerel değişkenler.
+    // SAFETY: `location` came from libclang; the output pointers are valid local variables.
     unsafe {
         cx::clang_getFileLocation(location, &mut file, &mut line, &mut column, &mut offset);
     }
     let file = if file.is_null() {
         String::new()
     } else {
-        // SAFETY: `file` null değil ve translation unit yaşadığı sürece geçerli.
+        // SAFETY: `file` is not null and is valid while the translation unit lives.
         take_string(unsafe { cx::clang_getFileName(file) })
     };
     Location { file, line, column }
 }
 
-/// Bir libclang indeksi. Translation unit'ler bundan oluşturulur.
+/// A libclang index. Translation units are created from it.
 pub(crate) struct Index {
     raw: cx::CXIndex,
 }
 
 impl Index {
-    /// Yeni bir indeks oluşturur; libclang başaramazsa `None`.
+    /// Creates a new index; `None` if libclang fails.
     pub(crate) fn new() -> Option<Self> {
-        // SAFETY: ilk argüman (0) PCH bildirimlerini dışlamaz, ikinci (0) tanıları stderr'e
-        // basmaz. libclang yüklü değilse `clang-sys` panikler; tanımsız davranış oluşmaz.
+        // SAFETY: the first argument (0) does not exclude PCH declarations, the second (0) does not
+        // print diagnostics to stderr. If libclang is not loaded, `clang-sys` panics; no undefined behavior.
         let raw = unsafe { cx::clang_createIndex(0, 0) };
         (!raw.is_null()).then_some(Self { raw })
     }
@@ -82,39 +82,39 @@ impl Index {
 
 impl Drop for Index {
     fn drop(&mut self) {
-        // SAFETY: `raw` `clang_createIndex`'ten geldi ve yalnızca burada serbest bırakılıyor.
-        // Bu indekse bağlı `TranslationUnit`'ler ömür parametresi sayesinde daha önce düşer.
+        // SAFETY: `raw` came from `clang_createIndex` and is released only here.
+        // `TranslationUnit`s tied to this index are dropped earlier, thanks to the lifetime parameter.
         unsafe { cx::clang_disposeIndex(self.raw) };
     }
 }
 
-/// libclang'ın bir tanısı (uyarı, hata...).
+/// A libclang diagnostic (warning, error...).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RawDiagnostic {
     pub(crate) severity: cx::CXDiagnosticSeverity,
     pub(crate) location: Location,
     pub(crate) message: String,
-    /// Bu tanıya bağlı notlar (ör. "to match this '('"); notların kendi notları alınmaz.
+    /// The notes attached to this diagnostic (e.g. "to match this '('"); notes of notes are not taken.
     pub(crate) notes: Vec<RawDiagnostic>,
 }
 
-/// Ayrıştırılmış bir C++ dosyası.
+/// A parsed C++ file.
 pub(crate) struct TranslationUnit<'index> {
     raw: cx::CXTranslationUnit,
     _index: PhantomData<&'index Index>,
 }
 
 impl<'index> TranslationUnit<'index> {
-    /// `file`'ı verilen derleyici argümanlarıyla ayrıştırır.
+    /// Parses `file` with the given compiler arguments.
     ///
-    /// `unsaved`, diskte olmayan ya da içeriği bellekten verilen dosyaların (ad, içerik)
-    /// çiftleridir; `file` bunlardan biri olabilir. Başarısızlıkta libclang'ın hata kodunu
-    /// döndürür.
+    /// `unsaved` holds (name, contents) pairs of files that are not on disk or whose contents are
+    /// given from memory; `file` can be one of them. On failure, returns libclang's error
+    /// code.
     ///
-    /// Fonksiyon gövdeleri atlanmaz. libclang gövdesi atlanan bir fonksiyonu "tanım" saymıyor;
-    /// tanımı header'da olan `static inline` fonksiyonları ayırt etmek için gövdeler gerekiyor.
-    /// Ayrıca header'daki gövdeler shim derlenirken zaten derlenir; hataları burada görülür.
-    /// (Ölçüm: `AP_Math.h` ve çektiği 28 kütüphane için süre farkı yok.)
+    /// Function bodies are not skipped. libclang does not count a function whose body was skipped as a "definition";
+    /// the bodies are needed to recognize `static inline` functions defined in the header.
+    /// The bodies in the header are compiled anyway when the shim is compiled; their errors show up here.
+    /// (Measured: no difference in time for `AP_Math.h` and the 28 libraries it pulls in.)
     pub(crate) fn parse(
         index: &'index Index,
         file: &CStr,
@@ -140,11 +140,11 @@ impl<'index> TranslationUnit<'index> {
             return Err(cx::CXError_InvalidArguments);
         };
         let mut raw: cx::CXTranslationUnit = ptr::null_mut();
-        // SAFETY: `index.raw` geçerli bir indeks. `file`, `arg_ptrs` ve `unsaved_files`'ın
-        // gösterdiği bütün string'ler (`unsaved`'deki `CString`'ler) bu çağrı boyunca yaşayan,
-        // NUL ile biten C string'leri; her `Length`, içeriğin NUL hariç bayt sayısı. libclang
-        // kaydedilmemiş dosyaların içeriğini çağrı sırasında kopyalar. `raw` geçerli bir çıktı
-        // işaretçisi.
+        // SAFETY: `index.raw` is a valid index. All strings pointed to by `file`, `arg_ptrs` and
+        // `unsaved_files` (the `CString`s in `unsaved`) are NUL-terminated C strings that live
+        // during this call; every `Length` is the content's byte count without the NUL. libclang
+        // copies the contents of unsaved files during the call. `raw` is a valid output
+        // pointer.
         let code = unsafe {
             cx::clang_parseTranslationUnit2(
                 index.raw,
@@ -159,8 +159,8 @@ impl<'index> TranslationUnit<'index> {
         };
         if code != cx::CXError_Success {
             if !raw.is_null() {
-                // SAFETY: libclang hata döndürse de bir translation unit verdiyse sahibi biziz;
-                // sızmasın diye burada, bir kez serbest bırakılıyor ve bir daha kullanılmıyor.
+                // SAFETY: if libclang returned an error but still gave a translation unit, we own it;
+                // it is released here, once, so that it does not leak, and is never used again.
                 unsafe { cx::clang_disposeTranslationUnit(raw) };
             }
             return Err(code);
@@ -174,12 +174,12 @@ impl<'index> TranslationUnit<'index> {
         })
     }
 
-    /// Bu translation unit'e dahil olmuş bir dosya; `path` hiç açılmadıysa `None`.
+    /// A file that was included in this translation unit; `None` if `path` was never opened.
     ///
-    /// `path`, dosyanın include edilirken kullanılan yoluyla aynı olmalı.
+    /// `path` must be the same as the path the file was included with.
     pub(crate) fn file(&self, path: &CStr) -> Option<File<'_>> {
-        // SAFETY: `self.raw` geçerli; `path` NUL ile biten bir C string'i. Dosya yoksa null
-        // döner.
+        // SAFETY: `self.raw` is valid; `path` is a NUL-terminated C string. Returns null if the
+        // file does not exist.
         let raw = unsafe { cx::clang_getFile(self.raw, path.as_ptr()) };
         (!raw.is_null()).then_some(File {
             raw,
@@ -187,23 +187,23 @@ impl<'index> TranslationUnit<'index> {
         })
     }
 
-    /// Translation unit'in kök cursor'ı.
+    /// The root cursor of the translation unit.
     pub(crate) fn cursor(&self) -> Cursor<'_> {
-        // SAFETY: `self.raw` geçerli; dönen cursor `self`'in ömrüne bağlanıyor.
+        // SAFETY: `self.raw` is valid; the returned cursor is tied to the lifetime of `self`.
         Cursor::new(unsafe { cx::clang_getTranslationUnitCursor(self.raw) })
     }
 
-    /// Ayrıştırma sırasında üretilen bütün tanılar.
+    /// All diagnostics produced during parsing.
     pub(crate) fn diagnostics(&self) -> Vec<RawDiagnostic> {
-        // SAFETY: `self.raw` geçerli bir translation unit.
+        // SAFETY: `self.raw` is a valid translation unit.
         let count = unsafe { cx::clang_getNumDiagnostics(self.raw) };
         (0..count)
             .map(|i| {
-                // SAFETY: `i < count`; dönen tanı aşağıda bir kez serbest bırakılıyor.
+                // SAFETY: `i < count`; the returned diagnostic is released once below.
                 let diagnostic = unsafe { cx::clang_getDiagnostic(self.raw, i) };
                 let result = read_diagnostic(diagnostic, true);
-                // SAFETY: `diagnostic` yalnızca burada serbest bırakılıyor; ondan alınan
-                // değerler `read_diagnostic`'te kopyalandı.
+                // SAFETY: `diagnostic` is released only here; the values taken from it
+                // were copied in `read_diagnostic`.
                 unsafe { cx::clang_disposeDiagnostic(diagnostic) };
                 result
             })
@@ -211,9 +211,9 @@ impl<'index> TranslationUnit<'index> {
     }
 }
 
-/// Bir tanının değerlerini kopyalar; `with_notes` ise ona bağlı notları da (bir seviye).
+/// Copies the values of a diagnostic; if `with_notes`, also the notes attached to it (one level).
 fn read_diagnostic(diagnostic: cx::CXDiagnostic, with_notes: bool) -> RawDiagnostic {
-    // SAFETY: `diagnostic` çağıranın elinde geçerli bir tanı.
+    // SAFETY: `diagnostic` is a valid diagnostic held by the caller.
     let (severity, location, message) = unsafe {
         (
             cx::clang_getDiagnosticSeverity(diagnostic),
@@ -223,21 +223,21 @@ fn read_diagnostic(diagnostic: cx::CXDiagnostic, with_notes: bool) -> RawDiagnos
     };
     let mut notes = Vec::new();
     if with_notes {
-        // SAFETY: `diagnostic` geçerli. Dönen küme tanıya aittir ve serbest bırakılmamalıdır
-        // (libclang belgesi); tanı yaşadığı sürece geçerlidir.
+        // SAFETY: `diagnostic` is valid. The returned set belongs to the diagnostic and must not be released
+        // (libclang documentation); it is valid while the diagnostic lives.
         let set = unsafe { cx::clang_getChildDiagnostics(diagnostic) };
         if !set.is_null() {
-            // SAFETY: `set` null değil ve geçerli.
+            // SAFETY: `set` is not null and is valid.
             let count = unsafe { cx::clang_getNumDiagnosticsInSet(set) };
             for i in 0..count {
-                // SAFETY: `i < count`. Kümeden alınan tanı belgeye göre serbest bırakılmalı;
-                // aşağıda bir kez yapılıyor (kümeye ait tanılar için libclang'da etkisizdir).
+                // SAFETY: `i < count`. Per the documentation, a diagnostic taken from the set must be released;
+                // this is done once below (it has no effect in libclang for diagnostics belonging to a set).
                 let note = unsafe { cx::clang_getDiagnosticInSet(set, i) };
                 if note.is_null() {
                     continue;
                 }
                 notes.push(read_diagnostic(note, false));
-                // SAFETY: `note` yalnızca burada serbest bırakılıyor; değerleri kopyalandı.
+                // SAFETY: `note` is released only here; its values were copied.
                 unsafe { cx::clang_disposeDiagnostic(note) };
             }
         }
@@ -252,51 +252,51 @@ fn read_diagnostic(diagnostic: cx::CXDiagnostic, with_notes: bool) -> RawDiagnos
 
 impl Drop for TranslationUnit<'_> {
     fn drop(&mut self) {
-        // SAFETY: `raw` `clang_parseTranslationUnit2`'den geldi ve yalnızca burada serbest
-        // bırakılıyor. Ona bağlı `Cursor`/`Type`'lar ömür parametresi sayesinde daha önce düşer.
+        // SAFETY: `raw` came from `clang_parseTranslationUnit2` and is released only here.
+        // `Cursor`s/`Type`s tied to it are dropped earlier, thanks to the lifetime parameter.
         unsafe { cx::clang_disposeTranslationUnit(self.raw) };
     }
 }
 
-/// [`Cursor::evaluate`]'in hesapladığı değer.
+/// The value computed by [`Cursor::evaluate`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Evaluated {
-    /// İşaretli olarak okunan tamsayı.
+    /// An integer read as signed.
     Signed(i64),
-    /// İşaretsiz olarak okunan tamsayı (libclang işaretsiz dediyse).
+    /// An integer read as unsigned (if libclang said it is unsigned).
     Unsigned(u64),
-    /// Kayan noktalı sayı (`float` değerler kayıpsız `double`'a çevrilmiş olarak).
+    /// A floating-point number (`float` values converted to `double` without loss).
     Float(f64),
 }
 
-/// Translation unit'e dahil olmuş bir kaynak dosya.
+/// A source file included in the translation unit.
 #[derive(Clone, Copy)]
 pub(crate) struct File<'tu> {
     raw: cx::CXFile,
     _tu: PhantomData<&'tu ()>,
 }
 
-/// AST'deki bir düğüm.
+/// A node in the AST.
 #[derive(Clone, Copy)]
 pub(crate) struct Cursor<'tu> {
     raw: cx::CXCursor,
     _tu: PhantomData<&'tu ()>,
 }
 
-/// `clang_visitChildren` için geri çağrı: her çocuğu `data`'daki `Vec`'e ekler.
+/// The callback for `clang_visitChildren`: adds every child to the `Vec` in `data`.
 extern "C" fn collect_child(
     child: cx::CXCursor,
     _parent: cx::CXCursor,
     data: cx::CXClientData,
 ) -> cx::CXChildVisitResult {
     let pushed = catch_unwind(AssertUnwindSafe(|| {
-        // SAFETY: `data`, `Cursor::children` içinde `&mut Vec<CXCursor>`'dan oluşturuldu ve
-        // `clang_visitChildren` dönene kadar geçerli. libclang geri çağrıyı aynı iş
-        // parçacığında ve sırayla çağırır; aynı anda başka bir referans yok.
+        // SAFETY: `data` was created in `Cursor::children` from a `&mut Vec<CXCursor>` and
+        // is valid until `clang_visitChildren` returns. libclang calls the callback on the same
+        // thread and in order; there is no other reference at the same time.
         let children = unsafe { &mut *data.cast::<Vec<cx::CXCursor>>() };
         children.push(child);
     }));
-    // Panik FFI sınırını geçmez: yakalanır ve gezme durdurulur.
+    // A panic does not cross the FFI boundary: it is caught and the walk is stopped.
     if pushed.is_ok() {
         cx::CXChildVisit_Continue
     } else {
@@ -316,28 +316,28 @@ impl<'tu> Cursor<'tu> {
         self.raw.kind
     }
 
-    /// Cursor türünün libclang'daki adı (ör. `"VarDecl"`).
+    /// The libclang name of the cursor kind (e.g. `"VarDecl"`).
     pub(crate) fn kind_spelling(&self) -> String {
-        // SAFETY: herhangi bir cursor türü için geçerli; sahiplik `take_string`'e geçer.
+        // SAFETY: valid for any cursor kind; ownership passes to `take_string`.
         take_string(unsafe { cx::clang_getCursorKindSpelling(self.raw.kind) })
     }
 
     pub(crate) fn spelling(&self) -> String {
-        // SAFETY: `self.raw` translation unit yaşadığı sürece geçerli.
+        // SAFETY: `self.raw` is valid while the translation unit lives.
         take_string(unsafe { cx::clang_getCursorSpelling(self.raw) })
     }
 
     pub(crate) fn location(&self) -> Location {
-        // SAFETY: `self.raw` geçerli.
+        // SAFETY: `self.raw` is valid.
         file_location(unsafe { cx::clang_getCursorLocation(self.raw) })
     }
 
-    /// Bildirim `file` dosyasında mı? Makrodan üretilen bildirimler için makronun açıldığı
-    /// yere bakılır.
+    /// Is the declaration in the file `file`? For declarations produced by a macro, the place
+    /// where the macro was expanded is used.
     pub(crate) fn is_in_file(&self, file: File<'_>) -> bool {
         let mut found: cx::CXFile = ptr::null_mut();
-        // SAFETY: `self.raw` geçerli; satır, sütun ve ofset istenmiyor (null kabul edilir),
-        // `found` geçerli bir çıktı işaretçisi.
+        // SAFETY: `self.raw` is valid; line, column and offset are not requested (null is accepted),
+        // `found` is a valid output pointer.
         unsafe {
             cx::clang_getExpansionLocation(
                 cx::clang_getCursorLocation(self.raw),
@@ -347,22 +347,22 @@ impl<'tu> Cursor<'tu> {
                 ptr::null_mut(),
             );
         }
-        // SAFETY: iki dosya da aynı translation unit'ten; null dosya hiçbir dosyaya eşit
-        // sayılmaz.
+        // SAFETY: both files are from the same translation unit; a null file is not equal to any
+        // file.
         !found.is_null() && unsafe { cx::clang_File_isEqual(found, file.raw) != 0 }
     }
 
-    /// Değişkenin başlatıcısını (ya da ifadeyi) derleme anında hesaplar. Başlatıcı yoksa,
-    /// hesaplanamıyorsa ya da sonuç sayı değilse `None`.
+    /// Evaluates the variable's initializer (or the expression) at compile time. `None` if there is
+    /// no initializer, it cannot be evaluated, or the result is not a number.
     pub(crate) fn evaluate(&self) -> Option<Evaluated> {
-        // SAFETY: `self.raw` geçerli; başarısızlıkta null döner. Dönen sonuç aşağıda bir kez
-        // serbest bırakılıyor.
+        // SAFETY: `self.raw` is valid; returns null on failure. The returned result is released once
+        // below.
         let result = unsafe { cx::clang_Cursor_Evaluate(self.raw) };
         if result.is_null() {
             return None;
         }
-        // SAFETY: `result` null değil ve henüz serbest bırakılmadı. Okuma fonksiyonları
-        // sonucun türüne uygun olarak çağrılıyor.
+        // SAFETY: `result` is not null and not released yet. The read functions are called
+        // according to the kind of the result.
         let value = unsafe {
             match cx::clang_EvalResult_getKind(result) {
                 cx::CXEval_Int if cx::clang_EvalResult_isUnsignedInt(result) != 0 => Some(
@@ -377,202 +377,202 @@ impl<'tu> Cursor<'tu> {
                 _ => None,
             }
         };
-        // SAFETY: `result` yalnızca burada serbest bırakılıyor; değeri yukarıda kopyalandı.
+        // SAFETY: `result` is released only here; its value was copied above.
         unsafe { cx::clang_EvalResult_dispose(result) };
         value
     }
 
-    /// Bir referansın (ör. `DeclRefExpr`) gösterdiği bildirim; yoksa null cursor.
+    /// The declaration a reference (e.g. `DeclRefExpr`) points to; a null cursor otherwise.
     pub(crate) fn referenced(&self) -> Cursor<'tu> {
-        // SAFETY: `self.raw` geçerli; referans değilse null cursor döner.
+        // SAFETY: `self.raw` is valid; returns a null cursor if it is not a reference.
         Cursor::new(unsafe { cx::clang_getCursorReferenced(self.raw) })
     }
 
-    /// İki cursor aynı düğümü mü gösteriyor?
+    /// Do the two cursors point to the same node?
     pub(crate) fn same_as(&self, other: &Cursor<'_>) -> bool {
-        // SAFETY: iki cursor da geçerli (null cursor da karşılaştırılabilir).
+        // SAFETY: both cursors are valid (a null cursor can be compared too).
         unsafe { cx::clang_equalCursors(self.raw, other.raw) != 0 }
     }
 
-    /// Doğrudan çocuk düğümler, kaynak sırasıyla.
+    /// The direct child nodes, in source order.
     pub(crate) fn children(&self) -> Vec<Cursor<'tu>> {
         let mut children: Vec<cx::CXCursor> = Vec::new();
-        // SAFETY: `self.raw` geçerli. `collect_child` yalnızca `children`'a yazar ve
-        // `children` bu çağrı bitene kadar yaşar.
+        // SAFETY: `self.raw` is valid. `collect_child` writes only to `children`, and
+        // `children` lives until this call ends.
         unsafe {
             cx::clang_visitChildren(self.raw, collect_child, (&raw mut children).cast());
         }
         children.into_iter().map(Cursor::new).collect()
     }
 
-    /// Fonksiyon parametreleri; fonksiyon değilse boş.
+    /// The function's parameters; empty if it is not a function.
     pub(crate) fn arguments(&self) -> Vec<Cursor<'tu>> {
-        // SAFETY: `self.raw` geçerli; fonksiyon olmayan cursor için -1 döner.
+        // SAFETY: `self.raw` is valid; returns -1 for a cursor that is not a function.
         let count = unsafe { cx::clang_Cursor_getNumArguments(self.raw) };
         let count = u32::try_from(count).unwrap_or(0);
         (0..count)
-            // SAFETY: `i < count`, yani geçerli bir parametre indeksi.
+            // SAFETY: `i < count`, i.e. a valid parameter index.
             .map(|i| Cursor::new(unsafe { cx::clang_Cursor_getArgument(self.raw, i) }))
             .collect()
     }
 
     pub(crate) fn ty(&self) -> Type<'tu> {
-        // SAFETY: `self.raw` geçerli.
+        // SAFETY: `self.raw` is valid.
         Type::new(unsafe { cx::clang_getCursorType(self.raw) })
     }
 
     pub(crate) fn result_type(&self) -> Type<'tu> {
-        // SAFETY: `self.raw` geçerli; fonksiyon değilse geçersiz tip döner.
+        // SAFETY: `self.raw` is valid; returns an invalid type if it is not a function.
         Type::new(unsafe { cx::clang_getCursorResultType(self.raw) })
     }
 
     pub(crate) fn exception_spec(&self) -> c_int {
-        // SAFETY: `self.raw` geçerli; fonksiyon değilse -1 döner.
+        // SAFETY: `self.raw` is valid; returns -1 if it is not a function.
         unsafe { cx::clang_getCursorExceptionSpecificationType(self.raw) }
     }
 
     pub(crate) fn linkage(&self) -> cx::CXLinkageKind {
-        // SAFETY: `self.raw` geçerli.
+        // SAFETY: `self.raw` is valid.
         unsafe { cx::clang_getCursorLinkage(self.raw) }
     }
 
-    /// Typedef bildiriminin altta yatan tipi.
+    /// The underlying type of a typedef declaration.
     pub(crate) fn typedef_underlying(&self) -> Type<'tu> {
-        // SAFETY: `self.raw` geçerli; typedef değilse geçersiz tip döner.
+        // SAFETY: `self.raw` is valid; returns an invalid type if it is not a typedef.
         Type::new(unsafe { cx::clang_getTypedefDeclUnderlyingType(self.raw) })
     }
 
-    /// Bildirimi içeren anlamsal üst düğüm (namespace, sınıf veya translation unit).
+    /// The semantic parent containing the declaration (namespace, class or translation unit).
     pub(crate) fn semantic_parent(&self) -> Cursor<'tu> {
-        // SAFETY: `self.raw` geçerli; üstü yoksa null cursor döner.
+        // SAFETY: `self.raw` is valid; returns a null cursor if there is no parent.
         Cursor::new(unsafe { cx::clang_getCursorSemanticParent(self.raw) })
     }
 
-    /// Bu bir tanım mı (yalnızca ileri bildirim değil)?
+    /// Is this a definition (not just a forward declaration)?
     pub(crate) fn is_definition(&self) -> bool {
-        // SAFETY: `self.raw` geçerli.
+        // SAFETY: `self.raw` is valid.
         unsafe { cx::clang_isCursorDefinition(self.raw) != 0 }
     }
 
-    /// Bir template örneklemesinin (ya da özelleştirmesinin) template'i; değilse null cursor.
+    /// The template of a template instantiation (or specialization); a null cursor otherwise.
     pub(crate) fn specialized_template(&self) -> Cursor<'tu> {
-        // SAFETY: `self.raw` geçerli; template'ten gelmiyorsa null cursor döner.
+        // SAFETY: `self.raw` is valid; returns a null cursor if it does not come from a template.
         Cursor::new(unsafe { cx::clang_getSpecializedCursorTemplate(self.raw) })
     }
 
-    /// Bildirimin tanımı (çeviri biriminde varsa); yoksa null cursor.
+    /// The definition of the declaration (if it is in the translation unit); a null cursor otherwise.
     pub(crate) fn definition(&self) -> Cursor<'tu> {
-        // SAFETY: `self.raw` geçerli; tanım yoksa null cursor döner.
+        // SAFETY: `self.raw` is valid; returns a null cursor if there is no definition.
         Cursor::new(unsafe { cx::clang_getCursorDefinition(self.raw) })
     }
 
-    /// Null cursor mu?
+    /// Is it a null cursor?
     pub(crate) fn is_null(&self) -> bool {
-        // SAFETY: herhangi bir cursor için geçerli.
+        // SAFETY: valid for any cursor.
         unsafe { cx::clang_Cursor_isNull(self.raw) != 0 }
     }
 
-    /// Bit alanı mı (`int x : 3`)?
+    /// Is it a bit field (`int x : 3`)?
     pub(crate) fn is_bit_field(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; alan değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not a field.
         unsafe { cx::clang_Cursor_isBitField(self.raw) != 0 }
     }
 
-    /// Kopyalama ya da taşıma constructor'ı mı?
+    /// Is it a copy or move constructor?
     pub(crate) fn is_copy_or_move_constructor(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; constructor değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not a constructor.
         unsafe {
             cx::clang_CXXConstructor_isCopyConstructor(self.raw) != 0
                 || cx::clang_CXXConstructor_isMoveConstructor(self.raw) != 0
         }
     }
 
-    /// Kopyalama ya da taşıma atama operatörü mü?
+    /// Is it a copy or move assignment operator?
     pub(crate) fn is_copy_or_move_assignment(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; metot değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not a method.
         unsafe {
             cx::clang_CXXMethod_isCopyAssignmentOperator(self.raw) != 0
                 || cx::clang_CXXMethod_isMoveAssignmentOperator(self.raw) != 0
         }
     }
 
-    /// `= default` ile bildirilmiş mi?
+    /// Is it declared with `= default`?
     pub(crate) fn is_defaulted(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; metot değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not a method.
         unsafe { cx::clang_CXXMethod_isDefaulted(self.raw) != 0 }
     }
 
-    /// İsimsiz bir namespace, struct veya enum mu?
+    /// Is it an unnamed namespace, struct or enum?
     pub(crate) fn is_anonymous(&self) -> bool {
-        // SAFETY: `self.raw` geçerli.
+        // SAFETY: `self.raw` is valid.
         unsafe { cx::clang_Cursor_isAnonymous(self.raw) != 0 }
     }
 
-    /// `inline namespace` mi (ör. libc++'ın `std::__1`'i)?
+    /// Is it an `inline namespace` (e.g. libc++'s `std::__1`)?
     pub(crate) fn is_inline_namespace(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; namespace değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not a namespace.
         unsafe { cx::clang_Cursor_isInlineNamespace(self.raw) != 0 }
     }
 
-    /// Sınıf üyesinin erişim belirteci (`CX_CXXPublic` ...).
+    /// The access specifier of a class member (`CX_CXXPublic` ...).
     pub(crate) fn access(&self) -> cx::CX_CXXAccessSpecifier {
-        // SAFETY: `self.raw` geçerli; üye değilse `CX_CXXInvalidAccessSpecifier` döner.
+        // SAFETY: `self.raw` is valid; returns `CX_CXXInvalidAccessSpecifier` if it is not a member.
         unsafe { cx::clang_getCXXAccessSpecifier(self.raw) }
     }
 
-    /// `= delete` ile silinmiş bir fonksiyon mu?
+    /// Is it a function deleted with `= delete`?
     pub(crate) fn is_deleted(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; fonksiyon değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not a function.
         unsafe { cx::clang_CXXMethod_isDeleted(self.raw) != 0 }
     }
 
     pub(crate) fn is_const_method(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; metot değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not a method.
         unsafe { cx::clang_CXXMethod_isConst(self.raw) != 0 }
     }
 
     pub(crate) fn is_static_method(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; metot değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not a method.
         unsafe { cx::clang_CXXMethod_isStatic(self.raw) != 0 }
     }
 
     pub(crate) fn is_virtual_method(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; metot değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not a method.
         unsafe { cx::clang_CXXMethod_isVirtual(self.raw) != 0 }
     }
 
-    /// Saf sanal metodu olduğu için doğrudan oluşturulamayan bir sınıf mı?
+    /// Is it a class that cannot be created directly because it has a pure virtual method?
     pub(crate) fn is_abstract_record(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; sınıf değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not a class.
         unsafe { cx::clang_CXXRecord_isAbstract(self.raw) != 0 }
     }
 
-    /// `enum class` mı?
+    /// Is it an `enum class`?
     pub(crate) fn is_scoped_enum(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; enum değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not an enum.
         unsafe { cx::clang_EnumDecl_isScoped(self.raw) != 0 }
     }
 
-    /// Enum'un altta yatan tamsayı tipi.
+    /// The underlying integer type of the enum.
     pub(crate) fn enum_integer_type(&self) -> Type<'tu> {
-        // SAFETY: `self.raw` geçerli; enum değilse geçersiz tip döner.
+        // SAFETY: `self.raw` is valid; returns an invalid type if it is not an enum.
         Type::new(unsafe { cx::clang_getEnumDeclIntegerType(self.raw) })
     }
 
-    /// Enum değerinin işaretli sayısal karşılığı.
+    /// The signed numeric value of the enum constant.
     pub(crate) fn enum_value(&self) -> i64 {
-        // SAFETY: `self.raw` geçerli; enum değeri değilse `LLONG_MIN` döner.
+        // SAFETY: `self.raw` is valid; returns `LLONG_MIN` if it is not an enum constant.
         unsafe { cx::clang_getEnumConstantDeclValue(self.raw) }
     }
 
-    /// Enum değerinin işaretsiz sayısal karşılığı.
+    /// The unsigned numeric value of the enum constant.
     pub(crate) fn enum_unsigned_value(&self) -> u64 {
-        // SAFETY: `self.raw` geçerli; enum değeri değilse `ULLONG_MAX` döner.
+        // SAFETY: `self.raw` is valid; returns `ULLONG_MAX` if it is not an enum constant.
         unsafe { cx::clang_getEnumConstantDeclUnsignedValue(self.raw) }
     }
 }
 
-/// Bir C++ tipi.
+/// A C++ type.
 #[derive(Clone, Copy)]
 pub(crate) struct Type<'tu> {
     raw: cx::CXType,
@@ -592,74 +592,74 @@ impl<'tu> Type<'tu> {
     }
 
     pub(crate) fn spelling(&self) -> String {
-        // SAFETY: `self.raw` translation unit yaşadığı sürece geçerli.
+        // SAFETY: `self.raw` is valid while the translation unit lives.
         take_string(unsafe { cx::clang_getTypeSpelling(self.raw) })
     }
 
     pub(crate) fn canonical(&self) -> Type<'tu> {
-        // SAFETY: `self.raw` geçerli.
+        // SAFETY: `self.raw` is valid.
         Type::new(unsafe { cx::clang_getCanonicalType(self.raw) })
     }
 
     pub(crate) fn pointee(&self) -> Type<'tu> {
-        // SAFETY: `self.raw` geçerli; pointer/referans değilse geçersiz tip döner.
+        // SAFETY: `self.raw` is valid; returns an invalid type if it is not a pointer/reference.
         Type::new(unsafe { cx::clang_getPointeeType(self.raw) })
     }
 
     pub(crate) fn is_const(&self) -> bool {
-        // SAFETY: `self.raw` geçerli.
+        // SAFETY: `self.raw` is valid.
         unsafe { cx::clang_isConstQualifiedType(self.raw) != 0 }
     }
 
-    /// Bayt cinsinden boyut; libclang hesaplayamazsa `None`.
+    /// The size in bytes; `None` if libclang cannot compute it.
     pub(crate) fn size_of(&self) -> Option<u64> {
-        // SAFETY: `self.raw` geçerli; hata durumunda negatif değer döner.
+        // SAFETY: `self.raw` is valid; returns a negative value on error.
         u64::try_from(unsafe { cx::clang_Type_getSizeOf(self.raw) }).ok()
     }
 
-    /// Bayt cinsinden hizalama; libclang hesaplayamazsa `None`.
+    /// The alignment in bytes; `None` if libclang cannot compute it.
     pub(crate) fn align_of(&self) -> Option<u64> {
-        // SAFETY: `self.raw` geçerli; hata durumunda negatif değer döner.
+        // SAFETY: `self.raw` is valid; returns a negative value on error.
         u64::try_from(unsafe { cx::clang_Type_getAlignOf(self.raw) }).ok()
     }
 
-    /// `field` adlı alanın ofseti (bit); yoksa ya da hesaplanamazsa `None`.
+    /// The offset (in bits) of the field named `field`; `None` if it does not exist or cannot be computed.
     pub(crate) fn offset_of(&self, field: &CStr) -> Option<u64> {
-        // SAFETY: `self.raw` geçerli; `field` NUL ile biten bir C string'i. Hata durumunda
-        // negatif değer döner.
+        // SAFETY: `self.raw` is valid; `field` is a NUL-terminated C string. Returns a negative
+        // value on error.
         u64::try_from(unsafe { cx::clang_Type_getOffsetOf(self.raw, field.as_ptr()) }).ok()
     }
 
-    /// İki tip aynı mı?
+    /// Are the two types the same?
     pub(crate) fn same_as(&self, other: &Type<'_>) -> bool {
-        // SAFETY: iki tip de geçerli.
+        // SAFETY: both types are valid.
         unsafe { cx::clang_equalTypes(self.raw, other.raw) != 0 }
     }
 
-    /// `std::int32_t` gibi nitelenmiş adların sardığı tip.
+    /// The type wrapped by qualified names such as `std::int32_t`.
     pub(crate) fn named(&self) -> Type<'tu> {
-        // SAFETY: `self.raw` geçerli; elaborated değilse geçersiz tip döner.
+        // SAFETY: `self.raw` is valid; returns an invalid type if it is not elaborated.
         Type::new(unsafe { cx::clang_Type_getNamedType(self.raw) })
     }
 
     pub(crate) fn declaration(&self) -> Cursor<'tu> {
-        // SAFETY: `self.raw` geçerli; bildirimi yoksa null cursor döner.
+        // SAFETY: `self.raw` is valid; returns a null cursor if there is no declaration.
         Cursor::new(unsafe { cx::clang_getTypeDeclaration(self.raw) })
     }
 
     pub(crate) fn is_variadic(&self) -> bool {
-        // SAFETY: `self.raw` geçerli; fonksiyon tipi değilse 0 döner.
+        // SAFETY: `self.raw` is valid; returns 0 if it is not a function type.
         unsafe { cx::clang_isFunctionTypeVariadic(self.raw) != 0 }
     }
 
-    /// Template özelleştirmesinin tip argümanları (ör. `std::unique_ptr<T, D>` için `[T, D]`).
-    /// Template değilse boş.
+    /// The type arguments of a template specialization (e.g. `[T, D]` for `std::unique_ptr<T, D>`).
+    /// Empty if it is not a template.
     pub(crate) fn template_args(&self) -> Vec<Type<'tu>> {
-        // SAFETY: `self.raw` geçerli; template değilse -1 döner.
+        // SAFETY: `self.raw` is valid; returns -1 if it is not a template.
         let count = unsafe { cx::clang_Type_getNumTemplateArguments(self.raw) };
         let count = u32::try_from(count).unwrap_or(0);
         (0..count)
-            // SAFETY: `i < count`, yani geçerli bir argüman indeksi.
+            // SAFETY: `i < count`, i.e. a valid argument index.
             .map(|i| Type::new(unsafe { cx::clang_Type_getTemplateArgumentAsType(self.raw, i) }))
             .collect()
     }

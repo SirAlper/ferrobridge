@@ -1,6 +1,6 @@
-//! Üretilmiş bridge'leri, shim'leri ve fixture'ların C++ gerçeklemelerini derler.
+//! Compiles the generated bridges, the shims and the fixtures' C++ implementations.
 //!
-//! `ferrobridge-build`'in commit'li dosya modunu kullanır (README'deki örnekle aynı yol).
+//! Uses the committed-file mode of `ferrobridge-build` (the same path as the README example).
 
 const FIXTURES: [&str; 11] = [
     "classes",
@@ -24,7 +24,7 @@ fn main() {
             .file(format!("../../tests/fixtures/{name}/impl.cc"));
     }
     build
-        // `classes/shim.h` ve `classes/input.h` gibi yollar bu iki kökten çözülür.
+        // Paths such as `classes/shim.h` and `classes/input.h` are resolved from these two roots.
         .include_dir("src/generated")
         .include_dir("../../tests/fixtures");
     if let Err(error) = build.compile("ferrobridge_e2e") {

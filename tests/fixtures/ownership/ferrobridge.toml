@@ -1,4 +1,4 @@
-# Sahiplik açıklamaları (bkz. input.h). Her satır C++ kütüphanesi hakkında bir sözdür.
+# Ownership annotations (see input.h). Every line is a promise about the C++ library.
 
 [functions."own::make_widget"]
 returns = "owned"
@@ -12,7 +12,7 @@ returns = "owned"
 [functions."own::make_square"]
 returns = "owned"
 
-# Söz verilse de reddedilir: Leaky'nin destructor'ı sanal değil.
+# Rejected even though the promise is made: Leaky's destructor is not virtual.
 [functions."own::make_leaky"]
 returns = "owned"
 

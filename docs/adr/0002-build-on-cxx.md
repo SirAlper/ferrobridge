@@ -1,43 +1,43 @@
-# ADR-0002: Arka uç olarak `cxx` üstüne inşa etmek
+# ADR-0002: Build on `cxx` as the backend
 
-**Tarih**: 2026-11-26 (karar aynı gün rakip analizinden sonra verildi; bu kayıt sonradan yazıldı)
-**Durum**: accepted
-**Karar verenler**: Alper (proje sahibi)
+**Date**: 2026-11-26 (the decision was made the same day, after the competitor analysis; this record was written afterwards)
+**Status**: accepted
+**Deciders**: Alper (project owner)
 
-## Bağlam
+## Context
 
-ferrobridge'in ürettiği kodun Rust ile C++ arasındaki çağrıları güvenli biçimde taşıması gerekiyor. Bu katmanı (FFI, ABI uyumu, `std::string`/`std::vector`/`std::unique_ptr` köprüleri, exception yakalama) sıfırdan yazmak hem uzun sürer hem de UB riskini artırır. Rakip analizine göre (Kasım 2026) cxx olgun, Chromium ve Android'de kullanılıyor; Google, Crubit'e geçse bile cxx'i kullanımdan kaldırmayacağını açıkladı (Temmuz 2026).
+The code ferrobridge generates has to carry calls between Rust and C++ safely. Writing this layer (FFI, ABI compatibility, bridges for `std::string`/`std::vector`/`std::unique_ptr`, catching exceptions) from scratch would take long and increase the risk of UB. According to the competitor analysis (November 2026) cxx is mature and used in Chromium and Android; Google stated that it will not deprecate cxx even as it moves to Crubit (July 2026).
 
-## Karar
+## Decision
 
-ferrobridge kendi FFI katmanını yazmıyor. Üretilen kod, `#[cxx::bridge]` modülleri ve cxx'in std tip köprüleri üzerine kurulu. ferrobridge'in katkısı bunların **üstünde**: header'dan otomatik üretim, sahiplik açıklamaları ve güvenli, idiomatik sarmalayıcı API.
+ferrobridge does not write its own FFI layer. The generated code is built on `#[cxx::bridge]` modules and cxx's std type bridges. ferrobridge's contribution sits **on top** of them: automatic generation from headers, ownership annotations and a safe, idiomatic wrapper API.
 
-## Değerlendirilen alternatifler
+## Alternatives considered
 
-### Alternatif 1: Kendi FFI katmanımızı yazmak (`extern "C"` shim'ler + ham pointer'lar)
-- **Artıları**: Tam kontrol, cxx'in kısıtlarına bağlı kalmamak.
-- **Eksileri**: Çok iş; std tip köprüleri, exception yönetimi ve ABI ayrıntıları sıfırdan yazılır. UB riski yüksek.
-- **Neden seçilmedi**: Farkımız FFI katmanında değil, üretim ve güvenlik katmanında.
+### Alternative 1: writing our own FFI layer (`extern "C"` shims + raw pointers)
+- **Pros**: Full control, no dependence on cxx's restrictions.
+- **Cons**: A lot of work; std type bridges, exception handling and ABI details written from scratch. High risk of UB.
+- **Why not chosen**: Our difference is not in the FFI layer but in the generation and safety layer.
 
-### Alternatif 2: Crubit'in çalışma zamanı parçalarını kullanmak
-- **Artıları**: Daha zengin tip desteği hedefliyor.
-- **Eksileri**: Bazel'e bağlı, Cargo desteği henüz yok, birçok özelliği deneysel.
-- **Neden seçilmedi**: Hedef kullanıcımız Cargo/CMake kullanıyor.
+### Alternative 2: using Crubit's runtime pieces
+- **Pros**: Aims at richer type support.
+- **Cons**: Tied to Bazel, no Cargo support yet, many features experimental.
+- **Why not chosen**: Our target users use Cargo/CMake.
 
-### Alternatif 3: Zngur
-- **Artıları**: Generic ve trait desteği güçlü, her build sistemiyle çalışıyor.
-- **Eksileri**: Ağırlıklı olarak ters yönü (C++'ın Rust'ı kullanmasını) çözüyor.
-- **Neden seçilmedi**: MVP yönümüz Rust → C++. Zngur ileride birlikte çalışma hedefi.
+### Alternative 3: Zngur
+- **Pros**: Strong generic and trait support, works with any build system.
+- **Cons**: Mostly solves the opposite direction (C++ using Rust).
+- **Why not chosen**: Our MVP direction is Rust → C++. Interoperating with Zngur is a later goal.
 
-## Sonuçlar
+## Consequences
 
-### Olumlu
-- Güvenilir, yaygın kullanılan bir temel; std tip köprüleri ve exception → `Result` hazır.
-- Kullanıcılar cxx'i tanıyorsa üretilen kod tanıdık görünür.
+### Positive
+- A reliable, widely used foundation; std type bridges and exception → `Result` come ready-made.
+- Users who know cxx find the generated code familiar.
 
-### Olumsuz
-- cxx'in kısıtları bizim de kısıtımız olur: opak tipler, `Pin<&mut T>`, `UniquePtr` gereksinimi. Güvenli sarmalayıcı katmanı bunları kullanıcıdan gizlemek zorunda.
-- cxx'in desteklemediği bir yapı için ek shim gerekir.
+### Negative
+- cxx's restrictions become ours: opaque types, `Pin<&mut T>`, the need for `UniquePtr`. The safe wrapper layer has to hide these from the user.
+- Constructs cxx does not support need extra shims.
 
-### Riskler
-- **cxx'in gelişimi durur veya yön değiştirir.** Önlem: Üretim katmanı IR'dan çalıştığı için başka bir arka uç eklenebilir; 3 ayda bir rakip kontrolünde cxx'in durumu da izlenir.
+### Risks
+- **cxx's development stops or changes direction.** Mitigation: since the generation layer works from the IR, another backend can be added; the quarterly competitor check also follows the state of cxx.

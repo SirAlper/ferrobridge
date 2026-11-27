@@ -1,6 +1,6 @@
 ---
 source: crates/ferrobridge-parser/tests/fixtures.rs
-expression: module
+expression: portable(&module)
 ---
 {
   "format_version": 5,
@@ -156,8 +156,8 @@ expression: module
     {
       "kind": "unsupported",
       "construct": "function",
-      "name": "(anonim)::hidden",
-      "reason": "Anonim namespace'teki fonksiyonların Rust'tan yazılabilecek bir adı yok.",
+      "name": "(anonymous)::hidden",
+      "reason": "Functions in an anonymous namespace have no name that can be written from Rust.",
       "location": {
         "file": "input.h",
         "line": 22,
@@ -168,7 +168,7 @@ expression: module
       "kind": "unsupported",
       "construct": "function",
       "name": "internal_helper",
-      "reason": "İç bağlantılı (`static`) fonksiyonun tanımı header'da görünmüyor; header dışından çağrılamaz.",
+      "reason": "The definition of the internal-linkage (`static`) function is not visible in the header; it cannot be called from outside the header.",
       "location": {
         "file": "input.h",
         "line": 24,

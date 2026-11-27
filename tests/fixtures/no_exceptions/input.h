@@ -1,5 +1,5 @@
-// `[library] exceptions = false`: hiçbiri `noexcept` değil ama kütüphane exception
-// fırlatmayacağını söylüyor (ArduPilot gibi `-fno-exceptions` ile derlenen kodlar).
+// `[library] exceptions = false`: none of these is `noexcept`, but the library says it does not
+// throw (like code compiled with `-fno-exceptions`, such as ArduPilot).
 #pragma once
 
 #include <cstdint>
@@ -13,10 +13,10 @@ struct Money {
     Money operator+(const Money& o) const { return Money{cents + o.cents}; }
 };
 
-// Slice: ferrobridge'in uzunluk kontrolü yine `Result` döner.
+// A slice: ferrobridge's length check still returns `Result`.
 uint32_t total(const uint8_t* bytes, uint8_t len);
 
-// Sözü bozar: negatif girdi için fırlatır. Rust'tan çağrılınca program sonlanmalı.
+// Breaks the promise: throws for a negative input. Called from Rust, the program must end.
 int32_t checked_sqrt(int32_t x);
 
 }  // namespace calc

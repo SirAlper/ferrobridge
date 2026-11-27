@@ -16,7 +16,7 @@ class Sample {
   std::int32_t value_;
 };
 
-// Değer semantiği: açıklama gerekmez.
+// Value semantics: no annotation needed.
 std::int32_t sum(const std::vector<std::int32_t>& values);
 void append_halves(std::vector<double>& values);
 std::vector<std::string> split_words(const std::string& text);
@@ -24,7 +24,7 @@ std::int32_t count_words(const std::vector<std::string>& words);
 std::vector<Sample> make_samples(std::int32_t count);
 std::int32_t first_value(const std::vector<Sample>& samples);
 
-// Reddedilmesi gerekenler.
+// Things that must be rejected.
 void flags(const std::vector<bool>& bits);
 void nested(const std::vector<std::vector<int>>& grid);
 void by_value(std::vector<int> values);

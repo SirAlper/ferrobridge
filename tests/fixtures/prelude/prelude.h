@@ -1,5 +1,5 @@
-// `input.h`'tan önce include edilmesi gereken header (ArduPilot'taki `SCurve.h`'ın
-// `AP_Math.h`'a ihtiyacı gibi). Buradaki bildirimler IR'a girmemeli.
+// A header that must be included before `input.h` (like ArduPilot's `SCurve.h` needing
+// `AP_Math.h`). The declarations here must not enter the IR.
 #pragma once
 
 #include <cstdint>

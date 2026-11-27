@@ -1,5 +1,5 @@
 //! `AP_Math.h`, `control.h`, `location.h`, `SCurve.h`, `definitions.h`: `static inline`
-//! fonksiyonlar, çıkış parametreleri, sahip olunan C++ nesneleri, sabitler.
+//! functions, output parameters, owned C++ objects, constants.
 
 #![forbid(unsafe_code)]
 
@@ -27,14 +27,14 @@ fn fill_nanf_fills_a_mutable_slice() -> ferrobridge::Result<()> {
 #[test]
 fn shape_accel_moves_toward_the_target_within_the_jerk_limit() {
     let mut accel = 0.0_f32;
-    // Hedef 10 m/s², sarsıntı sınırı 5 m/s³, adım 0.1 s: en fazla 0.5 m/s² değişebilir.
+    // Target 10 m/s², jerk limit 5 m/s³, step 0.1 s: it can change by at most 0.5 m/s².
     ap::shape_accel(10.0, &mut accel, 5.0, 0.1);
     assert!((accel - 0.5).abs() < 1e-6, "{accel}");
 }
 
 #[test]
 fn scurve_is_an_owned_cpp_object() -> ferrobridge::Result<()> {
-    // Opak sınıfın constructor'ı sahip olan sarmalayıcıyı `Result` içinde döndürür.
+    // The constructor of an opaque class returns the owning wrapper inside `Result`.
     let mut curve = SCurve::new()?;
     curve.init();
     assert!(curve.finished());

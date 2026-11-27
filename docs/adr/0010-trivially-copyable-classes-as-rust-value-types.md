@@ -1,50 +1,50 @@
-# ADR-0010: Bit bit kopyalanabilen sınıflar Rust değer tipi olur
+# ADR-0010: Trivially copyable classes become Rust value types
 
-**Tarih**: 2026-11-27
-**Durum**: accepted
-**Karar verenler**: Alper (proje sahibi)
+**Date**: 2026-11-27
+**Status**: accepted
+**Deciders**: Alper (project owner)
 
-## Bağlam
+## Context
 
-ADR-0007'ye göre her C++ sınıfı opak bir cxx tipiydi ve Rust'ta `UniquePtr` ya da `Pin` arkasında kullanılıyordu. `Vector3f { float x, y, z; }` gibi küçük, alanları açık matematik tipleri için bu ağır: `v.x`'e erişilemiyor, her vektör yığında ayrılıyor, değiştirmek için `Pin<&mut>` gerekiyor. 3. güvenlik kuralı yalnızca trivial *olmayan* taşınabilir tiplerin değer olarak tutulmasını yasaklıyor.
+Per ADR-0007, every C++ class was an opaque cxx type, used in Rust behind `UniquePtr` or `Pin`. For small math types with public fields such as `Vector3f { float x, y, z; }` this is heavy: `v.x` cannot be accessed, every vector is heap-allocated, and changing it needs `Pin<&mut>`. Safety rule 3 forbids holding only *non*-trivially movable types by value.
 
-## Karar
+## Decision
 
-Aşağıdaki koşulların **hepsi** sağlanırsa bir sınıf ya da örnekleme Rust'ta `#[repr(C)] #[derive(Debug, Clone, Copy)] pub struct` olur:
-- polimorfik değil, taban sınıfı yok
-- kullanıcı tanımlı kopyalama, taşıma ya da destructor yok (`= default` hariç)
-- bütün statik olmayan alanları public, `const` değil, bayt hizalı
-- alan tipleri sayı, `bool`, `c_char` ya da başka bir değer tipi
-- düzeni libclang'dan biliniyor
+A class or instantiation becomes a `#[repr(C)] #[derive(Debug, Clone, Copy)] pub struct` in Rust if **all** of the following hold:
+- not polymorphic, no base class
+- no user-defined copy, move or destructor (except `= default`)
+- all non-static fields public, not `const`, byte-aligned
+- field types are numbers, `bool`, `c_char` or another value type
+- its layout is known from libclang
 
-Koşulları sağlamayan sınıflar opak kalır.
+Classes that do not meet these conditions stay opaque.
 
-- cxx'e `unsafe impl ::cxx::ExternType` (`Kind = Trivial`) ile tanıtılır. `unsafe` yalnızca üretilen iç katmanda, `// SAFETY:` gerekçesiyle bulunur.
-- **Son sözü C++ derleyicisi söyler.** `shim.cc` şunları `static_assert` ile doğrular: `is_trivially_copyable`, `is_standard_layout`, `sizeof`, `alignof` ve her alanın `offsetof`'u. Rust tarafı da `size_of`, `align_of` ve `offset_of!` ile doğrular. cxx de kendi `IsRelocatable` kontrolünü ekler. Analiz yanılırsa sonuç sessiz UB değil, derleme hatasıdır.
-- Değerle parametre ve dönüş, `&T` / `&mut T` (`Pin` yok); constructor değer döndürür.
-- `PartialEq` ve `Default` türetilmez; C++'taki `==` ve varsayılan constructor anlamını taşımayabilirler. `==` C++ operatöründen bağlanır.
-- Üye operatörler hata dönmüyorsa `std::ops` trait'leri olur (`Add`, `Mul<f32>`, `Neg`, `AddAssign`, `PartialEq`...). Her durumda adlı metotlar (`op_add`) da vardır. Karşılaştırmalar adlı metot kalır.
-- **`operator[]` hiç bağlanmaz.** C++'ta genelde sınır denetimi yapılmadan kullanılır; güvenli Rust'tan sınır dışı bir indeks UB olurdu.
+- It is introduced to cxx with `unsafe impl ::cxx::ExternType` (`Kind = Trivial`). The `unsafe` exists only in the generated inner layer, with a `// SAFETY:` justification.
+- **The C++ compiler has the final word.** `shim.cc` checks with `static_assert`: `is_trivially_copyable`, `is_standard_layout`, `sizeof`, `alignof` and every field's `offsetof`. The Rust side also checks with `size_of`, `align_of` and `offset_of!`. cxx adds its own `IsRelocatable` check. If the analysis is wrong, the result is a compile error, not silent UB.
+- Parameters and returns by value, `&T` / `&mut T` (no `Pin`); constructors return a value.
+- `PartialEq` and `Default` are not derived; they may not carry the meaning of C++'s `==` and default constructor. `==` is bound from the C++ operator.
+- Member operators become `std::ops` traits when they do not return an error (`Add`, `Mul<f32>`, `Neg`, `AddAssign`, `PartialEq`...). Named methods (`op_add`) always exist as well. Comparisons stay named methods.
+- **`operator[]` is never bound.** In C++ it is usually used without bounds checks; an out-of-bounds index from safe Rust would be UB.
 
-## Değerlendirilen alternatifler
+## Alternatives considered
 
-### Alternatif 1: Opak tip + alanlar için getter/setter shim'leri
-- **Artıları**: `unsafe impl` gerekmez.
-- **Eksileri**: Her alan erişimi bir FFI çağrısı, her nesne yığında. `Vector3f` gibi tiplerde kullanılamayacak kadar ağır ve idiomatik değil.
-- **Neden seçilmedi**: Değer tipleri projenin "idiomatik" hedefinin özü. `static_assert`'ler güvenliği derleyiciye doğrulatıyor.
+### Alternative 1: opaque type + getter/setter shims for the fields
+- **Pros**: No `unsafe impl` needed.
+- **Cons**: Every field access is an FFI call, every object on the heap. Too heavy and not idiomatic for types like `Vector3f`.
+- **Why not chosen**: Value types are at the heart of the project's "idiomatic" goal. The `static_assert`s make the compiler verify safety.
 
-### Alternatif 2: cxx'in paylaşılan struct'ları (`struct` bridge içinde)
-- **Neden seçilmedi**: cxx paylaşılan struct'ın C++ tanımını kendisi üretir. Kütüphanenin var olan sınıfıyla çakışır.
+### Alternative 2: cxx's shared structs (a `struct` inside the bridge)
+- **Why not chosen**: cxx generates the C++ definition of a shared struct itself. It would clash with the library's existing class.
 
-## Sonuçlar
+## Consequences
 
-### Olumlu
-- `v.x`, `a + b`, `v.normalize()` (`&mut self`). Yığın ayırma ya da `Pin` yok.
-- Bir sınıf tasarım gereği değer tipi değilse (private veya `const` alan, sanal fonksiyon) otomatik olarak opak kalıyor.
+### Positive
+- `v.x`, `a + b`, `v.normalize()` (`&mut self`). No heap allocation or `Pin`.
+- A class that is not a value type by design (private or `const` field, virtual function) automatically stays opaque.
 
-### Olumsuz
-- Bütün alanları public olan bir sınıf Rust'ta alanlarından kurulabiliyor; C++ constructor'ının kurduğu bir değişmez varsa atlanır. Bütün alanları public olan bir C++ sınıfı da aynı şeye izin verdiği için kabul edildi.
-- `prettyplease`'in iki sınırı yüzünden üretilen kod biçimlendirmeden sonra metin üzerinde işleniyor: takma adlar ve `SAFETY` yorumları.
+### Negative
+- A class with all fields public can be constructed from its fields in Rust; an invariant established by the C++ constructor is bypassed. Accepted, because a C++ class with all fields public allows the same.
+- Because of two limitations of `prettyplease`, the generated code is post-processed as text after formatting: aliases and `SAFETY` comments.
 
-### Riskler
-- Bir alan tipinin C++ ve Rust gösterimleri aynı ama geçerli değer kümeleri farklı olabilir (ör. `bool`). C++'ta `bool` yalnızca 0/1 olabilir; Rust da aynı şeyi varsayar.
+### Risks
+- A field type may have the same representation in C++ and Rust but different sets of valid values (e.g. `bool`). In C++ a `bool` can only be 0/1; Rust assumes the same.

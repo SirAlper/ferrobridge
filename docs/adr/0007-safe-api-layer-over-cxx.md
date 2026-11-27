@@ -1,57 +1,57 @@
-# ADR-0007: cxx katmanının üstünde güvenli API katmanı
+# ADR-0007: A safe API layer on top of the cxx layer
 
-**Tarih**: 2026-11-27
-**Durum**: accepted
-**Karar verenler**: Alper (proje sahibi)
+**Date**: 2026-11-27
+**Status**: accepted
+**Deciders**: Alper (project owner)
 
-## Bağlam
+## Context
 
-M2 ve M3'te üretilen cxx bridge'i güvenliydi ama idiomatik değildi. Kullanıcı `Vehicle_new_i32(4)`, `vehicle.pin_mut().drive(..)`, `let_cxx_string!`, `CxxVector` ve `cxx::Exception` ile uğraşıyordu. PRD'nin hipotezi "güvenli **ve idiomatik**" Rust API'si; `03 Mimari` tip tablosunda da bir "Güvenli API" sütunu var. C++ nesneleri Rust'ta üç biçimde görünür: sahip olunan (`UniquePtr<T>`), ödünç (`&T`) ve değiştirilebilir ödünç (`Pin<&mut T>`, M3'ün ödünç dönüşleri dahil). Güvenli API bu üçünde de çalışmalıdır. Güvenlik kuralı 3 gereği trivial olmayan C++ nesneleri Rust'ta değerle tutulamaz.
+The cxx bridge generated in M2 and M3 was safe but not idiomatic. Users had to deal with `Vehicle_new_i32(4)`, `vehicle.pin_mut().drive(..)`, `let_cxx_string!`, `CxxVector` and `cxx::Exception`. The PRD's hypothesis is a "safe **and idiomatic**" Rust API, and the architecture's type mapping table has a "Safe API" column. C++ objects appear in Rust in three forms: owned (`UniquePtr<T>`), borrowed (`&T`) and mutably borrowed (`Pin<&mut T>`, including M3's borrowed returns). The safe API must work for all three. Per safety rule 3, non-trivial C++ objects cannot be held by value in Rust.
 
-## Karar
+## Decision
 
-`bridge.rs` cxx'in `ffi` modülünün yanına güvenli bir katman da içerir:
-1. Güvenli metotlar cxx'in opak tipine inherent `impl ffi::T` olarak yazılır (`&self` / `self: Pin<&mut Self>`). cxx'in kendi metotları çakışmasın diye `raw_<ad>` olur; C++ adı `#[cxx_name]` ile korunur.
-2. Bridge'de `UniquePtr<T>` olarak geçen her sınıf için sahip olan bir sarmalayıcı üretilir: `pub struct T { inner: UniquePtr<ffi::T> }`, içi asla null değil, `Deref<Target = ffi::T>`, değiştiren metotlar için `&mut self` ileticileri, `T::new*` constructor'ları ve statik metotlar.
-3. Bütün hatalar yeni çalışma zamanı crate'i `ferrobridge`'deki tek bir `ferrobridge::Error` tipindedir; hata, geldiği C++ öğesinin adını taşır.
-4. Dönüşümler: `&str` / `String`, sayı slice'ı / `Vec<T>`, `Vec<String>`, gerçek Rust `enum`'ları (`TryFrom`), null olabilen sahip dönüşler için `Option<T>`. Değiştirilebilir string/vector referansları ve sınıf elemanlı vector'ler olduğu gibi kalır.
+Next to cxx's `ffi` module, `bridge.rs` also contains a safe layer:
+1. Safe methods are written as an inherent `impl ffi::T` on cxx's opaque type (`&self` / `self: Pin<&mut Self>`). cxx's own methods become `raw_<name>` so they do not clash; the C++ name is kept with `#[cxx_name]`.
+2. For every class that appears in the bridge as `UniquePtr<T>`, an owning wrapper is generated: `pub struct T { inner: UniquePtr<ffi::T> }`, never null inside, `Deref<Target = ffi::T>`, `&mut self` forwarders for mutating methods, `T::new*` constructors and static methods.
+3. All errors are a single `ferrobridge::Error` type from the new runtime crate `ferrobridge`; an error carries the name of the C++ item it came from.
+4. Conversions: `&str` / `String`, numeric slices / `Vec<T>`, `Vec<String>`, real Rust `enum`s (`TryFrom`), `Option<T>` for owned returns that may be null. Mutable string/vector references and vectors of classes stay as they are.
 
-## Değerlendirilen alternatifler
+## Alternatives considered
 
-### Alternatif 1: Yalnızca sarmalayıcıda güvenli metotlar + ödünç nesneler için `TRef<'a>` / `TMut<'a>` görünüm tipleri
-- **Artıları**: `ffi` katmanına hiç dokunulmaz.
-- **Eksileri**: Her sınıf için üç tip ve her metot üç kez; M3'ün ödünç dönüşleri görünüm tipine sarılmalı; kullanıcı aynı nesne için üç ad öğrenir.
-- **Neden seçilmedi**: Opak tipe inherent `impl` yazmak cxx'te çalışıyor (deneme ile doğrulandı) ve tek bir metot tanımıyla üç biçimi de kapsıyor.
+### Alternative 1: safe methods only on the wrapper + `TRef<'a>` / `TMut<'a>` view types for borrowed objects
+- **Pros**: The `ffi` layer is never touched.
+- **Cons**: Three types per class and every method three times; M3's borrowed returns must be wrapped in view types; users learn three names for one object.
+- **Why not chosen**: Writing an inherent `impl` on an opaque type works in cxx (verified by experiment) and covers all three forms with a single method definition.
 
-### Alternatif 2: Sarmalayıcı yok, kullanıcı `UniquePtr<ffi::T>` ve `pin_mut()` kullanır
-- **Artıları**: En az üretilen kod.
-- **Eksileri**: `vehicle.pin_mut().drive(..)` idiomatik değil; constructor'lar serbest fonksiyon kalır.
-- **Neden seçilmedi**: M4'ün amacı tam olarak bu sürtünmeyi kaldırmak.
+### Alternative 2: no wrapper, users use `UniquePtr<ffi::T>` and `pin_mut()`
+- **Pros**: The least generated code.
+- **Cons**: `vehicle.pin_mut().drive(..)` is not idiomatic; constructors stay free functions.
+- **Why not chosen**: Removing exactly this friction is the purpose of M4.
 
-### Alternatif 3: Her header'a ayrı bir hata tipi üretmek (çalışma zamanı crate'i yok)
-- **Artıları**: Kullanıcı crate'ine ek bağımlılık yok.
-- **Eksileri**: İki header'ın hataları farklı tipte olur, `?` ile birleşmez; ortak dönüşüm kodu her dosyada tekrarlanır.
-- **Neden seçilmedi**: Küçük, `unsafe` içermeyen, yalnızca `cxx`'e bağlı bir crate daha ucuz.
+### Alternative 3: generating a separate error type per header (no runtime crate)
+- **Pros**: No extra dependency in the user's crate.
+- **Cons**: Errors from two headers have different types and do not combine with `?`; shared conversion code is repeated in every file.
+- **Why not chosen**: A small crate without `unsafe`, depending only on `cxx`, is cheaper.
 
-### Alternatif 4: Değiştirilebilir `std::string&` / `std::vector<T>&` için kopyala-geri yaz (`&mut String`)
-- **Artıları**: Daha idiomatik imza.
-- **Eksileri**: C++ referansı saklıyorsa kopya sessizce eskir; anlam değişir.
-- **Neden seçilmedi**: Güvenlik kuralı 1 (tahmin etme). Bu yüzden ham `Pin<&mut CxxString>` kalır.
+### Alternative 4: copy-and-write-back for mutable `std::string&` / `std::vector<T>&` (`&mut String`)
+- **Pros**: A more idiomatic signature.
+- **Cons**: If C++ keeps the reference, the copy silently goes stale; the meaning changes.
+- **Why not chosen**: Safety rule 1 (don't guess). So the raw `Pin<&mut CxxString>` stays.
 
-## Sonuçlar
+## Consequences
 
-### Olumlu
-- `let mut v = Vehicle::new_i32(4)?; v.drive(12.5)?;`: `Pin`, cxx tipi ya da `unsafe` gerekmiyor (e2e testlerinde otomatik denetleniyor).
-- Geçersiz UTF-8 ve C++'tan gelen tanımsız enum değeri panik değil `Err`.
-- Ham `ffi` katmanı kopyasız kullanım ve güvenli katmanın çevirmediği tipler için kaçış kapısı olarak duruyor.
+### Positive
+- `let mut v = Vehicle::new_i32(4)?; v.drive(12.5)?;`: no `Pin`, cxx type or `unsafe` needed (checked automatically in the e2e tests).
+- Invalid UTF-8 and an undefined enum value coming from C++ are an `Err`, not a panic.
+- The raw `ffi` layer stays as an escape hatch for copy-free use and for types the safe layer does not convert.
 
-### Olumsuz
-- cxx metotları `raw_*` olarak yeniden adlandırıldı (v0.1 öncesi, dış kullanıcı yok).
-- Kullanıcı crate'i `ferrobridge` çalışma zamanı crate'ine bağımlı.
-- `&[T]` parametreleri ve `String`/`Vec` dönüşleri her çağrıda kopyalanır.
-- Sarmalayıcıdan `&ffi::T` beklenen yere deref coercion, değer bir değişkene bağlıyken çalışır; `f(&g()?)` biçiminde çalışmaz.
-- Enum döndüren `noexcept` bir fonksiyon da `Result` döner (tanımsız değer ihtimali).
+### Negative
+- cxx methods were renamed to `raw_*` (before v0.1, no external users).
+- The user's crate depends on the `ferrobridge` runtime crate.
+- `&[T]` parameters and `String`/`Vec` returns are copied on every call.
+- Deref coercion from the wrapper to a place expecting `&ffi::T` works while the value is bound to a variable; it does not work in the form `f(&g()?)`.
+- A `noexcept` function returning an enum also returns `Result` (an undefined value is possible).
 
-### Riskler
-- C++ metodu sarmalayıcının yardımcısıyla (`pin_mut`, `into_inner`, `from_unique_ptr`) aynı adı taşırsa, sarmalayıcıda iletici `_` sonekiyle üretilir; const metot için Deref yerine sarmalayıcınınki seçilir. Önlem: belgelendi; C++ metoduna `(*w).ad()` ile ulaşılır.
-- `ffi` adlı bir C++ sınıfı modül adıyla çakışır. Önlem: v0.1'de bilinen sınırlama.
+### Risks
+- If a C++ method has the same name as a wrapper helper (`pin_mut`, `into_inner`, `from_unique_ptr`), the forwarder on the wrapper is generated with a `_` suffix; for a const method, the wrapper's helper is chosen over Deref. Mitigation: documented; the C++ method is reached with `(*w).name()`.
+- A C++ class named `ffi` clashes with the module name. Mitigation: a known limitation in v0.1.

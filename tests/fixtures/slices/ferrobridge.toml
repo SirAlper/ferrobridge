@@ -1,4 +1,4 @@
-# `slices` fixture'ı: her pointer, yanındaki uzunluk parametresi kadar elemanlık bir dizi.
+# The `slices` fixture: every pointer is an array with as many elements as the length parameter next to it.
 
 [functions."buf::crc8".params]
 p = { slice = "len" }

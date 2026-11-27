@@ -1,17 +1,17 @@
-//! libclang AST'sini IR'a çevirme.
+//! Turning the libclang AST into IR.
 //!
-//! Yalnızca hedef header'lardaki (bridge'in header'ları) bildirimler alınır; onların
-//! `#include` ettiği diğer dosyalar ve prelude alınmaz. Başka bir dosyada bildirilmiş tiplerin
-//! dosya adı IR'a yazılır (`declared_in`), analiz kullanıcıya hangi header'ı ekleyeceğini söyler.
-//! Desteklenmeyen hiçbir yapı sessizce atlanmaz: `Item::Unsupported`,
-//! `Class::unsupported_members` ya da `Type::Unsupported` olarak nedeniyle kaydedilir.
+//! Only declarations in the target headers (the bridge's headers) are taken; other files they
+//! `#include` and the prelude are not. For types declared in another file, the file name is
+//! written to the IR (`declared_in`), and analysis tells the user which header to add.
+//! No unsupported construct is skipped silently: it is recorded with a reason as an
+//! `Item::Unsupported`, in `Class::unsupported_members` or as a `Type::Unsupported`.
 //!
-//! Bilerek kaydedilmeyenler (bağlanacak bir API olmadıkları için): ileri bildirimler
-//! (`class Foo;`), typedef/using'ler (kullanıldıkları tipte çözülür), `= delete` ile silinmiş
-//! fonksiyonlar, destructor'lar (`UniquePtr` tarafından çağrılır), private/protected üyeler.
+//! Deliberately not recorded (because they are not an API to bind): forward declarations
+//! (`class Foo;`), typedefs/usings (resolved in the type where they are used), functions deleted
+//! with `= delete`, destructors (called by `UniquePtr`), private/protected members.
 //!
-//! Sabitler (`Item::Constant`) yalnızca değerleri derleme anında kesin olarak biliniyorsa
-//! alınır; bkz. [`InitializerCheck`].
+//! Constants (`Item::Constant`) are taken only if their values are known exactly at compile
+//! time; see [`InitializerCheck`].
 
 use std::path::Path;
 
@@ -24,77 +24,77 @@ use ferrobridge_ir::{
 
 use crate::clang::{self, Cursor, Evaluated, File, TranslationUnit};
 
-/// Anonim namespace'in IR'daki adı.
-const ANONYMOUS_NAMESPACE: &str = "(anonim)";
+/// The IR name of an anonymous namespace.
+const ANONYMOUS_NAMESPACE: &str = "(anonymous)";
 
-const REASON_UNION: &str = "Union'lar henüz desteklenmiyor.";
-const REASON_ANONYMOUS: &str = "İsimsiz sınıf ve enum'lar Rust'tan adlandırılamaz.";
-const REASON_NESTED: &str = "İç içe tipler (sınıf içinde tanımlı sınıf/enum) v0.2 hedefi.";
-const REASON_TEMPLATE: &str = "Template'ler MVP kapsamı dışında (v0.2 hedefi).";
-const REASON_CLASS_TEMPLATE: &str = "Sınıf template'i: somut bir tiple örneklenmeden bağlanamaz; \
-     `ferrobridge.toml`'da `[templates]` ile örnekleyin (ör. `Vector3f = \"Vector3<float>\"`).";
-const REASON_DEPENDENT: &str = "Template parametresine bağlı bu tip henüz desteklenmiyor.";
+const REASON_UNION: &str = "Unions are not supported yet.";
+const REASON_ANONYMOUS: &str = "Unnamed classes and enums cannot be named from Rust.";
+const REASON_NESTED: &str = "Nested types (a class/enum defined inside a class) are a v0.2 goal.";
+const REASON_TEMPLATE: &str = "Templates are outside the MVP scope (a v0.2 goal).";
+const REASON_CLASS_TEMPLATE: &str = "Class template: cannot be bound without being instantiated with a concrete type; \
+     instantiate it with `[templates]` in `ferrobridge.toml` (e.g. `Vector3f = \"Vector3<float>\"`).";
+const REASON_DEPENDENT: &str = "This type depending on a template parameter is not supported yet.";
 const REASON_MEMBER_TEMPLATE_PARAM: &str =
-    "Üye template'inin parametresi; yalnızca sınıfın kendi parametreleri yerine konabiliyor.";
-const REASON_BIT_FIELD: &str = "Bit alanları Rust'ta karşılığı olan bir düzene sahip değil.";
+    "A member template's parameter; only the class's own parameters can be substituted.";
+const REASON_BIT_FIELD: &str = "Bit fields do not have a layout with a counterpart in Rust.";
 const REASON_NOT_A_CLASS_TEMPLATE: &str =
-    "`[templates]` girdisi bir sınıf template'i örneklemesi değil.";
+    "The `[templates]` entry is not an instantiation of a class template.";
 const REASON_NON_TYPE_PARAMS: &str =
-    "Yalnızca tip parametreli sınıf template'leri örneklenebiliyor (`template <typename T>`).";
-const REASON_VARIABLE: &str = "Global ve statik değişkenler henüz desteklenmiyor.";
-const REASON_CONSTANT_TYPE: &str = "Yalnızca sayı ve `bool` tipli sabitler bağlanıyor.";
-const REASON_CONSTANT_CALL: &str = "Sabitin başlatıcısı (ya da dayandığı bir sabitinki) fonksiyon \
-     çağrısı içeriyor; değer çalışma anında hesaplanabilir ve derleme anında hesaplanan değerle \
-     aynı olduğu kesin değil.";
-const REASON_CONSTANT_UNKNOWN: &str =
-    "Sabitin değeri hesaplanamadı (başlatıcısı yok ya da sabit bir ifade değil).";
-const REASON_CONSTANT_NON_FINITE: &str = "Sabitin değeri sonlu değil (NaN ya da sonsuz); Rust'ta \
-     NaN'ın bit deseni korunamadığı için bağlanmıyor.";
-const REASON_CONSTANT_RANGE: &str = "Sabitin değeri tipine sığmıyor.";
-const REASON_CONSTANT_PLATFORM: &str = "Sabitin başlatıcısı `sizeof`, `alignof` ya da `offsetof` \
-     içeriyor; değeri platforma bağlı, başka bir platformda yanlış olurdu.";
-const REASON_OPERATOR: &str = "Bu operatör bağlanmıyor (atama, `new`/`delete`, `->`, `++`/`--`, \
-     `()`, `,` ve tekli `&`/`*`); aritmetik ve karşılaştırma operatörleri bağlanır.";
-const REASON_INDEX_OPERATOR: &str = "`operator[]` bağlanmıyor: C++'ta indeks genelde sınır \
-     denetimi yapılmadan kullanılır; güvenli Rust'tan sınır dışı bir indeks tanımsız davranış \
-     olurdu. Değer tiplerinde alanları (`v.x`) kullanın.";
-const REASON_FREE_OPERATOR: &str = "Serbest (sınıf dışı) operatör fonksiyonları henüz bağlanmıyor.";
-const REASON_CONVERSION: &str = "Dönüşüm operatörleri v0.2 hedefi.";
+    "Only class templates with type parameters can be instantiated (`template <typename T>`).";
+const REASON_VARIABLE: &str = "Global and static variables are not supported yet.";
+const REASON_CONSTANT_TYPE: &str = "Only constants of numeric and `bool` types are bound.";
+const REASON_CONSTANT_CALL: &str = "The constant's initializer (or that of a constant it depends on) contains a function \
+     call; the value may be computed at run time, and it is not certain to be the same as the value \
+     computed at compile time.";
+const REASON_CONSTANT_UNKNOWN: &str = "The constant's value could not be computed (it has no initializer, or it is not a constant expression).";
+const REASON_CONSTANT_NON_FINITE: &str = "The constant's value is not finite (NaN or infinite); not bound because \
+     the bit pattern of a NaN cannot be kept in Rust.";
+const REASON_CONSTANT_RANGE: &str = "The constant's value does not fit its type.";
+const REASON_CONSTANT_PLATFORM: &str = "The constant's initializer contains `sizeof`, `alignof` or `offsetof`; \
+     its value depends on the platform and would be wrong on another platform.";
+const REASON_OPERATOR: &str = "This operator is not bound (assignment, `new`/`delete`, `->`, `++`/`--`, \
+     `()`, `,` and unary `&`/`*`); arithmetic and comparison operators are bound.";
+const REASON_INDEX_OPERATOR: &str = "`operator[]` is not bound: in C++ an index is usually used without \
+     bounds checks; an out-of-bounds index from safe Rust would be undefined behavior. \
+     Use the fields (`v.x`) of value types.";
+const REASON_FREE_OPERATOR: &str = "Free (non-member) operator functions are not bound yet.";
+const REASON_CONVERSION: &str = "Conversion operators are a v0.2 goal.";
 const REASON_INHERITANCE: &str =
-    "Kalıtım v0.2 hedefi: base sınıfın metotları bu sınıf üzerinden bağlanmıyor.";
-const REASON_INTERNAL: &str = "İç bağlantılı (`static`) fonksiyonun tanımı header'da görünmüyor; \
-     header dışından çağrılamaz.";
+    "Inheritance is a v0.2 goal: the base class's methods are not bound through this class.";
+const REASON_INTERNAL: &str = "The definition of the internal-linkage (`static`) function is not visible in the header; \
+     it cannot be called from outside the header.";
 const REASON_ANONYMOUS_FUNCTION: &str =
-    "Anonim namespace'teki fonksiyonların Rust'tan yazılabilecek bir adı yok.";
-const REASON_VARIADIC: &str = "Değişken sayıda argüman alan (`...`) fonksiyonlar desteklenmiyor.";
-const REASON_ENUM_RANGE: &str = "Enum değeri 64 bit işaretli tamsayıya sığmıyor.";
-const REASON_STD_TYPE: &str = "Bu standart kütüphane tipi henüz desteklenmiyor.";
-const REASON_CUSTOM_DELETER: &str = "Özel silicili `std::unique_ptr` desteklenmiyor.";
-const REASON_CUSTOM_ALLOCATOR: &str = "Özel allocator'lı `std::vector` desteklenmiyor.";
-const REASON_UNKNOWN_DECL: &str = "Bu bildirim türü henüz tanınmıyor.";
-const REASON_UNKNOWN_TYPE: &str = "Bu tip henüz desteklenmiyor.";
+    "Functions in an anonymous namespace have no name that can be written from Rust.";
+const REASON_VARIADIC: &str =
+    "Functions taking a variable number of arguments (`...`) are not supported.";
+const REASON_ENUM_RANGE: &str = "The enum value does not fit in a 64-bit signed integer.";
+const REASON_STD_TYPE: &str = "This standard library type is not supported yet.";
+const REASON_CUSTOM_DELETER: &str = "`std::unique_ptr` with a custom deleter is not supported.";
+const REASON_CUSTOM_ALLOCATOR: &str = "`std::vector` with a custom allocator is not supported.";
+const REASON_UNKNOWN_DECL: &str = "This kind of declaration is not recognized yet.";
+const REASON_UNKNOWN_TYPE: &str = "This type is not supported yet.";
 
-/// Typedef zincirinde en fazla bu kadar adım izlenir (döngülere karşı güvenlik sınırı).
+/// At most this many steps are followed in a typedef chain (a safety limit against cycles).
 const MAX_TYPEDEF_DEPTH: usize = 16;
-/// Taban sınıf zincirinde en fazla bu kadar derine inilir; ötesi bilinmiyor sayılır.
+/// At most this deep into the base class chain; anything beyond counts as unknown.
 const MAX_BASE_DEPTH: usize = 32;
-/// Bir sabitin başlatıcısında ve dayandığı sabitlerde en fazla bu kadar derine inilir; ötesi
-/// kesin değil sayılır.
+/// At most this deep into a constant's initializer and the constants it depends on; anything
+/// beyond counts as not certain.
 const MAX_INITIALIZER_DEPTH: usize = 64;
-/// Bir header'daki bütün sabit başlatıcılarında gezilecek en fazla düğüm; ötesi kesin değil
-/// sayılır (ihtiyatla reddedilir).
+/// The maximum number of nodes visited across all constant initializers of a header; anything
+/// beyond counts as not certain (rejected conservatively).
 const MAX_INITIALIZER_NODES: usize = 100_000;
 
-/// Bir `[templates]` girdisinin sentetik birimdeki karşılığı.
+/// The counterpart of a `[templates]` entry in the synthetic unit.
 pub(crate) struct InstanceAlias {
-    /// Rust adı (ör. `Vector3f`).
+    /// The Rust name (e.g. `Vector3f`).
     pub(crate) rust_name: String,
-    /// Sentetik birimdeki `using` takma adı (ör. `__ferrobridge_inst_0`).
+    /// The `using` alias in the synthetic unit (e.g. `__ferrobridge_inst_0`).
     pub(crate) alias: String,
 }
 
-/// Translation unit'te `targets` dosyalarındaki bildirimleri ve istenen template
-/// örneklemelerini IR modülüne çevirir.
+/// Turns the declarations in the `targets` files of the translation unit, and the requested
+/// template instantiations, into an IR module.
 pub(crate) fn lower<'tu>(
     tu: &'tu TranslationUnit<'_>,
     targets: Vec<File<'tu>>,
@@ -119,43 +119,43 @@ pub(crate) fn lower<'tu>(
     }
 }
 
-/// Çözülmüş bir template örneklemesi.
+/// A resolved template instantiation.
 #[derive(Clone)]
 struct Instance<'tu> {
     rust_name: String,
     namespace: Vec<String>,
-    /// Template'in adı (ör. `Vector3`).
+    /// The template's name (e.g. `Vector3`).
     template_name: String,
-    /// Template'in kalıbı (`ClassTemplate`).
+    /// The template's pattern (`ClassTemplate`).
     template: Cursor<'tu>,
-    /// Somut argümanlar, sırasıyla.
+    /// The concrete arguments, in order.
     args: Vec<clang::Type<'tu>>,
-    /// Örneklemenin kanonik tipi (`Vector3<float>`).
+    /// The canonical type of the instantiation (`Vector3<float>`).
     ty: clang::Type<'tu>,
-    /// Örneklemenin bildirimi (özelleştirme).
+    /// The declaration of the instantiation (the specialization).
     declaration: Cursor<'tu>,
 }
 
-/// Bir template kalıbını indirgerken parametrelerin yerine konacak tipler.
+/// The types to substitute for the parameters while lowering a template pattern.
 #[derive(Clone)]
 struct Env {
-    /// İndirgenen örnekleme (`Instance` listesindeki yeri).
+    /// The instantiation being lowered (its position in the `Instance` list).
     instance: usize,
 }
 
-/// Tip çevirisinin bağlamı.
+/// The context of type lowering.
 #[derive(Clone)]
 pub(crate) struct Types<'tu> {
-    /// Bildirimleri alınacak header'lar (bridge'in header'ları).
+    /// The headers whose declarations are taken (the bridge's headers).
     targets: Vec<File<'tu>>,
-    /// İstenen template örneklemeleri (`[templates]`).
+    /// The requested template instantiations (`[templates]`).
     instances: Vec<Instance<'tu>>,
-    /// Bir template kalıbı indirgeniyorsa parametrelerin yerine konacak örnekleme.
+    /// If a template pattern is being lowered, the instantiation to substitute for the parameters.
     env: Option<Env>,
 }
 
 impl<'tu> Types<'tu> {
-    /// Bu template'in bu argümanlarla istenmiş örneklemesi.
+    /// The instantiation of this template requested with these arguments.
     fn instance_of(
         &self,
         template: Cursor<'_>,
@@ -172,28 +172,28 @@ impl<'tu> Types<'tu> {
         })
     }
 
-    /// Bu somut tip istenmiş bir örnekleme mi?
+    /// Is this concrete type a requested instantiation?
     fn instance_for_type(&self, canonical: clang::Type<'_>) -> Option<&Instance<'tu>> {
-        // Tip yerine bildirim karşılaştırılır: `const Vector3<float>` ile `Vector3<float>`
-        // aynı özelleştirmedir.
+        // The declarations are compared instead of the types: `const Vector3<float>` and `Vector3<float>`
+        // are the same specialization.
         let declaration = canonical.declaration();
         self.instances
             .iter()
             .find(|inst| inst.declaration.same_as(&declaration))
     }
 
-    /// Bu template için en az bir örnekleme istendi mi?
+    /// Was at least one instantiation requested for this template?
     fn is_instantiated(&self, template: Cursor<'_>) -> bool {
         self.instances
             .iter()
             .any(|inst| inst.template.same_as(&template))
     }
-    /// Bildirim bridge'in header'larından birinde mi?
+    /// Is the declaration in one of the bridge's headers?
     fn contains(&self, cursor: Cursor<'_>) -> bool {
         self.targets.iter().any(|file| cursor.is_in_file(*file))
     }
 
-    /// Bridge'in dışında bildirilmiş bir tipin dosya adı; içindeyse `None`.
+    /// The file name of a type declared outside the bridge; `None` if inside.
     fn declared_outside(&self, declaration: Cursor<'_>) -> Option<String> {
         if self.contains(declaration) {
             return None;
@@ -214,8 +214,8 @@ struct Lowering<'tu> {
 }
 
 impl<'tu> Lowering<'tu> {
-    /// `[templates]` takma adlarını sentetik birimde bulur ve örneklemeleri çözer. Çözülemeyenler
-    /// nedenleriyle `unsupported` olur.
+    /// Finds the `[templates]` aliases in the synthetic unit and resolves the instantiations. Those
+    /// that cannot be resolved become `unsupported` with their reasons.
     fn resolve_instances(&mut self, root: Cursor<'tu>, aliases: &[InstanceAlias]) {
         if aliases.is_empty() {
             return;
@@ -240,7 +240,7 @@ impl<'tu> Lowering<'tu> {
         }
     }
 
-    /// Çözülen örneklemeleri sınıf olarak indirger (kalıptan, parametreler yerine konarak).
+    /// Lowers the resolved instantiations as classes (from the pattern, with the parameters substituted).
     fn lower_instances(&mut self) {
         for index in 0..self.types.instances.len() {
             let instance = self.types.instances[index].clone();
@@ -298,8 +298,8 @@ impl<'tu> Lowering<'tu> {
             cx::CXCursor_FunctionTemplate => {
                 self.unsupported(cursor, "function_template", REASON_TEMPLATE);
             }
-            // İstenen örneklemeleri `lower_instances` indirger; template'in kendisi bağlanmaz.
-            // İleri bildirim (`template <typename T> class Vec2;`): bağlanacak bir şey yok.
+            // `lower_instances` lowers the requested instantiations; the template itself is not bound.
+            // A forward declaration (`template <typename T> class Vec2;`): nothing to bind.
             cx::CXCursor_ClassTemplate if !cursor.is_definition() => {}
             cx::CXCursor_ClassTemplate if self.types.is_instantiated(cursor) => {}
             cx::CXCursor_ClassTemplate => {
@@ -312,7 +312,7 @@ impl<'tu> Lowering<'tu> {
                 self.unsupported(cursor, "alias_template", REASON_TEMPLATE);
             }
             cx::CXCursor_VarDecl => self.variable(cursor),
-            // Bağlanacak bir API değil (modül belgesine bakın).
+            // Not an API to bind (see the module documentation).
             cx::CXCursor_StructDecl
             | cx::CXCursor_ClassDecl
             | cx::CXCursor_EnumDecl
@@ -337,10 +337,10 @@ impl<'tu> Lowering<'tu> {
         if cursor.spelling().starts_with("operator") {
             return self.unsupported(cursor, "operator", REASON_FREE_OPERATOR);
         }
-        // İç bağlantılı (`static`) bir fonksiyon, tanımı header'daysa bağlanabilir: shim ve cxx'in
-        // ürettiği C++ dosyası header'ı include ettiği için o çeviri biriminde tanımlıdır.
-        // Anonim namespace'teki fonksiyonların bağlantısı C++11'den beri `Internal`; ayrıca
-        // namespace yolundan tanınır.
+        // An internal-linkage (`static`) function can be bound if its definition is in the header: because
+        // the C++ files generated by the shim and cxx include the header, it is defined in that translation unit.
+        // Since C++11 the linkage of functions in an anonymous namespace is `Internal`; they are also
+        // recognized from the namespace path.
         let linkage = cursor.linkage();
         if linkage == cx::CXLinkage_UniqueExternal
             || self.namespace.iter().any(|ns| ns == ANONYMOUS_NAMESPACE)
@@ -363,8 +363,8 @@ impl<'tu> Lowering<'tu> {
         }));
     }
 
-    /// `const`/`constexpr` sayı ya da `bool` tipli değişkenler, değerleri derleme anında kesin
-    /// olarak biliniyorsa sabit olur; diğer değişkenler desteklenmiyor.
+    /// Variables of `const`/`constexpr` numeric or `bool` type become constants if their values are
+    /// known exactly at compile time; other variables are not supported.
     fn variable(&mut self, cursor: Cursor<'tu>) {
         let lowered = lower_type(&self.types, cursor.ty());
         if !lowered.is_const {
@@ -463,7 +463,7 @@ impl<'tu> Lowering<'tu> {
         )));
     }
 
-    /// Geçerli namespace'le birlikte tam ad (`geo::detail::f`).
+    /// The full name with the current namespace (`geo::detail::f`).
     fn qualified(&self, name: &str) -> String {
         let mut path = self.namespace.clone();
         if !name.is_empty() {
@@ -473,26 +473,26 @@ impl<'tu> Lowering<'tu> {
     }
 }
 
-/// Bir sabitin başlatıcısının denetim sonucu.
+/// The result of checking a constant's initializer.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Initializer {
-    /// Literaller, aritmetik ve dönüşümler: derleme ve çalışma anında aynı değer.
+    /// Literals, arithmetic and conversions: the same value at compile time and at run time.
     Exact,
-    /// Fonksiyon çağrısı var (ya da denetim sınırı aşıldı).
+    /// There is a function call (or the check's limit was exceeded).
     Call,
-    /// `sizeof`, `alignof` ya da `offsetof`: değer üretimin yapıldığı platforma bağlı.
+    /// `sizeof`, `alignof` or `offsetof`: the value depends on the platform where generation is done.
     Platform,
 }
 
-/// Sabit başlatıcılarını denetler. Doğrulanan değişkenler hatırlanır: her başlatıcı bir kez
-/// gezilir (`A2 = A1 + A1` gibi zincirler üstel değil doğrusal sürer).
+/// Checks constant initializers. Verified variables are remembered: every initializer is walked
+/// once (chains such as `A2 = A1 + A1` take linear, not exponential, time).
 ///
-/// Neden: `static const double X = sqrt(2.0);` bir C++ sabit ifadesi değildir; derleyici değeri
-/// çalışma anında libm ile hesaplayabilir. libclang ise değeri derleme anında kendisi katlar.
-/// İkisinin son bitte aynı çıkacağı kesin olmadığı için böyle bir değeri Rust'a `const` olarak
-/// yazmak tahmin olur. `sizeof(void*)` gibi değerler de üretimin yapıldığı makineye bağlıdır;
-/// commit'lenen dosya başka bir platformda yanlış olur (ADR-0004). Literaller, aritmetik ve
-/// dönüşümler ise IEEE kurallarıyla her yerde aynı sonucu verir.
+/// Why: `static const double X = sqrt(2.0);` is not a C++ constant expression; the compiler may
+/// compute the value at run time with libm, while libclang folds the value itself at compile time.
+/// Because it is not certain that the two come out the same in the last bit, writing such a value
+/// into Rust as a `const` would be a guess. Values such as `sizeof(void*)` also depend on the
+/// machine where generation is done; a committed file would be wrong on another platform (ADR-0004).
+/// Literals, arithmetic and conversions, on the other hand, give the same result everywhere under IEEE rules.
 #[derive(Default)]
 struct InitializerCheck<'tu> {
     exact: Vec<Cursor<'tu>>,
@@ -515,9 +515,9 @@ impl<'tu> InitializerCheck<'tu> {
             }
             match node.kind() {
                 cx::CXCursor_CallExpr => return Initializer::Call,
-                // `sizeof`/`alignof` (`UnaryExpr`) ve `offsetof` (libclang'da ayrı türü yok;
-                // alana nesnesiz başvuru, `MemberRef`, yalnızca orada ya da üye pointer'ında
-                // görülür ve üye pointer'ı sayı tipi değildir).
+                // `sizeof`/`alignof` (`UnaryExpr`) and `offsetof` (it has no kind of its own in libclang;
+                // a reference to a field without an object, `MemberRef`, appears only there or in a member
+                // pointer, and a member pointer is not a numeric type).
                 cx::CXCursor_UnaryExpr | cx::CXCursor_MemberRef => return Initializer::Platform,
                 cx::CXCursor_DeclRefExpr => {
                     let target = node.referenced();
@@ -537,7 +537,7 @@ impl<'tu> InitializerCheck<'tu> {
     }
 }
 
-/// libclang'ın hesapladığı değeri sabitin tipine göre IR değerine çevirir.
+/// Turns the value computed by libclang into an IR value according to the constant's type.
 fn constant_value(ty: &Type, evaluated: Evaluated) -> Result<ConstantValue, &'static str> {
     match (ty, evaluated) {
         (Type::Bool, Evaluated::Signed(v)) => Ok(ConstantValue::Bool(v != 0)),
@@ -556,8 +556,8 @@ fn constant_value(ty: &Type, evaluated: Evaluated) -> Result<ConstantValue, &'st
             if !v.is_finite() {
                 return Err(REASON_CONSTANT_NON_FINITE);
             }
-            // `float` sabit `double` olarak geliyor; `f32`'ye kayıpsız dönmüyorsa değer `float`
-            // değildir ve libclang'ın sonucuna güvenilmez.
+            // A `float` constant arrives as a `double`; if it does not convert to `f32` without loss, the value
+            // is not a `float` and libclang's result cannot be trusted.
             #[allow(clippy::cast_possible_truncation)]
             let narrowed = f64::from(v as f32);
             if *size_bytes == 4 && narrowed != v {
@@ -569,17 +569,17 @@ fn constant_value(ty: &Type, evaluated: Evaluated) -> Result<ConstantValue, &'st
     }
 }
 
-/// Bir sınıfın bilgilerinin nereden okunacağı.
+/// Where a class's information is read from.
 struct ClassSource<'tu> {
-    /// Üyeleri gezilecek cursor: sınıfın kendisi ya da template kalıbı.
+    /// The cursor whose members are walked: the class itself or the template pattern.
     members: Cursor<'tu>,
-    /// Sınıfın (ya da örneklemenin) bildirimi: soyutluk buradan.
+    /// The declaration of the class (or instantiation): abstractness comes from here.
     record: Cursor<'tu>,
-    /// Düzeni (boyut, alan ofsetleri) okunacak somut tip.
+    /// The concrete type whose layout (size, field offsets) is read.
     layout: clang::Type<'tu>,
 }
 
-/// Bir sınıfı ya da template örneklemesini IR'a çevirir.
+/// Turns a class or template instantiation into IR.
 fn build_class<'tu>(
     types: &Types<'tu>,
     source: ClassSource<'tu>,
@@ -617,7 +617,7 @@ fn build_class<'tu>(
     class
 }
 
-/// `using __ferrobridge_inst_N = Tmpl<args>;` takma adından örneklemeyi çözer.
+/// Resolves the instantiation from the alias `using __ferrobridge_inst_N = Tmpl<args>;`.
 fn resolve_instance<'tu>(
     alias: Cursor<'tu>,
     rust_name: &str,
@@ -665,8 +665,8 @@ fn resolve_instance<'tu>(
     })
 }
 
-/// Template kalıbında, parametreye bağlı bir tipi örneklemenin somut tipine çevirir. Bağımlı
-/// değilse `None` (normal yoldan çevrilir).
+/// In a template pattern, turns a type depending on a parameter into the instantiation's
+/// concrete type. `None` if it is not dependent (it is lowered the normal way).
 fn substitute(types: &Types<'_>, env: &Env, ty: clang::Type<'_>) -> Option<QualType> {
     let canonical = ty.canonical();
     if canonical.kind() != cx::CXType_Unexposed {
@@ -692,7 +692,7 @@ fn substitute(types: &Types<'_>, env: &Env, ty: clang::Type<'_>) -> Option<QualT
     })
 }
 
-/// Bildirimin tanımı; ileri bildirimlerin (`template <typename T> class Vec2;`) gövdesi yok.
+/// The definition of a declaration; forward declarations (`template <typename T> class Vec2;`) have no body.
 fn definition_of(cursor: Cursor<'_>) -> Cursor<'_> {
     let definition = cursor.definition();
     if definition.is_null() {
@@ -702,8 +702,8 @@ fn definition_of(cursor: Cursor<'_>) -> Cursor<'_> {
     }
 }
 
-/// `type-parameter-<derinlik>-<sıra>`: libclang'ın template parametrelerinin kanonik yazımı
-/// (parametrenin bildirimine tipten ulaşılamıyor).
+/// `type-parameter-<depth>-<index>`: libclang's canonical spelling of template parameters
+/// (the parameter's declaration cannot be reached from the type).
 fn template_param(canonical: &clang::Type<'_>) -> Option<(u32, usize)> {
     let spelling = unqualified_spelling(*canonical);
     let rest = spelling.strip_prefix("type-parameter-")?;
@@ -711,8 +711,8 @@ fn template_param(canonical: &clang::Type<'_>) -> Option<(u32, usize)> {
     Some((depth.parse().ok()?, index.parse().ok()?))
 }
 
-/// Kalıptaki `Vector3<T>`, `const Vector2<T>&` gibi bağımlı bir template başvurusu: argümanlar
-/// yerine konup istenmiş bir örneklemeyle eşleşiyorsa o sınıf; yoksa nedeniyle desteklenmiyor.
+/// A dependent template reference in the pattern such as `Vector3<T>`, `const Vector2<T>&`: that class
+/// if, with the arguments substituted, it matches a requested instantiation; otherwise unsupported with a reason.
 fn dependent_record(types: &Types<'_>, current: &Instance<'_>, ty: clang::Type<'_>) -> Type {
     let declaration = {
         let named = ty.declaration();
@@ -723,8 +723,8 @@ fn dependent_record(types: &Types<'_>, current: &Instance<'_>, ty: clang::Type<'
         }
     };
     let args = ty.template_args();
-    // Sınıfın içinde yalnızca adıyla (`Vector3`) yazılan kendisi: libclang bildirimi
-    // template'in kalıp sınıfı olarak veriyor; template'le aynı ad ve aynı konum.
+    // The class itself, written by name only (`Vector3`) inside the class: libclang gives the
+    // declaration as the template's pattern class; the same name and the same location as the template.
     let is_current = declaration.same_as(&current.template)
         || declaration.same_as(&current.declaration)
         || (matches!(
@@ -769,7 +769,7 @@ fn dependent_record(types: &Types<'_>, current: &Instance<'_>, ty: clang::Type<'
             Type::Unsupported {
                 spelling: unqualified_spelling(ty),
                 reason: format!(
-                    "`{}<{}>` örneklenmemiş; `ferrobridge.toml`'da `[templates]`'e ekleyin.",
+                    "`{}<{}>` is not instantiated; add it to `[templates]` in `ferrobridge.toml`.",
                     declaration.spelling(),
                     spelled.join(", ")
                 ),
@@ -778,19 +778,19 @@ fn dependent_record(types: &Types<'_>, current: &Instance<'_>, ty: clang::Type<'
     }
 }
 
-/// Bir sınıfın silinmesiyle ilgili bilgiler (taban sınıflardan gelenler dahil).
+/// Information about deleting a class (including what comes from base classes).
 struct RecordLifetime {
-    /// Kendisi ya da bir tabanı sanal fonksiyon bildiriyor.
+    /// It or a base declares a virtual function.
     polymorphic: bool,
-    /// Açıkça bildirilmiş destructor (yoksa `None`).
+    /// The explicitly declared destructor (`None` if there is none).
     declared: Option<DeclaredDestructor>,
-    /// Bir tabanın destructor'ı sanal: bu sınıfınki de sanaldır.
+    /// A base's destructor is virtual: this class's is virtual too.
     base_virtual: bool,
-    /// Bir tabanın destructor'ı private veya silinmiş: örtük destructor silinmiş sayılır.
+    /// A base's destructor is private or deleted: the implicit destructor counts as deleted.
     base_blocks_implicit: bool,
 }
 
-/// Açıkça bildirilmiş bir destructor'ın özellikleri.
+/// The properties of an explicitly declared destructor.
 #[derive(Clone, Copy)]
 struct DeclaredDestructor {
     access: cx::CX_CXXAccessSpecifier,
@@ -799,8 +799,8 @@ struct DeclaredDestructor {
 }
 
 impl RecordLifetime {
-    /// Tanımı görülemeyen bir taban için en kısıtlayıcı varsayım: polimorfik, sanal
-    /// destructor'ı yok.
+    /// The most restrictive assumption for a base whose definition cannot be seen: polymorphic,
+    /// without a virtual destructor.
     fn unknown() -> Self {
         RecordLifetime {
             polymorphic: true,
@@ -824,12 +824,12 @@ impl RecordLifetime {
         }
     }
 
-    /// Bu sınıfın destructor'ı alt sınıflarda sanallığı devrediyor mu?
+    /// Does this class's destructor pass virtuality on to subclasses?
     fn has_virtual_destructor(&self) -> bool {
         self.declared.is_some_and(|d| d.is_virtual) || self.base_virtual
     }
 
-    /// Alt sınıfın örtük destructor'ı bu tabanın destructor'ını çağıramaz mı?
+    /// Can a subclass's implicit destructor not call this base's destructor?
     fn blocks_implicit_in_derived(&self) -> bool {
         match self.declared {
             Some(d) => d.deleted || d.access == cx::CX_CXXPrivate,
@@ -838,9 +838,9 @@ impl RecordLifetime {
     }
 }
 
-/// Bir sınıfın destructor'ını ve polimorfikliğini, taban sınıflarına özyinelemeyle bakarak
-/// bulur. Üyelerin (alanların) destructor'ları dikkate alınmaz: silinmiş bir alan
-/// destructor'ı örtük destructor'ı siler, ama bu UB değil derleme hatasına yol açar.
+/// Finds a class's destructor and polymorphism by looking at its base classes recursively.
+/// The destructors of members (fields) are not taken into account: a deleted field
+/// destructor deletes the implicit destructor, but that leads to a compile error, not UB.
 fn record_lifetime(record: Cursor<'_>, depth: usize) -> RecordLifetime {
     if depth > MAX_BASE_DEPTH || !record.is_definition() {
         return RecordLifetime::unknown();
@@ -875,7 +875,7 @@ fn record_lifetime(record: Cursor<'_>, depth: usize) -> RecordLifetime {
     info
 }
 
-/// Bir sınıf üyesini sınıfa ekler. Yalnızca public üyeler dikkate alınır.
+/// Adds a class member to the class. Only public members are taken into account.
 fn class_member(
     types: &Types<'_>,
     class: &mut Class,
@@ -884,7 +884,7 @@ fn class_member(
     layout: clang::Type<'_>,
 ) {
     let kind = member.kind();
-    // Değer tipi kararı (bit bit kopyalanabilir mi?) için, erişimi ne olursa olsun.
+    // For the value type decision (is it trivially copyable?), whatever its access.
     let user_defined = |m: &Cursor<'_>| !m.is_defaulted();
     match kind {
         cx::CXCursor_FieldDecl => {
@@ -918,13 +918,13 @@ fn class_member(
             class.user_copy_or_move = true;
         }
         cx::CXCursor_Destructor if user_defined(&member) => class.user_copy_or_move = true,
-        // Template kalıbının parametreleri üye değil.
+        // The parameters of a template pattern are not members.
         cx::CXCursor_TemplateTypeParameter
         | cx::CXCursor_NonTypeTemplateParameter
         | cx::CXCursor_TemplateTemplateParameter => return,
         _ => {}
     }
-    // Kalıtımın erişimi (public/private base) değil, varlığı önemli: bildirilir.
+    // What matters is the existence of inheritance, not its access (public/private base): it is reported.
     if kind == cx::CXCursor_CXXBaseSpecifier {
         let name = format!("{class_name} : {}", member.spelling());
         class
@@ -1009,7 +1009,7 @@ fn class_member(
             member_name,
             REASON_TEMPLATE,
         )),
-        // Bağlanacak bir API değil (modül belgesine bakın).
+        // Not an API to bind (see the module documentation).
         cx::CXCursor_Constructor
         | cx::CXCursor_CXXMethod
         | cx::CXCursor_Destructor
@@ -1054,7 +1054,7 @@ fn params(types: &Types<'_>, cursor: Cursor<'_>) -> Vec<Param> {
         .collect()
 }
 
-/// Bağlanabilecek bir üye operatör mü? (`arity`: `this` hariç parametre sayısı)
+/// Is it a member operator that can be bound? (`arity`: the number of parameters excluding `this`)
 fn bindable_operator(op: &str, arity: usize) -> bool {
     match arity {
         0 => matches!(op, "-" | "+" | "!" | "~"),
@@ -1083,8 +1083,8 @@ fn bindable_operator(op: &str, arity: usize) -> bool {
     }
 }
 
-/// `noexcept`, `noexcept(true)` ve `throw()` exception fırlatmama garantisi verir.
-/// `noexcept(ifade)` değeri bilinemediği için ihtiyatlı davranılır: garanti yok sayılır.
+/// `noexcept`, `noexcept(true)` and `throw()` guarantee not to throw.
+/// Because the value of `noexcept(expression)` cannot be known, it is treated conservatively: no guarantee.
 fn is_noexcept(spec: i32) -> bool {
     matches!(
         spec,
@@ -1155,10 +1155,10 @@ fn lower_type(types: &Types<'_>, ty: clang::Type<'_>) -> QualType {
     }
 }
 
-/// Sınıf tiplerini çevirir: `std::string` ve `std::unique_ptr<T>` özel olarak tanınır.
+/// Lowers class types: `std::string` and `std::unique_ptr<T>` are recognized specially.
 ///
-/// Tanıma ad metniyle değil, bildirimin namespace zinciri ve template argümanlarıyla yapılır;
-/// libc++'ın `std::__1` gibi inline namespace'leri yok sayılır.
+/// Recognition is done not by the name text but by the declaration's namespace chain and
+/// template arguments; inline namespaces such as libc++'s `std::__1` are ignored.
 fn lower_record(types: &Types<'_>, ty: clang::Type<'_>, canonical: clang::Type<'_>) -> Type {
     let declaration = canonical.declaration();
     if declaration.kind() == cx::CXCursor_UnionDecl {
@@ -1206,8 +1206,8 @@ fn lower_record(types: &Types<'_>, ty: clang::Type<'_>, canonical: clang::Type<'
             None => Type::Unsupported {
                 spelling: unqualified_spelling(ty),
                 reason: format!(
-                    "`{}` örneklenmemiş bir template; `ferrobridge.toml`'da `[templates]`'e \
-                     ekleyin.",
+                    "`{}` is a template that is not instantiated; add it to `[templates]` in \
+                     `ferrobridge.toml`.",
                     canonical.spelling()
                 ),
             },
@@ -1220,14 +1220,14 @@ fn lower_record(types: &Types<'_>, ty: clang::Type<'_>, canonical: clang::Type<'
     }
 }
 
-/// Bildirim doğrudan `std` namespace'inde (inline namespace'ler hariç) ve bu adda mı?
+/// Is the declaration directly in the `std` namespace (excluding inline namespaces) and with this name?
 fn is_std_decl(declaration: Cursor<'_>, expected: &str) -> bool {
     scope_path(declaration)
         .is_some_and(|(namespace, name)| namespace == ["std"] && name == expected)
 }
 
-/// Bir bildirimin namespace yolu ve adı. Inline namespace'ler atlanır. Sınıf veya fonksiyon
-/// içinde tanımlıysa ya da isimsizse `None`.
+/// A declaration's namespace path and name. Inline namespaces are skipped. `None` if it is defined
+/// inside a class or function, or if it is unnamed.
 fn scope_path(declaration: Cursor<'_>) -> Option<(Vec<String>, String)> {
     let name = declaration.spelling();
     if name.is_empty() || declaration.is_anonymous() {
@@ -1259,8 +1259,8 @@ fn scope_path(declaration: Cursor<'_>) -> Option<(Vec<String>, String)> {
     None
 }
 
-/// Tamsayı tipiyse C++ temel tip adı ve işaretli olup olmadığı; tamsayı değilse `None`.
-/// `char16_t`, `wchar_t` ve 128 bitlik tipler bilerek dışarıda.
+/// If it is an integer type, its underlying C++ type name and whether it is signed; `None` otherwise.
+/// `char16_t`, `wchar_t` and 128-bit types are deliberately left out.
 fn integer_info(kind: cx::CXTypeKind) -> Option<(&'static str, bool)> {
     match kind {
         cx::CXType_Char_S => Some(("char", true)),
@@ -1279,8 +1279,8 @@ fn integer_info(kind: cx::CXTypeKind) -> Option<(&'static str, bool)> {
     }
 }
 
-/// Pointer/referansın gösterdiği tip. Typedef'li pointer'larda (ör. `typedef int* IntPtr`)
-/// şekerli tipten alınamazsa kanonik tipten alınır.
+/// The type a pointer/reference points to. For typedef'd pointers (e.g. `typedef int* IntPtr`),
+/// if it cannot be taken from the sugared type, it is taken from the canonical type.
 fn pointee_of<'tu>(ty: clang::Type<'tu>, canonical: clang::Type<'tu>) -> clang::Type<'tu> {
     let pointee = ty.pointee();
     if pointee.kind() == cx::CXType_Invalid {
@@ -1297,7 +1297,7 @@ fn unsupported_type(ty: clang::Type<'_>, reason: &str) -> Type {
     }
 }
 
-/// Kaynakta yazıldığı haliyle tip adı; `const` ayrı alanda tutulduğu için çıkarılır.
+/// The type name as written in the source; `const` is removed because it is kept in a separate field.
 fn unqualified_spelling(ty: clang::Type<'_>) -> String {
     let spelling = ty.spelling();
     spelling
@@ -1305,13 +1305,13 @@ fn unqualified_spelling(ty: clang::Type<'_>) -> String {
         .map_or(spelling.clone(), str::to_owned)
 }
 
-/// Tip, typedef zincirinin herhangi bir adımında `std::int32_t` gibi sabit genişlikli bir
-/// tipe ulaşıyor mu?
+/// Does the type reach a fixed-width type such as `std::int32_t` at any step of the typedef
+/// chain?
 ///
-/// Ad üzerinden tanınır, çünkü libclang `std::int32_t`'yi (std içindeki `using ::int32_t;`)
-/// bildirimi olmayan "unexposed" bir tip olarak verir ve zincir orada izlenemez. Aynı adı
-/// taşıyan ama farklı boyutta bir kullanıcı tipine güvenmemek için gerçek boyut da
-/// karşılaştırılır.
+/// It is recognized by name, because libclang gives `std::int32_t` (`using ::int32_t;` inside std)
+/// as an "unexposed" type without a declaration, and the chain cannot be followed there. The real size
+/// is compared too, so as not to trust a user type with the same name but a different
+/// size.
 fn is_fixed_width(ty: clang::Type<'_>, size_bytes: u64) -> bool {
     let mut current = ty;
     for _ in 0..MAX_TYPEDEF_DEPTH {
@@ -1327,7 +1327,7 @@ fn is_fixed_width(ty: clang::Type<'_>, size_bytes: u64) -> bool {
     false
 }
 
-/// `int32_t`, `std::uint8_t` gibi bir adın bit genişliği; böyle bir ad değilse `None`.
+/// The bit width of a name such as `int32_t`, `std::uint8_t`; `None` if it is not such a name.
 fn fixed_width_bits(spelling: &str) -> Option<u32> {
     let name = spelling.rsplit("::").next()?;
     let digits = name

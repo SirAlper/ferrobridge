@@ -1,97 +1,97 @@
-//! Header'da bulunan üst seviye öğeler.
+//! Top-level items found in a header.
 
 use serde::{Deserialize, Serialize};
 
 use crate::{QualType, Type};
 
-/// Header'dan okunan bir öğe.
+/// An item read from a header.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Item {
-    /// Serbest (sınıf üyesi olmayan) bir fonksiyon.
+    /// A free function (not a class member).
     Function(Function),
-    /// Bir sınıf veya struct tanımı.
+    /// A class or struct definition.
     Class(Class),
-    /// Bir enum tanımı.
+    /// An enum definition.
     Enum(Enum),
-    /// Değeri derleme anında kesin olarak bilinen, sayı ya da `bool` tipli bir sabit.
+    /// A constant of numeric or `bool` type whose value is known exactly at compile time.
     Constant(Constant),
-    /// Bu sürümde desteklenmeyen bir yapı. Sessizce atlanmak yerine nedeniyle kaydedilir.
+    /// A construct not supported in this version. Recorded with a reason instead of being skipped silently.
     Unsupported(Unsupported),
 }
 
-/// Serbest bir fonksiyon bildirimi.
+/// A free function declaration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Function {
-    /// Fonksiyonun adı (namespace'siz).
+    /// The function's name (without namespace).
     pub name: String,
-    /// Dıştan içe namespace yolu (`geo::detail::f` için `["geo", "detail"]`).
+    /// The namespace path, outermost first (`["geo", "detail"]` for `geo::detail::f`).
     pub namespace: Vec<String>,
-    /// Parametreler, sırasıyla.
+    /// The parameters, in order.
     pub params: Vec<Param>,
-    /// Dönüş tipi.
+    /// The return type.
     pub return_type: QualType,
-    /// Fonksiyon exception fırlatmayacağını garanti ediyor mu (`noexcept`, `throw()`)?
+    /// Does the function guarantee not to throw (`noexcept`, `throw()`)?
     pub noexcept: bool,
-    /// Bildirimin kaynaktaki yeri.
+    /// Where the declaration is in the source.
     pub location: SourceLocation,
 }
 
-/// Bir sınıf veya struct tanımı. Yalnızca public üyeler alınır.
+/// A class or struct definition. Only public members are taken.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Class {
-    /// Sınıfın adı.
+    /// The class's name.
     pub name: String,
-    /// Dıştan içe namespace yolu.
+    /// The namespace path, outermost first.
     pub namespace: Vec<String>,
-    /// Saf sanal metodu olduğu için doğrudan oluşturulamıyor mu?
+    /// Can it not be created directly because it has a pure virtual method?
     pub is_abstract: bool,
-    /// Polimorfik mi: kendisi ya da bir taban sınıfı (erişimi ne olursa olsun) sanal bir
-    /// fonksiyon bildiriyor mu? Polimorfik bir sınıfa işaret eden pointer aslında bir alt
-    /// sınıfı gösteriyor olabilir; böyle bir nesneyi `delete` ile silmek sanal destructor ister.
+    /// Is it polymorphic: does it or one of its base classes (whatever its access) declare a
+    /// virtual function? A pointer to a polymorphic class may actually point to a subclass;
+    /// deleting such an object with `delete` needs a virtual destructor.
     pub is_polymorphic: bool,
-    /// Destructor'ın erişimi ve sanallığı. Açıkça bildirilmemişse örtük destructor kaydedilir.
+    /// The destructor's access and virtuality. If not declared explicitly, the implicit destructor is recorded.
     pub destructor: Destructor,
-    /// Açıkça bildirilmiş public constructor'lar (`= delete` olanlar hariç).
+    /// Explicitly declared public constructors (except `= delete` ones).
     pub constructors: Vec<Constructor>,
-    /// Public metotlar (statik olanlar dahil).
+    /// Public methods (including static ones).
     pub methods: Vec<Method>,
-    /// Bu sürümde desteklenmeyen public üyeler (operatörler, iç içe tipler...).
+    /// Public members not supported in this version (operators, nested types...).
     pub unsupported_members: Vec<Unsupported>,
-    /// Statik olmayan veri üyeleri (erişimi ne olursa olsun), bildirim sırasıyla.
+    /// Non-static data members (whatever their access), in declaration order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<Field>,
-    /// Bellek düzeni; libclang hesaplayamadıysa (ör. eksik tip) `None`.
+    /// The memory layout; `None` if libclang could not compute it (e.g. an incomplete type).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<Layout>,
-    /// Kullanıcı kopyalama/taşıma constructor'ı, atama operatörü ya da destructor bildirmiş mi
-    /// (`= default` olanlar hariç)? Böyle bir sınıf bit bit kopyalanamayabilir.
+    /// Does the user declare a copy/move constructor, an assignment operator or a destructor
+    /// (except `= default` ones)? Such a class may not be trivially copyable.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub user_copy_or_move: bool,
-    /// Bir template örneklemesiyse (`[templates]`) hangisi; `name` o zaman Rust adıdır.
+    /// If this is a template instantiation (`[templates]`), which one; `name` is then the Rust name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance_of: Option<TemplateInstance>,
-    /// Tanımın kaynaktaki yeri.
+    /// Where the definition is in the source.
     pub location: SourceLocation,
 }
 
-/// Bir sınıfın statik olmayan veri üyesi.
+/// A non-static data member of a class.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Field {
-    /// Alanın adı.
+    /// The field's name.
     pub name: String,
-    /// Tipi; bit alanları ve diziler `Type::Unsupported`.
+    /// Its type; bit fields and arrays are `Type::Unsupported`.
     #[serde(rename = "type")]
     pub ty: QualType,
-    /// Public mi?
+    /// Is it public?
     pub public: bool,
-    /// Sınıfın başından itibaren bit cinsinden ofset; hesaplanamadıysa `None`.
+    /// The offset in bits from the start of the class; `None` if it could not be computed.
     pub offset_bits: Option<u64>,
-    /// Bildirimin kaynaktaki yeri.
+    /// Where the declaration is in the source.
     pub location: SourceLocation,
 }
 
-/// Bir tipin bellek düzeni.
+/// The memory layout of a type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Layout {
     /// `sizeof`
@@ -100,158 +100,158 @@ pub struct Layout {
     pub align_bytes: u64,
 }
 
-/// Bir sınıf template'inin örneklemesi.
+/// An instantiation of a class template.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TemplateInstance {
-    /// Template'in adı (ör. `Vector3`).
+    /// The template's name (e.g. `Vector3`).
     pub template: String,
-    /// Örneklemenin tam C++ yazımı, namespace'iyle (ör. `Vector3<float>`, `geo::Box<int>`).
+    /// The full C++ spelling of the instantiation, with its namespace (e.g. `Vector3<float>`, `geo::Box<int>`).
     pub spelling: String,
 }
 
-/// Bir sınıfın destructor'ı. Rust'ta `UniquePtr<T>` düşünce `delete` çalıştığından, sahipliği
-/// Rust'a geçen her nesne için güvenli olup olmadığı buna bakılarak belirlenir.
+/// A class's destructor. Because `delete` runs when a `UniquePtr<T>` is dropped in Rust, whether
+/// it is safe for every object whose ownership passes to Rust is decided by looking at this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Destructor {
-    /// Public ve silinmemiş. Açıkça bildirilmemiş (örtük) destructor da buraya girer.
+    /// Public and not deleted. An implicit (not explicitly declared) destructor goes here too.
     Public {
-        /// Sanal mı (kendisi `virtual` bildirilmiş ya da bir taban sınıfınınki sanal)?
+        /// Is it virtual (declared `virtual` itself, or one of a base class's is virtual)?
         is_virtual: bool,
     },
-    /// `private` veya `protected`: sınıf dışından silinemez.
+    /// `private` or `protected`: it cannot be deleted from outside the class.
     NotPublic,
     /// `= delete`
     Deleted,
 }
 
-/// Bir constructor.
+/// A constructor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Constructor {
-    /// Parametreler, sırasıyla.
+    /// The parameters, in order.
     pub params: Vec<Param>,
-    /// Exception fırlatmama garantisi var mı?
+    /// Is there a guarantee not to throw?
     pub noexcept: bool,
-    /// Bildirimin kaynaktaki yeri.
+    /// Where the declaration is in the source.
     pub location: SourceLocation,
 }
 
-/// Bir üye fonksiyon.
+/// A member function.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Method {
-    /// Metodun adı.
+    /// The method's name.
     pub name: String,
-    /// Parametreler, sırasıyla (`this` hariç).
+    /// The parameters, in order (excluding `this`).
     pub params: Vec<Param>,
-    /// Dönüş tipi.
+    /// The return type.
     pub return_type: QualType,
-    /// `const` metot mu (nesneyi değiştirmiyor)?
+    /// Is it a `const` method (does not change the object)?
     pub is_const: bool,
-    /// Statik metot mu?
+    /// Is it a static method?
     pub is_static: bool,
-    /// Sanal metot mu?
+    /// Is it a virtual method?
     pub is_virtual: bool,
-    /// Exception fırlatmama garantisi var mı?
+    /// Is there a guarantee not to throw?
     pub noexcept: bool,
-    /// Operatör metoduysa operatörün kendisi (`"+"`, `"+="`, `"=="`...); `name` o zaman
-    /// `operator+` gibidir.
+    /// For an operator method, the operator itself (`"+"`, `"+="`, `"=="`...); `name` is then
+    /// like `operator+`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operator: Option<String>,
-    /// Bildirimin kaynaktaki yeri.
+    /// Where the declaration is in the source.
     pub location: SourceLocation,
 }
 
-/// Bir enum tanımı.
+/// An enum definition.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Enum {
-    /// Enum'un adı.
+    /// The enum's name.
     pub name: String,
-    /// Dıştan içe namespace yolu.
+    /// The namespace path, outermost first.
     pub namespace: Vec<String>,
-    /// `enum class` mı?
+    /// Is it an `enum class`?
     pub scoped: bool,
-    /// Altta yatan tamsayı tipi.
+    /// The underlying integer type.
     pub underlying: Type,
-    /// Değerler, kaynak sırasıyla.
+    /// The values, in source order.
     pub variants: Vec<EnumVariant>,
-    /// Tanımın kaynaktaki yeri.
+    /// Where the definition is in the source.
     pub location: SourceLocation,
 }
 
-/// Bir enum değeri.
+/// An enum value.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnumVariant {
-    /// Değerin adı.
+    /// The value's name.
     pub name: String,
-    /// Sayısal değeri.
+    /// Its numeric value.
     pub value: i64,
 }
 
-/// `const`/`constexpr` bir değişken; değeri header'dan hesaplandı.
+/// A `const`/`constexpr` variable; its value was computed from the header.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Constant {
-    /// Sabitin adı.
+    /// The constant's name.
     pub name: String,
-    /// Dıştan içe namespace yolu.
+    /// The namespace path, outermost first.
     pub namespace: Vec<String>,
-    /// Sabitin tipi: [`Type::Integer`], [`Type::Float`] ya da [`Type::Bool`].
+    /// The constant's type: [`Type::Integer`], [`Type::Float`] or [`Type::Bool`].
     #[serde(rename = "type")]
     pub ty: Type,
-    /// Hesaplanan değer.
+    /// The computed value.
     pub value: ConstantValue,
-    /// Bildirimin kaynaktaki yeri.
+    /// Where the declaration is in the source.
     pub location: SourceLocation,
 }
 
-/// Bir sabitin değeri.
+/// The value of a constant.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum ConstantValue {
-    /// İşaretli tamsayı tipli sabitin değeri.
+    /// The value of a constant of signed integer type.
     Signed(i64),
-    /// İşaretsiz tamsayı tipli sabitin değeri.
+    /// The value of a constant of unsigned integer type.
     Unsigned(u64),
-    /// Kayan noktalı sayı. Her zaman sonlu: NaN ve sonsuz değerli sabitler IR'a girmez. `float`
-    /// sabitlerde değer, `f32`'ye kayıpsız dönüşen bir `f64`'tür.
+    /// A floating-point number. Always finite: constants with NaN or infinite values do not enter the IR. For
+    /// `float` constants the value is an `f64` that converts to `f32` without loss.
     Float(f64),
     /// `bool`.
     Bool(bool),
 }
 
-// `f64` `Eq` değildir, çünkü NaN kendisine eşit değildir. IR'daki değerler her zaman sonlu
-// olduğu için (bkz. `ConstantValue::Float`) eşitlik burada bir denklik ilişkisidir.
+// `f64` is not `Eq`, because NaN is not equal to itself. Because the values in the IR are always
+// finite (see `ConstantValue::Float`), equality here is an equivalence relation.
 impl Eq for ConstantValue {}
 
-/// Bir fonksiyon parametresi.
+/// A function parameter.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Param {
-    /// Parametre adı; header'da isimsizse `None`.
+    /// The parameter's name; `None` if unnamed in the header.
     pub name: Option<String>,
-    /// Parametrenin tipi.
+    /// The parameter's type.
     #[serde(rename = "type")]
     pub ty: QualType,
 }
 
-/// Desteklenmeyen bir yapı.
+/// An unsupported construct.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Unsupported {
-    /// Yapının türü (ör. `class`, `enum`, `function_template`).
+    /// The kind of construct (e.g. `class`, `enum`, `function_template`).
     pub construct: String,
-    /// Namespace'iyle birlikte adı (ör. `geo::Vehicle`); isimsizse boş.
+    /// Its name with its namespace (e.g. `geo::Vehicle`); empty if unnamed.
     pub name: String,
-    /// Neden desteklenmediği ve ne zaman desteklenmesinin planlandığı.
+    /// Why it is not supported and when support is planned.
     pub reason: String,
-    /// Bildirimin kaynaktaki yeri.
+    /// Where the declaration is in the source.
     pub location: SourceLocation,
 }
 
-/// Kaynak dosyadaki bir konum.
+/// A location in a source file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceLocation {
-    /// Okunan header'a göre dosya adı (mutlak yol içermez).
+    /// The file name relative to the header that was read (contains no absolute path).
     pub file: String,
-    /// 1'den başlayan satır numarası.
+    /// The line number, starting at 1.
     pub line: u32,
-    /// 1'den başlayan sütun numarası.
+    /// The column number, starting at 1.
     pub column: u32,
 }

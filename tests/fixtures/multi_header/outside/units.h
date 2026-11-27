@@ -1,5 +1,5 @@
-// Bridge'e dahil olmayan bir header: buradaki tipi kullanan fonksiyon bağlanmaz, mesaj bu
-// header'ın adını söyler.
+// A header not included in the bridge: a function using the type here is not bound, and the
+// message names this header.
 #pragma once
 
 namespace units {

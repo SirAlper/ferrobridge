@@ -299,7 +299,7 @@ expression: portable(&module)
             }
           },
           "public": false,
-          "offset_bits": "(platforma bağlı)",
+          "offset_bits": "(platform-dependent)",
           "location": {
             "file": "input.h",
             "line": 25,
@@ -307,7 +307,7 @@ expression: portable(&module)
           }
         }
       ],
-      "layout": "(platforma bağlı)",
+      "layout": "(platform-dependent)",
       "location": {
         "file": "input.h",
         "line": 17,

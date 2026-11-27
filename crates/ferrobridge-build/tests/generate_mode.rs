@@ -1,12 +1,12 @@
-//! `generate` özelliği uçtan uca: geçici bir crate'in `build.rs`'i bir C++ header'ını libclang
-//! ile okuyup bridge'i `OUT_DIR`'e üretir, derler; crate'in testi Rust'tan çağırır.
+//! The `generate` feature end to end: a temporary crate's `build.rs` reads a C++ header with
+//! libclang, generates the bridge into `OUT_DIR` and compiles it; the crate's test calls it from Rust.
 //!
-//! Geçici crate'ler `target/ferrobridge-build-it/` altında kurulur ve ortak bir hedef
-//! dizinini paylaşır (bağımlılıklar bir kez derlenir). Ağ kullanılmaz (`--offline`):
-//! workspace'in `Cargo.lock`'u kopyalanır, bütün sürümler yerel önbellekte olmalı.
+//! The temporary crates are set up under `target/ferrobridge-build-it/` and share a target
+//! directory (dependencies are compiled once). No network is used (`--offline`):
+//! the workspace's `Cargo.lock` is copied, and all versions must be in the local cache.
 
-// Bu dosya yalnızca test kodu; `clippy.toml`'daki test istisnası yardımcı fonksiyonları
-// kapsamadığı için burada açıkça izin veriliyor.
+// This file is test code only; the test exception in `clippy.toml` does not cover helper
+// functions, so it is allowed explicitly here.
 #![allow(clippy::unwrap_used)]
 
 use std::fs;
@@ -31,7 +31,7 @@ namespace geo {
 int32_t add(int32_t a, int32_t b);
 static inline int32_t twice(int32_t x) { return 2 * x; }
 constexpr double SCALE = 2.5;
-// Kendi başına derlenmiyor: `Meters` prelude'dan geliyor.
+// Does not compile on its own: `Meters` comes from the prelude.
 Meters to_meters(int32_t centimeters);
 uint32_t sum(const uint8_t* bytes, uint32_t len);
 }  // namespace geo
@@ -85,11 +85,11 @@ fn generated_bridge_is_callable() -> ferrobridge::Result<()> {
 }
 "#;
 
-/// Geçici crate'i `name` dizinine yazar; `toml` `ferrobridge.toml`'un içeriği.
+/// Writes the temporary crate into the `name` directory; `toml` is the contents of `ferrobridge.toml`.
 ///
-/// Her crate'in paket adı farklı olmalı: Cargo kök paketin derleme kimliğini yolundan bağımsız
-/// hesaplar; aynı adlı iki crate ortak hedef dizininde birbirinin `build.rs` çıktısını "güncel"
-/// sayardı.
+/// Every crate must have a different package name: Cargo computes the root package's build
+/// identity independently of its path; two crates with the same name in a shared target directory
+/// would consider each other's `build.rs` output "fresh".
 fn write_crate(name: &str, toml: &str) -> PathBuf {
     let package = format!("fb_build_it_{}", name.replace('-', "_"));
     let dir = it_dir().join(name);
@@ -138,7 +138,7 @@ fn cargo_test(dir: &Path) -> Output {
         .args(["test", "--offline", "--manifest-path"])
         .arg(dir.join("Cargo.toml"))
         .env("CARGO_TARGET_DIR", it_dir().join("target"))
-        // Dıştaki `cargo test`'in ayarları içerideki derlemeye sızmasın.
+        // The settings of the outer `cargo test` must not leak into the inner build.
         .env_remove("RUSTFLAGS")
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .output()
@@ -159,7 +159,7 @@ fn build_rs_generates_compiles_and_links_a_bridge() {
         "stdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(stdout.contains("test result: ok. 1 passed"), "{stdout}");
-    // Üretilen dosyalar `OUT_DIR`'de, crate'in kendi dizininde değil.
+    // The generated files are in `OUT_DIR`, not in the crate's own directory.
     assert!(!dir.join("src/bridge.rs").exists());
 }
 
@@ -174,7 +174,7 @@ fn annotation_errors_stop_the_build_with_their_line() {
     assert!(!output.status.success(), "{stderr}");
     assert!(stderr.contains("ferrobridge.toml:2"), "{stderr}");
     assert!(
-        stderr.contains("`length` adında parametresi yok"),
+        stderr.contains("has no parameter named `length`"),
         "{stderr}"
     );
 }

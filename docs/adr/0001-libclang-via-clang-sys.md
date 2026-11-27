@@ -1,60 +1,60 @@
-# ADR-0001: C++ header'larını okumak için libclang'ı `clang-sys` üzerinden kullanmak
+# ADR-0001: Use libclang through `clang-sys` to read C++ headers
 
-**Tarih**: 2026-11-26
-**Durum**: accepted
-**Karar verenler**: Alper (proje sahibi)
+**Date**: 2026-11-26
+**Status**: accepted
+**Deciders**: Alper (project owner)
 
-## Bağlam
+## Context
 
-ferrobridge'in C++ header'larından fonksiyon, sınıf, metot, enum, tip boyutu ve exception bilgisini doğru okuması gerekiyor. Makrolar, `#include`'lar ve derleme bayrakları (`compile_commands.json`) da hesaba katılmalı. Parser birden çok LLVM sürümünde çalışmalı ve kullanıcının kurulumu zor olmamalı: tek bir `brew install llvm` (ya da dağıtımın paket yöneticisi) yeterli olmalı. Geliştirme makinesinde 26.11.2026 itibarıyla Homebrew LLVM 23.1.6 kurulu.
+ferrobridge has to read functions, classes, methods, enums, type sizes and exception information from C++ headers correctly. Macros, `#include`s and compile flags (`compile_commands.json`) must be taken into account. The parser must work with several LLVM versions, and installation must be easy for the user: a single `brew install llvm` (or the distribution's package manager) should be enough. As of 2026-11-26 the development machine has Homebrew LLVM 23.1.6 installed.
 
-## Karar
+## Decision
 
-libclang'ın C API'sini **`clang-sys`** crate'i (1.9.1, Temmuz 2026'da güncellendi) üzerinden kullanıyoruz. Bunun üstüne `ferrobridge-parser` içinde kendi ince güvenli sarmalayıcımızı yazıyoruz. Bu, bindgen'in de kullandığı kanıtlanmış yöntem. Parser çıktısı yalnızca IR'a dönüşüyor; IR libclang'dan habersiz.
+We use libclang's C API through the **`clang-sys`** crate (1.9.1, updated in July 2026). On top of it we write our own thin safe wrapper inside `ferrobridge-parser`. This is the proven approach that bindgen uses as well. The parser's output is only turned into IR; the IR knows nothing about libclang.
 
-## Değerlendirilen alternatifler
+## Alternatives considered
 
-### Alternatif 1: `clang` crate (aynı yazarın üst seviye sarmalayıcısı, 2.1.0)
-- **Artıları**: Hazır güvenli API, hızlı başlangıç.
-- **Eksileri**: libclang'ın yeni fonksiyonlarına geç kavuşur. Eksik bir fonksiyon için alt katmana inmek zorlaşır.
-- **Neden seçilmedi**: Hangi libclang fonksiyonunu nasıl kullandığımızı kendimiz kontrol etmek istiyoruz. İleride yeniden değerlendirilebilir.
+### Alternative 1: the `clang` crate (a higher-level wrapper by the same author, 2.1.0)
+- **Pros**: A ready-made safe API, a quick start.
+- **Cons**: It picks up new libclang functions late. Dropping down to the lower layer for a missing function gets harder.
+- **Why not chosen**: We want to control which libclang function we use and how. Can be reconsidered later.
 
-### Alternatif 2: Clang LibTooling (C++ yardımcı program)
-- **Artıları**: AST'ye tam erişim: template'ler, triviality, attribute'lar.
-- **Eksileri**: C++ API'si LLVM sürümleri arasında kararsız. Kullanıcının LLVM geliştirme kütüphanelerine karşı derleme yapması gerekir. Projede ikinci bir dil ve build zinciri oluşur.
-- **Neden seçilmedi**: MVP için fazla maliyetli. Kaçış yolu olarak açık tutuluyor (bkz. Riskler).
+### Alternative 2: Clang LibTooling (a C++ helper program)
+- **Pros**: Full access to the AST: templates, triviality, attributes.
+- **Cons**: The C++ API is unstable across LLVM versions. The user has to build against the LLVM development libraries. The project gains a second language and build chain.
+- **Why not chosen**: Too costly for the MVP. Kept open as an escape hatch (see Risks).
 
-### Alternatif 3: `clang -Xclang -ast-dump=json`
-- **Artıları**: Kod yazmadan tam AST alınır.
-- **Eksileri**: JSON biçimi kararlı değil, çıktı çok büyük, her header için ayrı süreç gerekir.
-- **Neden seçilmedi**: Ana parser olarak uygun değil. Hata ayıklama ve karşılaştırma aracı olarak kullanılabilir.
+### Alternative 3: `clang -Xclang -ast-dump=json`
+- **Pros**: The full AST without writing code.
+- **Cons**: The JSON format is not stable, the output is huge, and every header needs a separate process.
+- **Why not chosen**: Not suitable as the main parser. Can be used as a debugging and comparison tool.
 
-### Alternatif 4: bindgen'i kütüphane olarak kullanmak
-- **Artıları**: Olgun libclang kodu.
-- **Eksileri**: İç IR'ı public ve kararlı bir API değil. autocxx bu yüzden bindgen'i fork etmek (`autocxx-bindgen`) zorunda kaldı ve bakım yükü taşıyor.
-- **Neden seçilmedi**: autocxx'in yaşadığı bakım yükünü tekrarlamamak için.
+### Alternative 4: using bindgen as a library
+- **Pros**: Mature libclang code.
+- **Cons**: Its internal IR is not a public, stable API. That is why autocxx had to fork bindgen (`autocxx-bindgen`) and carries the maintenance burden.
+- **Why not chosen**: To avoid repeating the maintenance burden autocxx has.
 
-### Alternatif 5: tree-sitter-cpp
-- **Artıları**: Hızlı, LLVM gerektirmez.
-- **Eksileri**: Tip çözümlemesi, makro açma ve `#include` takibi yok.
-- **Neden seçilmedi**: Anlamsal bilgi olmadan güvenli kod üretilemez.
+### Alternative 5: tree-sitter-cpp
+- **Pros**: Fast, needs no LLVM.
+- **Cons**: No type resolution, macro expansion or `#include` tracking.
+- **Why not chosen**: Safe code cannot be generated without semantic information.
 
-## Sonuçlar
+## Consequences
 
-### Olumlu
-- Kurulum basit: `brew install llvm` ve `LIBCLANG_PATH` ayarı yeterli.
-- libclang C API'si sürümler arasında kararlı tutuluyor.
-- bindgen'in libclang kullanım kodu (`clang.rs`) öğrenme kaynağı olarak hazır.
+### Positive
+- Simple installation: `brew install llvm` and setting `LIBCLANG_PATH` are enough.
+- libclang's C API is kept stable across versions.
+- bindgen's libclang code (`clang.rs`) is available as a learning resource.
 
-### Olumsuz
-- libclang tüm C++ AST'sini sunmuyor. Bilinen boşluklar: sınıf template'lerinin alt öğeleri (metot, constructor) görünmüyor, bazı anlamsal sorgular eksik. C2Rust ekibi bu yüzden LibTooling'e geçti.
-- Kendi sarmalayıcımızın bakımını biz yapacağız.
+### Negative
+- libclang does not expose the whole C++ AST. Known gaps: the children of class templates (methods, constructors) are not visible, and some semantic queries are missing. This is why the C2Rust team moved to LibTooling.
+- We maintain our own wrapper.
 
-### Riskler
-- **libclang bir MVP özelliği için yetersiz kalabilir** (ör. bir tipin güvenle taşınabilir olup olmadığını anlamak). Önlem: Milestone 2–4'te bir spike ile erken test edilir. Yetersiz kalırsa yalnızca o bilgiyi sağlayan küçük bir LibTooling yardımcısı eklenir; bunun için yeni bir ADR yazılır.
-- **LLVM sürüm farkları.** Önlem: CI matrisi güncel sürümleri kapsar (ör. LLVM 21–23). Kesin minimum sürüm PRD'deki açık soruda belirlenecek.
+### Risks
+- **libclang may fall short for an MVP feature** (e.g. telling whether a type can be moved safely). Mitigation: tested early with a spike in Milestones 2–4. If it falls short, only a small LibTooling helper that provides that information is added, with a new ADR.
+- **Differences between LLVM versions.** Mitigation: the CI matrix covers current versions (e.g. LLVM 21–23). The exact minimum version is decided in the PRD's open question.
 
-## Kaynaklar
+## References
 - [Status/Future of libclang (LLVM Discourse)](https://discourse.llvm.org/t/status-future-of-libclang/41709)
 - [libclang API is not sufficient for tools like bindgen (LLVM bug 54236)](https://lists.llvm.org/pipermail/llvm-bugs/2022-March/098440.html)
 - [libclang or libtooling for transpiler (cfe-dev)](https://lists.llvm.org/pipermail/cfe-dev/2019-April/062179.html)

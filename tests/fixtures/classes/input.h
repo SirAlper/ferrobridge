@@ -4,7 +4,7 @@
 
 namespace geo {
 
-// Alanları public ama constructor'ı yok: Rust'ta yalnızca referansla kullanılabilir.
+// Its fields are public but it has no constructor: in Rust it can only be used by reference.
 struct Point {
   float x;
   float y;
@@ -24,17 +24,17 @@ class Vehicle {
   virtual int honk() const;
   static int max_wheels();
 
-  // Exception fırlatır: Rust'ta Err olur.
+  // Throws an exception: becomes Err in Rust.
   void break_down();
   void throw_unknown();
 
-  // Değerle dönen sınıf: shim'de unique_ptr'a sarılır.
+  // A class returned by value: wrapped in a unique_ptr in the shim.
   Point position() const;
   const Point& home() const;
   void move_to(const Point& target);
   void move_to(float x, float y);
 
-  // Bu sürümde desteklenmeyenler.
+  // Not supported in this version.
   bool operator==(const Vehicle& other) const;
   long total_km() const;
   void* raw_handle();
@@ -70,7 +70,7 @@ double length(const Point& p);
 
 }  // namespace geo
 
-// Aynı isim, farklı namespace: Rust tarafında çakışmamalı.
+// The same name, a different namespace: must not clash on the Rust side.
 namespace physics {
 double length(double meters);
 }  // namespace physics

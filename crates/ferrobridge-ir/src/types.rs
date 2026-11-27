@@ -1,21 +1,21 @@
-//! C++ tiplerinin IR karşılıkları.
+//! IR counterparts of C++ types.
 
 use serde::{Deserialize, Serialize};
 
-/// `const` niteleyicisiyle birlikte bir tip.
+/// A type together with its `const` qualifier.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QualType {
-    /// Tip `const` ile nitelenmiş mi?
+    /// Is the type `const`-qualified?
     #[serde(rename = "const")]
     pub is_const: bool,
-    /// Niteleyicisiz tip.
+    /// The unqualified type.
     #[serde(rename = "type")]
     pub ty: Type,
 }
 
-/// Bir C++ tipi.
+/// A C++ type.
 ///
-/// Desteklenmeyen tipler atılmaz; [`Type::Unsupported`] olarak nedeniyle birlikte saklanır.
+/// Unsupported types are not dropped; they are kept as [`Type::Unsupported`] with a reason.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Type {
@@ -23,83 +23,83 @@ pub enum Type {
     Void,
     /// `bool`
     Bool,
-    /// Karakter ve tamsayı tipleri (`char`, `int`, `std::int32_t`, `size_t`...).
+    /// Character and integer types (`char`, `int`, `std::int32_t`, `size_t`...).
     Integer {
-        /// Kaynakta yazıldığı haliyle tip adı (typedef adı korunur).
+        /// The type name as written in the source (the typedef name is kept).
         spelling: String,
-        /// Typedef'ler çözüldükten sonraki C++ temel tipi (ör. `size_t` için
-        /// `"unsigned long"`). Platformlar arası taşınabilirlik buna göre değerlendirilir.
+        /// The underlying C++ type after typedefs are resolved (e.g. `"unsigned long"` for
+        /// `size_t`). Portability across platforms is judged by this.
         builtin: String,
-        /// Hedef platformda bayt cinsinden boyut.
+        /// Size in bytes on the target platform.
         size_bytes: u64,
-        /// İşaretli mi?
+        /// Is it signed?
         signed: bool,
-        /// `std::int32_t` gibi her platformda aynı genişlikte olan bir tip mi?
+        /// Is it a type such as `std::int32_t` with the same width on every platform?
         fixed_width: bool,
     },
-    /// Kayan noktalı tipler (`float`, `double`).
+    /// Floating-point types (`float`, `double`).
     Float {
-        /// Kaynakta yazıldığı haliyle tip adı.
+        /// The type name as written in the source.
         spelling: String,
-        /// Hedef platformda bayt cinsinden boyut.
+        /// Size in bytes on the target platform.
         size_bytes: u64,
     },
-    /// Ham pointer (`T*`). Sahiplik bilgisi burada yoktur; analiz katmanında belirlenir.
+    /// A raw pointer (`T*`). No ownership information here; it is decided in the analysis layer.
     Pointer {
-        /// Gösterilen tip.
+        /// The pointed-to type.
         pointee: Box<QualType>,
     },
-    /// Lvalue referans (`T&`).
+    /// An lvalue reference (`T&`).
     #[serde(rename = "lvalue_ref")]
     LValueRef {
-        /// Başvurulan tip.
+        /// The referenced type.
         referent: Box<QualType>,
     },
-    /// Rvalue referans (`T&&`).
+    /// An rvalue reference (`T&&`).
     #[serde(rename = "rvalue_ref")]
     RValueRef {
-        /// Başvurulan tip.
+        /// The referenced type.
         referent: Box<QualType>,
     },
-    /// Bir sınıf veya struct (ör. `geo::Vehicle`).
+    /// A class or struct (e.g. `geo::Vehicle`).
     Record {
-        /// Sınıfın adı.
+        /// The class's name.
         name: String,
-        /// Dıştan içe namespace yolu.
+        /// The namespace path, outermost first.
         namespace: Vec<String>,
-        /// Okunan header'ların dışında bildirildiyse bildirildiği dosyanın adı (ör.
-        /// `rotations.h`); bridge'in header'larından birindeyse `None`.
+        /// If declared outside the headers that were read, the name of the file declaring it (e.g.
+        /// `rotations.h`); `None` if it is in one of the bridge's headers.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         declared_in: Option<String>,
     },
-    /// Bir enum (ör. `geo::Mode`).
+    /// An enum (e.g. `geo::Mode`).
     Enum {
-        /// Enum'un adı.
+        /// The enum's name.
         name: String,
-        /// Dıştan içe namespace yolu.
+        /// The namespace path, outermost first.
         namespace: Vec<String>,
-        /// Okunan header'ların dışında bildirildiyse bildirildiği dosyanın adı (ör.
-        /// `rotations.h`); bridge'in header'larından birindeyse `None`.
+        /// If declared outside the headers that were read, the name of the file declaring it (e.g.
+        /// `rotations.h`); `None` if it is in one of the bridge's headers.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         declared_in: Option<String>,
     },
     /// `std::string`
     String,
-    /// `std::unique_ptr<T>` (varsayılan silicisiyle).
+    /// `std::unique_ptr<T>` (with its default deleter).
     UniquePtr {
-        /// Sahip olunan tip.
+        /// The owned type.
         pointee: Box<QualType>,
     },
-    /// `std::vector<T>` (varsayılan allocator'ıyla).
+    /// `std::vector<T>` (with its default allocator).
     Vector {
-        /// Eleman tipi.
+        /// The element type.
         element: Box<QualType>,
     },
-    /// Bu sürümde desteklenmeyen bir tip.
+    /// A type not supported in this version.
     Unsupported {
-        /// Kaynakta yazıldığı haliyle tip.
+        /// The type as written in the source.
         spelling: String,
-        /// Neden desteklenmediği.
+        /// Why it is not supported.
         reason: String,
     },
 }

@@ -17,7 +17,7 @@ expression: portable(&module)
             "type": {
               "kind": "integer",
               "spelling": "std::int8_t",
-              "builtin": "(platforma bağlı)",
+              "builtin": "(platform-dependent)",
               "size_bytes": 1,
               "signed": true,
               "fixed_width": true
@@ -31,7 +31,7 @@ expression: portable(&module)
             "type": {
               "kind": "integer",
               "spelling": "std::uint16_t",
-              "builtin": "(platforma bağlı)",
+              "builtin": "(platform-dependent)",
               "size_bytes": 2,
               "signed": false,
               "fixed_width": true
@@ -45,7 +45,7 @@ expression: portable(&module)
             "type": {
               "kind": "integer",
               "spelling": "std::int32_t",
-              "builtin": "(platforma bağlı)",
+              "builtin": "(platform-dependent)",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -59,7 +59,7 @@ expression: portable(&module)
             "type": {
               "kind": "integer",
               "spelling": "std::uint64_t",
-              "builtin": "(platforma bağlı)",
+              "builtin": "(platform-dependent)",
               "size_bytes": 8,
               "signed": false,
               "fixed_width": true
@@ -312,7 +312,7 @@ expression: portable(&module)
                 "type": {
                   "kind": "integer",
                   "spelling": "std::int64_t",
-                  "builtin": "(platforma bağlı)",
+                  "builtin": "(platform-dependent)",
                   "size_bytes": 8,
                   "signed": true,
                   "fixed_width": true
@@ -347,7 +347,7 @@ expression: portable(&module)
             "type": {
               "kind": "integer",
               "spelling": "my_id",
-              "builtin": "(platforma bağlı)",
+              "builtin": "(platform-dependent)",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -360,7 +360,7 @@ expression: portable(&module)
         "type": {
           "kind": "integer",
           "spelling": "my_id",
-          "builtin": "(platforma bağlı)",
+          "builtin": "(platform-dependent)",
           "size_bytes": 4,
           "signed": true,
           "fixed_width": true

@@ -1,5 +1,5 @@
-//! Güvenli API testleri gerçekten idiomatik mi? Ham katman (`raw_layer.rs`) dışındaki test
-//! dosyalarında cxx tipleri, ham metotlar ya da `unsafe` geçmemeli.
+//! Are the safe API tests really idiomatic? Test files other than the raw layer (`raw_layer.rs`)
+//! must not contain cxx types, raw methods or `unsafe`.
 
 use std::fs;
 use std::path::Path;
@@ -30,7 +30,7 @@ fn safe_api_tests_use_no_cxx_types_or_unsafe() {
             for word in FORBIDDEN {
                 assert!(
                     !code.contains(word),
-                    "{name}:{}: güvenli API testinde `{word}` geçiyor: {line}",
+                    "{name}:{}: `{word}` appears in a safe API test: {line}",
                     number + 1
                 );
             }
@@ -39,6 +39,6 @@ fn safe_api_tests_use_no_cxx_types_or_unsafe() {
     }
     assert_eq!(
         checked, 12,
-        "beklenen güvenli API test dosyaları bulunamadı"
+        "the expected safe API test files were not found"
     );
 }

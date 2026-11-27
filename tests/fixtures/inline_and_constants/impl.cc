@@ -1,5 +1,5 @@
-// Fonksiyonların çoğu header'da tanımlı (`static inline`, `constexpr`). Burada yalnızca
-// sabitlerin çalışma anındaki değerlerini döndüren iki fonksiyon var.
+// Most functions are defined in the header (`static inline`, `constexpr`). Here there are only
+// two functions returning the run-time values of constants.
 #include "inline_and_constants/input.h"
 
 double wgs84_f_at_runtime() { return WGS84_F; }

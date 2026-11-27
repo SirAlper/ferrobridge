@@ -1,14 +1,14 @@
 #pragma once
 
-// Basit serbest fonksiyonlar.
+// Simple free functions.
 int add(int a, int b);
 void reset();
 double scale(double value, float factor) noexcept;
 bool is_ready(int) noexcept(false);
 
-// Overload: aynı isim, farklı parametreler.
+// Overloads: the same name, different parameters.
 int clamp(int value, int lo, int hi);
 double clamp(double value, double lo, double hi);
 
-// Header içinde tanımlı fonksiyon.
+// A function defined in the header.
 inline int twice(int x) { return x * 2; }

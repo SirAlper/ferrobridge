@@ -2,34 +2,34 @@
 
 namespace geo {
 
-// Destructor bildirilmemiş: örtük, public, sanal değil.
+// No destructor declared: implicit, public, not virtual.
 class Plain {
  public:
   Plain();
 };
 
-// Sanal metodu var ama destructor'ı sanal değil: alt sınıfı `delete` ile silmek UB.
+// Has a virtual method but its destructor is not virtual: deleting a subclass with `delete` is UB.
 class Leaky {
  public:
   ~Leaky();
   virtual int id() const;
 };
 
-// Arayüz: sanal destructor'lı.
+// An interface: with a virtual destructor.
 class Shape {
  public:
   virtual ~Shape();
   virtual double area() const = 0;
 };
 
-// Destructor'ı örtük, ama tabanınki sanal olduğu için o da sanal.
+// Its destructor is implicit, but virtual because its base's is.
 class Circle : public Shape {
  public:
   explicit Circle(double r);
   double area() const override;
 };
 
-// Sanal üyesi yalnızca private: yine de polimorfik.
+// Its only virtual member is private: still polymorphic.
 class Hidden {
  public:
   Hidden();
@@ -38,7 +38,7 @@ class Hidden {
   virtual void hook();
 };
 
-// Dışarıdan silinemez.
+// Cannot be deleted from outside.
 class Guarded {
  public:
   Guarded();

@@ -1,53 +1,53 @@
-# ADR-0009: Çok header'lı bridge'ler ve template örnekleme
+# ADR-0009: Multi-header bridges and template instantiation
 
-**Tarih**: 2026-11-27
-**Durum**: accepted
-**Karar verenler**: Alper (proje sahibi)
+**Date**: 2026-11-27
+**Status**: accepted
+**Deciders**: Alper (project owner)
 
-## Bağlam
+## Context
 
-Gerçek C++ kütüphanelerinde tipler birden fazla header'a dağılır. `AP_Math`'te `Vector2f` `vector2.h`'ta tanımlı; onu kullanan fonksiyonlar `control.h`, `location.h` ve `SCurve.h`'ta. M5'e kadar her header ayrı bağlanıyordu ve başka bir header'daki tipi kullanan her fonksiyon atlanıyordu. Kütüphanenin çekirdek tipleri de (`Vector3<T>`, `Matrix3<T>`, `QuaternionT<T>`) sınıf template'leri. PRD template'leri MVP dışında bırakmıştı, ama M5 ölçümü onlarsız %80 hedefine ulaşılamayacağını gösterdi.
+In real C++ libraries types are spread over several headers. In `AP_Math`, `Vector2f` is defined in `vector2.h`; the functions using it are in `control.h`, `location.h` and `SCurve.h`. Until M5 each header was bound separately, and every function using a type from another header was skipped. The library's core types (`Vector3<T>`, `Matrix3<T>`, `QuaternionT<T>`) are also class templates. The PRD had left templates out of the MVP, but the M5 measurement showed that the 80% goal could not be reached without them.
 
-## Karar
+## Decision
 
-1. **Bir bridge birden fazla header'dan üretilir.** CLI: `ferrobridge generate a.h b.h ...`; build: `Generate::new("ad").header(..)`.
-   - Parser hepsini tek bir sentetik çeviri biriminde okur. Analiz tipleri bütün header'lar arasında tanır.
-   - Bridge'e eklenmemiş bir header'daki tip atlanır, ama mesaj o header'ı adıyla söyler (IR'da `declared_in`).
-2. **Sınıf template'leri yalnızca kullanıcının listelediği somut tiplerle örneklenir:**
+1. **One bridge is generated from several headers.** CLI: `ferrobridge generate a.h b.h ...`; build: `Generate::new("name").header(..)`.
+   - The parser reads them all in a single synthetic translation unit. Analysis recognizes types across all headers.
+   - A type from a header not added to the bridge is skipped, but the message names that header (`declared_in` in the IR).
+2. **Class templates are instantiated only with the concrete types the user lists:**
    ```toml
    [templates]
    Vector3f = "Vector3<float>"
    ```
-   - Örneklemenin argümanları ve düzeni libclang'a çözdürülür. Sentetik birime `using` takma adı ve sınıfı örneklemeye zorlayan bir `static_assert(sizeof(...))` eklenir.
-   - libclang örneklenmiş bir sınıfın üyelerini göstermediği için üyeler template'in kalıbından okunur. Kalıptaki `type-parameter-0-N` somut argümanla değiştirilir.
-   - Bağımlı bir başvuru (`Vector2<T>`), listede o argümanlarla bir örnekleme varsa ona bağlanır. Tanınmayan her bağımlı tip `Unsupported` olur.
-   - C++ tarafında shim `using Vector3f = ::Vector3<float>;` takma adını tanımlar. Açık örnekleme **yapmaz**; kütüphanenin kendi `template class ...;`'ıyla çakışırdı.
-3. **Kapsam:** Yalnızca tip parametreli sınıf template'leri. Tip olmayan parametreler, üye template'leri ve fonksiyon template'leri gerekçeyle reddedilir.
+   - libclang resolves the instantiation's arguments and layout. A `using` alias and a `static_assert(sizeof(...))` that forces the class to be instantiated are added to the synthetic unit.
+   - Because libclang does not show the members of an instantiated class, members are read from the template's pattern. `type-parameter-0-N` in the pattern is replaced with the concrete argument.
+   - A dependent reference (`Vector2<T>`) is tied to an instantiation if the list has one with those arguments. Every unrecognized dependent type becomes `Unsupported`.
+   - On the C++ side, the shim defines the alias `using Vector3f = ::Vector3<float>;`. It does **not** do an explicit instantiation; that would clash with the library's own `template class ...;`.
+3. **Scope:** only class templates with type parameters. Non-type parameters, member templates and function templates are rejected with a reason.
 
-## Değerlendirilen alternatifler
+## Alternatives considered
 
-### Alternatif 1: Ayrı bridge'ler arasında tip paylaşmak
-- **Artıları**: Her header kendi modülünde kalır.
-- **Eksileri**: cxx'te başka bir bridge'in tipi `ExternType` takma adıyla içeri alınır. Kullanıcı bridge'ler arası bağımlılıkları yönetmek zorunda kalır; döngüsel başvurular (iki header birbirinin tipini kullanıyor) çözülemez.
-- **Neden seçilmedi**: Çok header'lı tek bridge aynı sonucu kullanıcıya yük getirmeden veriyor.
+### Alternative 1: sharing types between separate bridges
+- **Pros**: Each header stays in its own module.
+- **Cons**: In cxx, another bridge's type is imported with an `ExternType` alias. Users would have to manage dependencies between bridges; circular references (two headers using each other's types) cannot be resolved.
+- **Why not chosen**: A single multi-header bridge gives the same result without burdening the user.
 
-### Alternatif 2: Header'da kullanılan bütün örneklemeleri kendiliğinden bulmak
-- **Artıları**: Yapılandırma gerekmez.
-- **Eksileri**: Header'da geçen her `Vector3<int16_t>`'nin kütüphanede tanımlı üyeleri olmayabilir (yalnızca `.cpp`'de açıkça örneklenenler bağlanabilir); bağlama hatası çıkar. Hangi örneklemenin bağlanacağı tahmin olur.
-- **Neden seçilmedi**: 1. güvenlik kuralı (tahmin etme, sor).
+### Alternative 2: finding all instantiations used in the header automatically
+- **Pros**: No configuration needed.
+- **Cons**: Not every `Vector3<int16_t>` mentioned in a header has members defined in the library (only those instantiated explicitly in a `.cpp` can be linked); link errors follow. Which instantiation to bind would be a guess.
+- **Why not chosen**: Safety rule 1 (ask, don't guess).
 
-### Alternatif 3: libclang'ın örneklenmiş sınıfı (açık örnekleme dahil) üzerinden gezmek
-- **Neden seçilmedi**: Mümkün değil. libclang örneklemelerin üyelerini cursor olarak göstermiyor (M6 Task 0'da doğrulandı).
+### Alternative 3: walking libclang's instantiated class (including explicit instantiations)
+- **Why not chosen**: Not possible. libclang does not expose the members of instantiations as cursors (verified in M6 Task 0).
 
-## Sonuçlar
+## Consequences
 
-### Olumlu
-- `AP_Math`'te `Vector2f/3f`, `Matrix3f`, `Quaternion` ve `double` sürümleri bağlanıyor; başka header'lardaki kullanımları da açılıyor.
-- Tek bir `ferrobridge.toml` bütün bridge'e yetiyor.
+### Positive
+- In `AP_Math`, `Vector2f/3f`, `Matrix3f`, `Quaternion` and their `double` versions are bound; their uses in other headers open up as well.
+- A single `ferrobridge.toml` is enough for the whole bridge.
 
-### Olumsuz
-- İkame motoru yeni ve karmaşık bir kod. Yanlış bir ikame derleme hatası olur, sessiz UB olmaz: shim ve cxx tipli C++ imzaları üretir.
-- Kullanıcı hangi örneklemelerin kütüphanede tanımlı olduğunu bilmeli. Listelediği bir örneklemenin üyeleri derlenmiyorsa bağlama hatası alır.
+### Negative
+- The substitution engine is new and complex code. A wrong substitution is a compile error, not silent UB: the shim and cxx produce typed C++ signatures.
+- The user must know which instantiations are defined in the library. If the members of a listed instantiation are not compiled, the user gets a link error.
 
-### Riskler
-- Kalıbın libclang'daki gösterimi sürümler arasında değişebilir (ör. `type-parameter-0-N` yazımı). Önlem: iki libclang sürümünde (Apple 21, Homebrew 23) aynı snapshot'lar.
+### Risks
+- The pattern's representation in libclang may change between versions (e.g. the spelling of `type-parameter-0-N`). Mitigation: the same snapshots on two libclang versions (Apple 21, Homebrew 23).

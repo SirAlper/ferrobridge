@@ -1,9 +1,9 @@
-//! `ferrobridge.toml`: kullanıcının sahiplik açıklamaları.
+//! `ferrobridge.toml`: the user's ownership annotations.
 //!
-//! C++ header'ı bir pointer'ın sahibini ve ömrünü söylemez. Bu dosyadaki her açıklama,
-//! kullanıcının C++ kütüphanesi hakkında verdiği bir **sözdür** ("bu pointer saklanmıyor",
-//! "dönen nesneyi silmek bana düşüyor"). Söz yanlışsa tanımsız davranış olabilir; bu yüzden
-//! biçim katıdır: bilinmeyen anahtarlar ve değerler satır numarasıyla reddedilir.
+//! A C++ header does not say who owns a pointer or how long it lives. Every annotation in this
+//! file is a **promise** the user makes about the C++ library ("this pointer is not kept",
+//! "deleting the returned object is up to me"). A wrong promise can mean undefined behavior; so
+//! the format is strict: unknown keys and values are rejected with a line number.
 //!
 //! ```toml
 //! [functions."geo::make_widget"]
@@ -13,7 +13,7 @@
 //! target = "borrowed"
 //!
 //! [functions."crc_crc8".params]
-//! p = { slice = "len" }   # p, len elemanlık bir dizi
+//! p = { slice = "len" }   # p, an array of len elements
 //! ```
 
 use std::collections::BTreeMap;
@@ -23,32 +23,32 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use toml::Spanned;
 
-/// Bir dönüş değerinin sahipliği.
+/// The ownership of a return value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReturnAnnotation {
-    /// Dönen pointer `new` ile ayrıldı; sahipliği (silme sorumluluğu) çağırana geçiyor.
+    /// The returned pointer was allocated with `new`; ownership (the responsibility to delete) passes to the caller.
     Owned,
-    /// Dönen pointer nesnenin içini gösteriyor; nesne yaşadıkça geçerli, silinmez.
+    /// The returned pointer points inside the object; valid while the object lives, not deleted.
     Borrowed,
 }
 
-/// Bir parametrenin sahipliği.
+/// The ownership of a parameter.
 ///
-/// TOML'da `"borrowed"` ya da `{ slice = "<uzunluk parametresi>" }`.
+/// In TOML, `"borrowed"` or `{ slice = "<length parameter>" }`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParamAnnotation {
-    /// Pointer/referans yalnızca çağrı süresince kullanılıyor, saklanmıyor ve null değil.
+    /// The pointer/reference is used only during the call, not kept, and not null.
     Borrowed,
-    /// Pointer, aynı fonksiyondaki `len` parametresi kadar elemanlık bir diziyi gösteriyor ve
-    /// yalnızca çağrı süresince kullanılıyor. Rust'ta pointer ve uzunluk tek bir slice olur.
+    /// The pointer points to an array with as many elements as the `len` parameter of the same
+    /// function, and is used only during the call. In Rust the pointer and the length become a single slice.
     Slice {
-        /// Eleman sayısını taşıyan parametrenin adı.
+        /// The name of the parameter carrying the number of elements.
         len: String,
     },
 }
 
-const PARAM_EXPECTED: &str = "`\"borrowed\"` ya da `{ slice = \"<uzunluk parametresi>\" }`";
+const PARAM_EXPECTED: &str = "`\"borrowed\"` or `{ slice = \"<length parameter>\" }`";
 
 impl<'de> Deserialize<'de> for ParamAnnotation {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -65,7 +65,7 @@ impl<'de> Deserialize<'de> for ParamAnnotation {
                 match value {
                     "borrowed" => Ok(ParamAnnotation::Borrowed),
                     other => Err(E::custom(format!(
-                        "bilinmeyen parametre açıklaması `{other}`; beklenen: {PARAM_EXPECTED}"
+                        "unknown parameter annotation `{other}`; expected: {PARAM_EXPECTED}"
                     ))),
                 }
             }
@@ -79,7 +79,7 @@ impl<'de> Deserialize<'de> for ParamAnnotation {
                 while let Some(key) = map.next_key::<String>()? {
                     if key != "slice" {
                         return Err(A::Error::custom(format!(
-                            "bilinmeyen anahtar `{key}`; beklenen: {PARAM_EXPECTED}"
+                            "unknown key `{key}`; expected: {PARAM_EXPECTED}"
                         )));
                     }
                     if len.is_some() {
@@ -87,7 +87,7 @@ impl<'de> Deserialize<'de> for ParamAnnotation {
                     }
                     let value: String = map.next_value().map_err(|_| {
                         A::Error::custom(format!(
-                            "`slice` uzunluk parametresinin adı olmalı (metin); beklenen: \
+                            "`slice` must be the name of the length parameter (text); expected: \
                              {PARAM_EXPECTED}"
                         ))
                     })?;
@@ -95,10 +95,10 @@ impl<'de> Deserialize<'de> for ParamAnnotation {
                 }
                 match len {
                     None => Err(A::Error::custom(format!(
-                        "`slice` anahtarı eksik; beklenen: {PARAM_EXPECTED}"
+                        "the `slice` key is missing; expected: {PARAM_EXPECTED}"
                     ))),
                     Some(len) if len.trim().is_empty() => Err(A::Error::custom(
-                        "`slice` uzunluk parametresinin adı boş olamaz",
+                        "the name of the `slice` length parameter cannot be empty",
                     )),
                     Some(len) => Ok(ParamAnnotation::Slice { len }),
                 }
@@ -109,71 +109,71 @@ impl<'de> Deserialize<'de> for ParamAnnotation {
     }
 }
 
-/// Dosyadaki satır numarasıyla birlikte bir değer.
+/// A value together with its line number in the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Located<T> {
-    /// Değer.
+    /// The value.
     pub value: T,
-    /// Değerin yazıldığı satır (1'den başlar).
+    /// The line the value is written on (starting at 1).
     pub line: usize,
 }
 
-/// Bir fonksiyon, metot ya da constructor için açıklamalar. Anahtar tam C++ adıdır
-/// (`geo::Widget::attach`; constructor için `geo::Widget::Widget`) ve aynı adlı tüm
-/// overload'lara uygulanır.
+/// Annotations for a function, method or constructor. The key is the full C++ name
+/// (`geo::Widget::attach`; `geo::Widget::Widget` for a constructor) and applies to all
+/// overloads with that name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionAnnotation {
-    /// Tablonun başlığının (anahtarın) yazıldığı satır.
+    /// The line where the table's header (the key) is written.
     pub line: usize,
-    /// Dönüş açıklaması.
+    /// The return annotation.
     pub returns: Option<Located<ReturnAnnotation>>,
-    /// Parametre adı → açıklama. İsimsiz parametreler `arg0`, `arg1`... diye anılır.
+    /// Parameter name → annotation. Unnamed parameters are referred to as `arg0`, `arg1`...
     pub params: BTreeMap<String, Located<ParamAnnotation>>,
 }
 
-/// `[templates]` bölümünün bir girdisi: `Vector3f = "Vector3<float>"`.
+/// An entry of the `[templates]` section: `Vector3f = "Vector3<float>"`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TemplateEntry {
-    /// Örneklemenin Rust adı.
+    /// The Rust name of the instantiation.
     pub rust_name: String,
-    /// C++ yazımı (header'lar include edildikten sonra global kapsamda çözülür).
+    /// The C++ spelling (resolved in the global scope after the headers are included).
     pub spelling: String,
-    /// Girdinin satırı.
+    /// The entry's line.
     pub line: usize,
 }
 
-/// `ferrobridge.toml`'dan okunan açıklamaların tamamı.
+/// All annotations read from `ferrobridge.toml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Annotations {
-    /// Hata mesajlarında gösterilecek dosya adı.
+    /// The file name to show in error messages.
     pub source_name: String,
-    /// Tam C++ adı → açıklamalar.
+    /// Full C++ name → annotations.
     pub functions: BTreeMap<String, FunctionAnnotation>,
-    /// Örneklenecek sınıf template'leri, dosyadaki sırayla.
+    /// Class templates to instantiate, in file order.
     pub templates: Vec<TemplateEntry>,
-    /// `[library] exceptions = false`: "bu kütüphane exception fırlatmaz" sözü ve satırı.
+    /// `[library] exceptions = false`: the promise "this library does not throw exceptions" and its line.
     pub no_exceptions: Option<usize>,
 }
 
-/// Açıklama dosyası okunamadı ya da geçersiz.
+/// The annotation file could not be read or is invalid.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ConfigError {
-    /// Dosya okunamadı.
-    #[error("{} okunamadı: {message}", path.display())]
+    /// The file could not be read.
+    #[error("could not read {}: {message}", path.display())]
     Read {
-        /// Dosya yolu.
+        /// The file path.
         path: PathBuf,
-        /// İşletim sisteminin hata mesajı.
+        /// The operating system's error message.
         message: String,
     },
-    /// Dosya geçerli bir açıklama dosyası değil.
+    /// The file is not a valid annotation file.
     #[error("{source_name}:{line}: {message}")]
     Invalid {
-        /// Dosya adı.
+        /// The file name.
         source_name: String,
-        /// Hatanın satırı (1'den başlar).
+        /// The line of the error (starting at 1).
         line: usize,
-        /// Ne yanlış ve nasıl düzeltilir.
+        /// What is wrong and how to fix it.
         message: String,
     },
 }
@@ -203,7 +203,7 @@ struct RawFunction {
 }
 
 impl Annotations {
-    /// Açıklama dosyasını okur.
+    /// Reads the annotation file.
     pub fn from_file(path: &Path) -> Result<Self, ConfigError> {
         let text = std::fs::read_to_string(path).map_err(|e| ConfigError::Read {
             path: path.to_owned(),
@@ -212,7 +212,7 @@ impl Annotations {
         Self::from_toml_str(&text, &path.display().to_string())
     }
 
-    /// TOML metninden okur. `source_name` hata mesajlarında dosya adı olarak görünür.
+    /// Reads from TOML text. `source_name` appears as the file name in error messages.
     pub fn from_toml_str(text: &str, source_name: &str) -> Result<Self, ConfigError> {
         let raw: RawFile = toml::from_str(text).map_err(|e| ConfigError::Invalid {
             source_name: source_name.to_owned(),
@@ -227,7 +227,7 @@ impl Annotations {
                 return Err(ConfigError::Invalid {
                     source_name: source_name.to_owned(),
                     line,
-                    message: "fonksiyon adı boş olamaz".to_owned(),
+                    message: "the function name cannot be empty".to_owned(),
                 });
             }
             let returns = function.returns.map(|r| located(text, r));
@@ -259,7 +259,7 @@ impl Annotations {
                     source_name: source_name.to_owned(),
                     line,
                     message: format!(
-                        "`[templates]` anahtarı `{rust_name}` bir Rust tip adı olmalı (ör. `Vector3f`)"
+                        "the `[templates]` key `{rust_name}` must be a Rust type name (e.g. `Vector3f`)"
                     ),
                 });
             }
@@ -269,7 +269,7 @@ impl Annotations {
                     source_name: source_name.to_owned(),
                     line,
                     message: format!(
-                        "`[templates]` `{rust_name}` boş olamaz; C++ yazımı verin (ör. \
+                        "`[templates]` `{rust_name}` cannot be empty; give a C++ spelling (e.g. \
                          `\"Vector3<float>\"`)"
                     ),
                 });
@@ -294,12 +294,12 @@ impl Annotations {
         })
     }
 
-    /// Hiç açıklama yok mu?
+    /// Are there no annotations at all?
     pub fn is_empty(&self) -> bool {
         self.functions.is_empty() && self.templates.is_empty() && self.no_exceptions.is_none()
     }
 
-    /// Parser'a verilecek örneklemeler: (Rust adı, C++ yazımı).
+    /// The instantiations to give to the parser: (Rust name, C++ spelling).
     pub fn instantiations(&self) -> Vec<(String, String)> {
         self.templates
             .iter()
@@ -316,7 +316,7 @@ fn located<T>(text: &str, spanned: Spanned<T>) -> Located<T> {
     }
 }
 
-/// Bayt konumunun satır numarası (1'den başlar).
+/// The line number of a byte position (starting at 1).
 fn line_of(text: &str, offset: usize) -> usize {
     let end = offset.min(text.len());
     text.as_bytes()[..end]
@@ -355,13 +355,13 @@ mod tests {
     fn invalid_line(text: &str) -> (usize, String) {
         match parse(text) {
             Err(ConfigError::Invalid { line, message, .. }) => (line, message),
-            other => panic!("geçersiz sayılmalıydı: {other:?}"),
+            other => panic!("should have been invalid: {other:?}"),
         }
     }
 
     #[test]
     fn reads_return_and_param_annotations_with_lines() {
-        let text = r#"# açıklamalar
+        let text = r#"# annotations
 [functions."geo::make_widget"]
 returns = "owned"
 
@@ -407,7 +407,7 @@ arg1 = "borrowed"
     #[test]
     fn empty_file_has_no_annotations() {
         assert!(parse("").unwrap().is_empty());
-        assert!(parse("# yalnızca yorum\n").unwrap().is_empty());
+        assert!(parse("# only a comment\n").unwrap().is_empty());
     }
 
     #[test]
@@ -461,7 +461,7 @@ arg1 = "borrowed"
                 "slise",
             ),
             ("[functions.\"f\".params]\np = { }\n", "slice"),
-            ("[functions.\"f\".params]\np = { slice = \" \" }\n", "boş"),
+            ("[functions.\"f\".params]\np = { slice = \" \" }\n", "empty"),
             ("[functions.\"f\".params]\np = { slice = 3 }\n", "slice"),
             ("[functions.\"f\".params]\np = \"slice\"\n", "slice = "),
         ] {
@@ -492,14 +492,14 @@ arg1 = "borrowed"
         let (line, message) =
             invalid_line("[templates]\n\"Vector3<float>\" = \"Vector3<float>\"\n");
         assert_eq!(line, 2);
-        assert!(message.contains("Rust tip adı"), "{message}");
+        assert!(message.contains("Rust type name"), "{message}");
         let (line, _) = invalid_line("[templates]\nV = \" \"\n");
         assert_eq!(line, 2);
     }
 
     #[test]
     fn library_without_exceptions_is_a_promise_with_a_line() {
-        let annotations = parse("# kütüphane\n[library]\nexceptions = false\n").unwrap();
+        let annotations = parse("# library\n[library]\nexceptions = false\n").unwrap();
         assert_eq!(annotations.no_exceptions, Some(3));
         assert_eq!(
             parse("[library]\nexceptions = true\n")
@@ -526,9 +526,9 @@ arg1 = "borrowed"
 
     #[test]
     fn missing_file_is_a_read_error() {
-        let error = Annotations::from_file(Path::new("/olmayan/ferrobridge.toml")).unwrap_err();
+        let error = Annotations::from_file(Path::new("/missing/ferrobridge.toml")).unwrap_err();
         assert!(matches!(error, ConfigError::Read { .. }));
-        assert!(error.to_string().contains("/olmayan/ferrobridge.toml"));
+        assert!(error.to_string().contains("/missing/ferrobridge.toml"));
     }
 
     #[test]

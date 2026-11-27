@@ -1,5 +1,5 @@
-//! `Vector3f`, `Matrix3f`, `Quaternion`: `[templates]` ile örneklenmiş değer tipleri. Alanlar,
-//! metotlar ve operatörler Rust'ta doğrudan.
+//! `Vector3f`, `Matrix3f`, `Quaternion`: value types instantiated with `[templates]`. Fields,
+//! methods and operators directly in Rust.
 
 #![forbid(unsafe_code)]
 
@@ -21,7 +21,7 @@ fn vectors_have_fields_methods_and_operators() {
     assert_eq!(a.length(), 3.0);
     let b = a + v(1.0, 0.0, 0.0) * 2.0;
     assert_eq!((b.x, b.y, b.z), (3.0, 2.0, 2.0));
-    // `*` iki vektörle iç çarpım, `%` çapraz çarpım (ArduPilot'taki gibi).
+    // `*` with two vectors is the dot product, `%` the cross product (as in ArduPilot).
     assert_eq!(a * v(1.0, 1.0, 1.0), 5.0);
     let z = v(1.0, 0.0, 0.0) % v(0.0, 1.0, 0.0);
     assert_eq!((z.x, z.y, z.z), (0.0, 0.0, 1.0));
@@ -33,7 +33,7 @@ fn vectors_have_fields_methods_and_operators() {
 
 #[test]
 fn rotations_and_quaternions_agree_with_matrices() {
-    // Yaw 90°: x ekseni y eksenine döner.
+    // Yaw 90°: the x axis turns into the y axis.
     let mut q = Quaternion::new_noargs();
     q.from_euler_f32_f32_f32(0.0, 0.0, FRAC_PI_2);
     let rotated = q * v(1.0, 0.0, 0.0);
@@ -44,7 +44,7 @@ fn rotations_and_quaternions_agree_with_matrices() {
     let by_matrix = m * v(1.0, 0.0, 0.0);
     assert!(close(by_matrix.x, rotated.x) && close(by_matrix.y, rotated.y));
 
-    // Euler açıları çıkış parametreleriyle geri gelir.
+    // The Euler angles come back through output parameters.
     let (mut roll, mut pitch, mut yaw) = (0.0_f32, 0.0_f32, 0.0_f32);
     q.to_euler_mut_f32_mut_f32_mut_f32(&mut roll, &mut pitch, &mut yaw);
     assert!(close(yaw, FRAC_PI_2) && close(roll, 0.0) && close(pitch, 0.0));

@@ -1,15 +1,15 @@
 [package]
 name = "ferrobridge-demo-ap-math"
-description = "ArduPilot AP_Math'i ferrobridge ile Rust'tan kullanan demo (ADR-0008)."
+description = "A demo using ArduPilot AP_Math from Rust with ferrobridge (ADR-0008)."
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.85"
-# ArduPilot (GPL-3.0) ile bağlandığı için bu dizin GPL-3.0-or-later; ferrobridge'in kendisi
-# MIT OR Apache-2.0 kalır (ADR-0003, ADR-0008).
+# Because it links against ArduPilot (GPL-3.0), this directory is GPL-3.0-or-later; ferrobridge itself
+# stays MIT OR Apache-2.0 (ADR-0003, ADR-0008).
 license = "GPL-3.0-or-later"
 publish = false
 
-# Kök workspace'in parçası değil: `cargo test --workspace` ArduPilot istemez.
+# Not part of the root workspace: `cargo test --workspace` does not need ArduPilot.
 [workspace]
 
 [dependencies]

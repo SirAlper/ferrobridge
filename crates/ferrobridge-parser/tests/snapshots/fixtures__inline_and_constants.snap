@@ -111,7 +111,7 @@ expression: portable(&module)
       "kind": "unsupported",
       "construct": "function",
       "name": "hidden",
-      "reason": "İç bağlantılı (`static`) fonksiyonun tanımı header'da görünmüyor; header dışından çağrılamaz.",
+      "reason": "The definition of the internal-linkage (`static`) function is not visible in the header; it cannot be called from outside the header.",
       "location": {
         "file": "input.h",
         "line": 14,
@@ -121,8 +121,8 @@ expression: portable(&module)
     {
       "kind": "unsupported",
       "construct": "function",
-      "name": "(anonim)::anonymous",
-      "reason": "Anonim namespace'teki fonksiyonların Rust'tan yazılabilecek bir adı yok.",
+      "name": "(anonymous)::anonymous",
+      "reason": "Functions in an anonymous namespace have no name that can be written from Rust.",
       "location": {
         "file": "input.h",
         "line": 18,
@@ -231,7 +231,7 @@ expression: portable(&module)
       "type": {
         "kind": "integer",
         "spelling": "int32_t",
-        "builtin": "(platforma bağlı)",
+        "builtin": "(platform-dependent)",
         "size_bytes": 4,
         "signed": true,
         "fixed_width": true
@@ -253,7 +253,7 @@ expression: portable(&module)
       "type": {
         "kind": "integer",
         "spelling": "int8_t",
-        "builtin": "(platforma bağlı)",
+        "builtin": "(platform-dependent)",
         "size_bytes": 1,
         "signed": true,
         "fixed_width": true
@@ -275,7 +275,7 @@ expression: portable(&module)
       "type": {
         "kind": "integer",
         "spelling": "uint64_t",
-        "builtin": "(platforma bağlı)",
+        "builtin": "(platform-dependent)",
         "size_bytes": 8,
         "signed": false,
         "fixed_width": true
@@ -354,7 +354,7 @@ expression: portable(&module)
       "kind": "unsupported",
       "construct": "constant",
       "name": "ROOT_TWO",
-      "reason": "Sabitin başlatıcısı (ya da dayandığı bir sabitinki) fonksiyon çağrısı içeriyor; değer çalışma anında hesaplanabilir ve derleme anında hesaplanan değerle aynı olduğu kesin değil.",
+      "reason": "The constant's initializer (or that of a constant it depends on) contains a function call; the value may be computed at run time, and it is not certain to be the same as the value computed at compile time.",
       "location": {
         "file": "input.h",
         "line": 39,
@@ -365,7 +365,7 @@ expression: portable(&module)
       "kind": "unsupported",
       "construct": "constant",
       "name": "TWO_ROOT_TWO",
-      "reason": "Sabitin başlatıcısı (ya da dayandığı bir sabitinki) fonksiyon çağrısı içeriyor; değer çalışma anında hesaplanabilir ve derleme anında hesaplanan değerle aynı olduğu kesin değil.",
+      "reason": "The constant's initializer (or that of a constant it depends on) contains a function call; the value may be computed at run time, and it is not certain to be the same as the value computed at compile time.",
       "location": {
         "file": "input.h",
         "line": 40,
@@ -376,7 +376,7 @@ expression: portable(&module)
       "kind": "unsupported",
       "construct": "constant",
       "name": "QUIET_NAN",
-      "reason": "Sabitin başlatıcısı (ya da dayandığı bir sabitinki) fonksiyon çağrısı içeriyor; değer çalışma anında hesaplanabilir ve derleme anında hesaplanan değerle aynı olduğu kesin değil.",
+      "reason": "The constant's initializer (or that of a constant it depends on) contains a function call; the value may be computed at run time, and it is not certain to be the same as the value computed at compile time.",
       "location": {
         "file": "input.h",
         "line": 41,
@@ -387,7 +387,7 @@ expression: portable(&module)
       "kind": "unsupported",
       "construct": "constant",
       "name": "TOO_BIG",
-      "reason": "Sabitin değeri sonlu değil (NaN ya da sonsuz); Rust'ta NaN'ın bit deseni korunamadığı için bağlanmıyor.",
+      "reason": "The constant's value is not finite (NaN or infinite); not bound because the bit pattern of a NaN cannot be kept in Rust.",
       "location": {
         "file": "input.h",
         "line": 44,
@@ -398,7 +398,7 @@ expression: portable(&module)
       "kind": "unsupported",
       "construct": "variable",
       "name": "counter",
-      "reason": "Global ve statik değişkenler henüz desteklenmiyor.",
+      "reason": "Global and static variables are not supported yet.",
       "location": {
         "file": "input.h",
         "line": 47,
@@ -409,7 +409,7 @@ expression: portable(&module)
       "kind": "unsupported",
       "construct": "constant",
       "name": "EXTERNAL",
-      "reason": "Sabitin değeri hesaplanamadı (başlatıcısı yok ya da sabit bir ifade değil).",
+      "reason": "The constant's value could not be computed (it has no initializer, or it is not a constant expression).",
       "location": {
         "file": "input.h",
         "line": 48,
@@ -420,7 +420,7 @@ expression: portable(&module)
       "kind": "unsupported",
       "construct": "constant",
       "name": "NAME",
-      "reason": "Yalnızca sayı ve `bool` tipli sabitler bağlanıyor.",
+      "reason": "Only constants of numeric and `bool` types are bound.",
       "location": {
         "file": "input.h",
         "line": 49,

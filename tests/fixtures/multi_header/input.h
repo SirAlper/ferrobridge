@@ -1,4 +1,4 @@
-// Başka bir header'da (`geometry.h`) tanımlı tipleri kullanan fonksiyonlar.
+// Functions using types defined in another header (`geometry.h`).
 #pragma once
 
 #include "geometry.h"

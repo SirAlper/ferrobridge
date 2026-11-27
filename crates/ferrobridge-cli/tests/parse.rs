@@ -1,7 +1,7 @@
-//! `ferrobridge parse` komutunun uçtan uca testleri: derlenmiş ikili gerçekten çalıştırılır.
+//! End-to-end tests of the `ferrobridge parse` command: the built binary is really run.
 
-// Bu dosya yalnızca test kodu; `clippy.toml`'daki test istisnası yardımcı fonksiyonları
-// kapsamadığı için burada açıkça izin veriliyor.
+// This file is test code only; the test exception in `clippy.toml` does not cover helper
+// functions, so it is allowed explicitly here.
 #![allow(clippy::unwrap_used)]
 
 use std::path::PathBuf;
@@ -38,8 +38,8 @@ fn parse_prints_ir_as_json() {
         .iter()
         .filter_map(|item| item["name"].as_str())
         .collect();
-    assert!(names.contains(&"add"), "fonksiyonlar: {names:?}");
-    assert!(names.contains(&"clamp"), "fonksiyonlar: {names:?}");
+    assert!(names.contains(&"add"), "functions: {names:?}");
+    assert!(names.contains(&"clamp"), "functions: {names:?}");
 }
 
 #[test]
@@ -69,5 +69,5 @@ fn parse_reports_missing_file() {
     let output = ferrobridge(&["parse", "/nonexistent/header.h"]);
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("header bulunamadı"), "stderr: {stderr}");
+    assert!(stderr.contains("header not found"), "stderr: {stderr}");
 }

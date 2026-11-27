@@ -1,41 +1,41 @@
-# ADR-0011: Exception kullanmayan kütüphaneler (`[library] exceptions = false`)
+# ADR-0011: Libraries without exceptions (`[library] exceptions = false`)
 
-**Tarih**: 2026-11-27
-**Durum**: accepted
-**Karar verenler**: Alper (proje sahibi)
+**Date**: 2026-11-27
+**Status**: accepted
+**Deciders**: Alper (project owner)
 
-## Bağlam
+## Context
 
-4. güvenlik kuralı gereği exception'lar FFI sınırını geçmez: `noexcept` olmayan her C++ fonksiyonu Rust'ta `Result` döndürür. Gömülü kütüphaneler çoğu zaman `-fno-exceptions` ile derlenir ve fonksiyonlarına `noexcept` yazmaz. Örneğin ArduPilot'un waf ayarları bunu kullanıyor ve `AP_Math`'te `throw` yok. Böyle bir kütüphanede her çağrının `Result` dönmesi (`v.length()?`) API'yi gürültülü yapar ve bilgi taşımaz. PRD'de bu bir açık soruydu.
+Per safety rule 4, exceptions do not cross the FFI boundary: every C++ function that is not `noexcept` returns `Result` in Rust. Embedded libraries are often compiled with `-fno-exceptions` and do not write `noexcept` on their functions. ArduPilot's waf settings, for example, use it, and `AP_Math` has no `throw`. In such a library every call returning `Result` (`v.length()?`) makes the API noisy and carries no information. This was an open question in the PRD.
 
-## Karar
+## Decision
 
-`ferrobridge.toml`'da şu bir sözdür: "bu kütüphanenin hiçbir fonksiyonu exception fırlatmaz".
+In `ferrobridge.toml`, this is a promise: "no function of this library throws an exception".
 
 ```toml
 [library]
 exceptions = false
 ```
 
-- Söz verilirse bütün fonksiyonlar `noexcept` sayılır ve doğrudan değer döndürür.
-- ferrobridge'in kendi kontrolleri `Result` olarak kalır: slice uzunluk taşması, `borrowed` null dönüşü, tanımsız enum değeri, UTF-8.
-- **Söz bozulursa tanımsız davranış olmaz.** cxx, `Result` döndürmeyen fonksiyonların C++ sarmalayıcısını `noexcept` yapar; shim de `noexcept` olur. Bir exception fırlatılırsa program `std::terminate` ile sonlanır. Bu, M6 Task 0'da ve e2e'de bir alt süreçle doğrulandı.
-- Söz, üretilen dosyaların "Açıklamaya dayanan varsayımlar" listesine girer.
+- If the promise is made, all functions are treated as `noexcept` and return values directly.
+- ferrobridge's own checks stay `Result`: slice length overflow, null `borrowed` return, undefined enum value, UTF-8.
+- **A broken promise does not cause undefined behavior.** cxx makes the C++ wrapper of functions that do not return `Result` `noexcept`; the shim is `noexcept` too. If an exception is thrown, the program ends with `std::terminate`. This was verified in M6 Task 0 and in e2e with a child process.
+- The promise is added to the generated files' "Assumptions based on annotations" list.
 
-## Değerlendirilen alternatifler
+## Alternatives considered
 
-### Alternatif 1: Fonksiyon başına `noexcept = true` açıklaması
-- **Neden seçilmedi**: Kütüphane genelinde doğru olan bir özellik için yüzlerce satır gerektirir. İleride istisnalar için eklenebilir.
+### Alternative 1: a per-function `noexcept = true` annotation
+- **Why not chosen**: It would need hundreds of lines for a property that holds library-wide. Can be added later for exceptions to the rule.
 
-### Alternatif 2: `-fno-exceptions` derleme bayrağını otomatik algılamak
-- **Eksileri**: Bayrak kütüphanenin kendi derlemesine aittir. Bridge'in derlemesinden çıkarılamaz, kesin değildir.
-- **Neden seçilmedi**: Tahmin olurdu (1. kural).
+### Alternative 2: detecting the `-fno-exceptions` compile flag automatically
+- **Cons**: The flag belongs to the library's own build. It cannot be derived from the bridge's build and is not certain.
+- **Why not chosen**: It would be a guess (rule 1).
 
-## Sonuçlar
+## Consequences
 
-### Olumlu
-- Demoda `a.length()`, `ap::degrees(x)` gibi çağrılar `?` olmadan.
-- `std::ops` trait'leri de bu kütüphanelerde üretilebiliyor; trait metotları `Result` döndüremez.
+### Positive
+- In the demo, calls like `a.length()` and `ap::degrees(x)` without `?`.
+- `std::ops` traits can be generated for these libraries too; trait methods cannot return `Result`.
 
-### Olumsuz
-- Söz yanlışsa program bir hata dönmek yerine sonlanır. Bu, UB yerine bilinçli olarak seçilmiş güvenli bir başarısızlık.
+### Negative
+- If the promise is wrong, the program ends instead of returning an error. A safe failure, chosen deliberately over UB.

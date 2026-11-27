@@ -1,4 +1,4 @@
-//! `shim.h` / `shim.cc`: cxx'in doğrudan çağıramadığı C++ öğeleri için yardımcılar.
+//! `shim.h` / `shim.cc`: helpers for C++ items cxx cannot call directly.
 
 use std::fmt::Write as _;
 
@@ -10,10 +10,10 @@ use crate::bridge::SHIM_SELF;
 use crate::spelling::{cpp_return, cpp_type};
 use crate::{CodegenOptions, ShimFn};
 
-/// Bütün C++ exception'larını yakalayıp Rust'a `Err` olarak ileten işleyici. cxx, `Result<T>`
-/// dönen her çağrıda bunu kullanır; varsayılanı yalnızca `std::exception` yakalar ve diğer
-/// exception'larda program sonlanırdı (güvenlik kuralı 4). Birden fazla shim aynı C++
-/// dosyasına dahil edilirse tek kez tanımlansın diye korumalı.
+/// The handler that catches all C++ exceptions and passes them to Rust as `Err`. cxx uses it for
+/// every call returning `Result<T>`; its default catches only `std::exception`, and the program
+/// would end on other exceptions (safety rule 4). Guarded so that it is defined once if several
+/// shims are included in the same C++ file.
 const TRYCATCH: &str = r#"#ifndef FERROBRIDGE_TRYCATCH_DEFINED
 #define FERROBRIDGE_TRYCATCH_DEFINED
 namespace rust {
@@ -24,7 +24,7 @@ static void trycatch(Try &&func, Fail &&fail) noexcept try {
 } catch (const ::std::exception &e) {
   fail(e.what());
 } catch (...) {
-  fail("bilinmeyen C++ exception'ı (std::exception türevi değil)");
+  fail("unknown C++ exception (not derived from std::exception)");
 }
 }  // namespace behavior
 }  // namespace rust
@@ -43,11 +43,11 @@ pub(crate) fn header(
          #include <string>\n#include <vector>\n\n",
     );
     if classes.iter().any(|c| c.value.is_some()) {
-        // Değer tiplerinin düzen doğrulaması için (`shim.cc`).
+        // For checking the layout of value types (`shim.cc`).
         out.push_str("#include <cstddef>\n#include <type_traits>\n\n");
     }
     if shims.iter().any(|shim| !shim.plan.lengths.is_empty()) {
-        // `rust::Slice` ve uzunluk kontrolü için.
+        // For `rust::Slice` and the length check.
         out.push_str("#include <limits>\n\n#include \"rust/cxx.h\"\n\n");
     }
     for prelude in &options.prelude {
@@ -59,7 +59,7 @@ pub(crate) fn header(
     out.push('\n');
     out.push_str(TRYCATCH);
     let _ = writeln!(out, "\nnamespace {} {{\n", options.shim_namespace);
-    // Template örneklemelerinin cxx'in kullanabileceği bir adı olsun.
+    // So that template instantiations have a name cxx can use.
     let mut aliases = false;
     for class in classes {
         if let Some(spelling) = &class.instance_spelling {
@@ -103,12 +103,12 @@ pub(crate) fn source(
     out
 }
 
-/// Rust'a `const` olarak yazılan tamsayı ve `bool` sabitlerin değerini C++ derleyicisi yeniden
-/// doğrular. Üretilmiş dosya başka bir platformda ya da başka define'larla derlenirse ve değer
-/// değiştiyse, sessizce yanlış bir `const` yerine derleme hatası çıkar.
+/// The C++ compiler re-checks the values of integer and `bool` constants written to Rust as `const`.
+/// If a generated file is compiled on another platform or with other defines and the value has
+/// changed, there is a compile error instead of a silently wrong `const`.
 ///
-/// Kayan noktalı sabitler `static const double` olarak C++ sabit ifadesi değildir, burada
-/// doğrulanamaz; onları başlatıcı denetimi korur (`ferrobridge-parser`).
+/// Floating-point constants declared `static const double` are not C++ constant expressions and
+/// cannot be checked here; the initializer check (`ferrobridge-parser`) protects them.
 fn constant_checks(constants: &[ConstantPlan]) -> String {
     let mut out = String::new();
     for constant in constants {
@@ -124,8 +124,8 @@ fn constant_checks(constants: &[ConstantPlan]) -> String {
         let path = path.join("::");
         let _ = writeln!(
             out,
-            "static_assert(::{path} == {value}, \"ferrobridge: `{path}` üretildiği değerden \
-             farklı; bridge'i yeniden üretin\");"
+            "static_assert(::{path} == {value}, \"ferrobridge: `{path}` differs from the value it was \
+             generated with; regenerate the bridge\");"
         );
     }
     if !out.is_empty() {
@@ -134,11 +134,11 @@ fn constant_checks(constants: &[ConstantPlan]) -> String {
     out
 }
 
-/// Değer tiplerinin Rust'taki `#[repr(C)]` düzeni C++'takiyle aynı mı? Analiz yanılırsa sessiz
-/// UB yerine derleme hatası (ADR-0010).
+/// Is the Rust `#[repr(C)]` layout of value types the same as in C++? If the analysis is wrong, a
+/// compile error instead of silent UB (ADR-0010).
 ///
-/// Örneklemelerde shim'deki takma ad kullanılır: `offsetof` bir makro ve `Pair<int, float>`
-/// gibi bir yazımdaki virgül argümanları böler.
+/// For instantiations, the alias in the shim is used: `offsetof` is a macro, and the comma in a
+/// spelling such as `Pair<int, float>` splits its arguments.
 fn layout_checks(classes: &[ClassPlan], shim_namespace: &str) -> String {
     let mut out = String::new();
     for class in classes {
@@ -153,24 +153,24 @@ fn layout_checks(classes: &[ClassPlan], shim_namespace: &str) -> String {
         };
         let name = class.type_ref.cpp_path.trim_start_matches("::");
         let message = |what: &str| {
-            format!("\"ferrobridge: `{name}` {what}; Rust'ta değer tipi olarak bağlanamaz\"")
+            format!("\"ferrobridge: `{name}` {what}; it cannot be bound as a value type in Rust\"")
         };
         let _ = writeln!(
             out,
             "static_assert(::std::is_trivially_copyable<{ty}>::value, {});",
-            message("bit bit kopyalanabilir değil")
+            message("is not trivially copyable")
         );
         let _ = writeln!(
             out,
             "static_assert(::std::is_standard_layout<{ty}>::value, {});",
-            message("standart düzende değil")
+            message("is not standard-layout")
         );
         let _ = writeln!(
             out,
             "static_assert(sizeof({ty}) == {} && alignof({ty}) == {}, {});",
             layout.size_bytes,
             layout.align_bytes,
-            message("üretildiğinden farklı boyutta; bridge'i yeniden üretin")
+            message("has a different size from when it was generated; regenerate the bridge")
         );
         for field in &layout.fields {
             let _ = writeln!(
@@ -179,7 +179,7 @@ fn layout_checks(classes: &[ClassPlan], shim_namespace: &str) -> String {
                 field.cpp_name,
                 field.offset_bytes,
                 message(&format!(
-                    "`{}` alanı üretildiğinden farklı yerde",
+                    "field `{}` is in a different place from when it was generated",
                     field.cpp_name
                 ))
             );
@@ -215,22 +215,22 @@ fn signature(shim: &ShimFn<'_>) -> String {
     )
 }
 
-/// Shim gövdesinin satırları.
+/// The lines of a shim body.
 fn body(shim: &ShimFn<'_>) -> Vec<String> {
     let mut lines = length_checks(shim);
     lines.extend(call_lines(shim));
     lines
 }
 
-/// C++ fonksiyonuna geçirilen argümanlar, C++'taki sırasıyla. Rust imzasında olmayan uzunluk
-/// parametreleri slice'ın boyundan doldurulur.
+/// The arguments passed to the C++ function, in C++ order. Length parameters missing from the Rust
+/// signature are filled from the slice's length.
 fn arguments(shim: &ShimFn<'_>) -> String {
     let plan = shim.plan;
     let mut params = plan
         .params
         .iter()
         .map(|param| match (&param.ty, param.pass) {
-            // `borrowed` pointer parametresi: Rust referans verdi, C++ pointer bekliyor.
+            // A `borrowed` pointer parameter: Rust gave a reference, C++ expects a pointer.
             (_, Pass::AddressOf) => format!("&{}", param.rust_name),
             (_, Pass::Slice) => format!("{}.data()", param.rust_name),
             (BridgeType::UniquePtr(_), Pass::Direct) => {
@@ -253,9 +253,9 @@ fn arguments(shim: &ShimFn<'_>) -> String {
     args.join(", ")
 }
 
-/// Her slice'ın boyu C++ uzunluk tipine sığmalı; sığmazsa sessizce kırpılmaz, exception →
-/// Rust'ta `Err`. Karşılaştırma `unsigned long long`'da yapılır: iki taraf da negatif değil ve
-/// hiçbir değer kesilmez.
+/// Every slice's length must fit the C++ length type; if not, it is not truncated silently, an exception →
+/// `Err` in Rust. The comparison is done in `unsigned long long`: both sides are non-negative and
+/// no value is truncated.
 fn length_checks(shim: &ShimFn<'_>) -> Vec<String> {
     let plan = shim.plan;
     let mut lines = Vec::new();
@@ -266,10 +266,10 @@ fn length_checks(shim: &ShimFn<'_>) -> Vec<String> {
              static_cast<unsigned long long>(::std::numeric_limits<{}>::max())) {{",
             length.cpp_type
         ));
-        // Öğenin adını `ferrobridge::Error` zaten ekliyor.
+        // `ferrobridge::Error` already adds the item's name.
         lines.push(format!(
-            "  throw ::std::length_error(\"`{slice}` uzunluk parametresinin tipine ({}) \
-             sığmayacak kadar uzun\");",
+            "  throw ::std::length_error(\"`{slice}` is too long for the type of its length parameter \
+             ({})\");",
             length.cpp_type
         ));
         lines.push("}".to_owned());
@@ -277,12 +277,12 @@ fn length_checks(shim: &ShimFn<'_>) -> Vec<String> {
     lines
 }
 
-/// Çağrı ve dönüş satırları.
+/// The call and return lines.
 fn call_lines(shim: &ShimFn<'_>) -> Vec<String> {
     let plan = shim.plan;
     let args = arguments(shim);
     let call = match &plan.callee {
-        // Değer tipinin constructor'ı nesneyi değerle döndürür.
+        // The constructor of a value type returns the object by value.
         Callee::Constructor { class }
             if matches!(plan.returns, Returns::Value(BridgeType::Value(_))) =>
         {
@@ -316,17 +316,17 @@ fn call_lines(shim: &ShimFn<'_>) -> Vec<String> {
             "return ::std::make_unique<::std::vector<{}>>({call});",
             cpp_type(element)
         ),
-        // Açıklamaya dayanır: pointer `new` ile ayrıldı. Null ise boş `unique_ptr` olur.
+        // Based on an annotation: the pointer was allocated with `new`. A null becomes an empty `unique_ptr`.
         Returns::OwnedPointer(inner) => {
             format!("return ::std::unique_ptr<{}>({call});", cpp_type(inner))
         }
-        // Null bir pointer asla referansa çevrilmez: exception → Rust'ta `Err`.
+        // A null pointer is never turned into a reference: an exception → `Err` in Rust.
         Returns::BorrowedPointer { .. } => {
             return vec![
                 format!("auto* fb_result = {call};"),
                 "if (fb_result == nullptr) {".to_owned(),
                 format!(
-                    "  throw ::std::runtime_error(\"{} null pointer döndürdü (`borrowed` dönüş)\");",
+                    "  throw ::std::runtime_error(\"{} returned a null pointer (a `borrowed` return)\");",
                     callee_name(&plan.callee)
                 ),
                 "}".to_owned(),
@@ -337,7 +337,7 @@ fn call_lines(shim: &ShimFn<'_>) -> Vec<String> {
     vec![line]
 }
 
-/// Hata mesajları için çağrılan öğenin tam C++ adı (`own::Widget::child`).
+/// The full C++ name of the called item, for error messages (`own::Widget::child`).
 fn callee_name(callee: &Callee) -> String {
     let name = match callee {
         Callee::Method {

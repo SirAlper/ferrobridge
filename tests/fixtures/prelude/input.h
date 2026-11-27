@@ -1,4 +1,4 @@
-// Kendi başına derlenmeyen header: `Vec2` ve `uint8_t` için `prelude.h` gerekir.
+// A header that does not compile on its own: needs `prelude.h` for `Vec2` and `uint8_t`.
 #pragma once
 
 float length(const Vec2& v);

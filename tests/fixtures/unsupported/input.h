@@ -17,7 +17,7 @@ T identity(T value);
 
 extern int global_counter;
 
-// Fonksiyon desteklenir ama Point tipi henüz desteklenmez.
+// The function is supported but the Point type is not supported yet.
 void move_to(Point target);
 
 int sum(int count, ...);

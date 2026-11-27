@@ -1,5 +1,5 @@
-// Sınıf template'leri: `[templates]` ile somut tiplere örneklenir (ArduPilot'taki `Vector3<T>`
-// gibi). Üyeler kalıptan okunur, `T` örneklemenin argümanıyla yer değiştirir.
+// Class templates: instantiated with concrete types through `[templates]` (like `Vector3<T>` in
+// ArduPilot). Members are read from the pattern, with `T` replaced by the instantiation's argument.
 #pragma once
 
 #include <cstdint>
@@ -22,7 +22,7 @@ public:
     T dot(const Vec3<T>& other) const { return x * other.x + y * other.y + z * other.z; }
     void set_xy(const Vec2<T>& v) { x = v.x; y = v.y; }
 
-    // Üye template'i: kendi parametresi yerine konamaz.
+    // A member template: its own parameter cannot be substituted.
     template <typename U> U first_as() const { return U(x); }
 };
 
@@ -33,25 +33,25 @@ public:
     constexpr Vec2(T x0, T y0) : x(x0), y(y0) {}
 };
 
-// Tip olmayan parametre: örneklenemez.
+// A non-type parameter: cannot be instantiated.
 template <typename T, int N>
 class Fixed {
 public:
     T values[N];
 };
 
-// Örneklenmedi: `[templates]` ile örneklenebileceği söylenir.
+// Not instantiated: the message says it can be instantiated with `[templates]`.
 template <typename T>
 class Unused {
 public:
     T value;
 };
 
-// Template'in dışında somut kullanımlar.
+// Concrete uses outside the template.
 Vec3<float> cross(const Vec3<float>& a, const Vec3<float>& b);
 double norm(const Vec3<double>& v);
 
-// Bit alanı: alanın tipi desteklenmiyor olarak kaydedilir.
+// A bit field: the field's type is recorded as unsupported.
 struct Packed {
     int flags : 3;
     int count;

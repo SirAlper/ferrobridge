@@ -1,11 +1,11 @@
-//! C++ header'larını libclang ile okuyup IR'a çeviren katman.
+//! The layer that reads C++ headers with libclang and turns them into IR.
 //!
-//! libclang'ın C API'sine `clang-sys` üzerinden erişilir (bkz.
-//! `docs/adr/0001-libclang-via-clang-sys.md`). Kütüphane derleme anında değil, çalışma anında
-//! yüklenir (`clang-sys` `runtime` özelliği). Böylece libclang bulunamazsa program açılışta
-//! çökmez; anlaşılır bir hata döner.
+//! libclang's C API is reached through `clang-sys` (see
+//! `docs/adr/0001-libclang-via-clang-sys.md`). The library is loaded at run time, not at build
+//! time (the `clang-sys` `runtime` feature). So if libclang cannot be found, the program does not
+//! crash on startup; a clear error is returned.
 //!
-//! Giriş noktası [`parse_header`].
+//! The entry point is [`parse_header`].
 
 mod clang;
 mod lower;
@@ -16,20 +16,20 @@ use std::path::{Path, PathBuf};
 
 use ferrobridge_ir::Module;
 
-/// Header ayrıştırma ayarları.
+/// Header parsing settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseOptions {
-    /// C++ standardı; clang'a `-std=<değer>` olarak geçer.
+    /// The C++ standard; passed to clang as `-std=<value>`.
     pub std: String,
-    /// clang'a olduğu gibi geçirilecek ek argümanlar (ör. `-I include`, `-DFOO=1`).
+    /// Extra arguments passed to clang as they are (e.g. `-I include`, `-DFOO=1`).
     pub extra_args: Vec<String>,
-    /// Header'dan önce, sırayla include edilecek dosyalar (clang'ın `-include` argümanı gibi:
-    /// önce çalışma dizinine, sonra include yollarına göre çözülür). Kendi başına derlenmeyen
-    /// header'lar için. Bu dosyalardaki bildirimler IR'a alınmaz.
+    /// Files to include, in order, before the header (like clang's `-include` argument:
+    /// resolved against the working directory first, then the include paths). For headers that
+    /// do not compile on their own. Declarations in these files are not taken into the IR.
     pub prelude: Vec<String>,
-    /// Örneklenecek sınıf template'leri: (Rust adı, C++ yazımı), ör. `("Vector3f",
-    /// "Vector3<float>")`. Yazım, header'lar include edildikten sonra global kapsamda çözülür.
-    /// Örneklemeler IR'da `Class` olur (`instance_of` dolu).
+    /// Class templates to instantiate: (Rust name, C++ spelling), e.g. `("Vector3f",
+    /// "Vector3<float>")`. The spelling is resolved in the global scope after the headers are included.
+    /// Instantiations become `Class` in the IR (with `instance_of` set).
     pub instantiate: Vec<(String, String)>,
 }
 
@@ -44,16 +44,16 @@ impl Default for ParseOptions {
     }
 }
 
-/// libclang'ın bildirdiği bir hata.
+/// An error reported by libclang.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
-    /// Hatanın bulunduğu dosya; libclang konum veremezse boş.
+    /// The file containing the error; empty if libclang cannot give a location.
     pub file: String,
-    /// 1'den başlayan satır numarası.
+    /// The line number, starting at 1.
     pub line: u32,
-    /// 1'den başlayan sütun numarası.
+    /// The column number, starting at 1.
     pub column: u32,
-    /// libclang'ın hata mesajı.
+    /// libclang's error message.
     pub message: String,
 }
 
@@ -71,33 +71,33 @@ impl fmt::Display for Diagnostic {
     }
 }
 
-/// Parser katmanının hataları.
+/// Errors of the parser layer.
 #[derive(Debug, thiserror::Error)]
 pub enum ParserError {
-    /// libclang dinamik kütüphanesi bulunamadı veya yüklenemedi.
-    #[error("libclang yüklenemedi: {0}")]
+    /// The libclang dynamic library could not be found or loaded.
+    #[error("could not load libclang: {0}")]
     LoadFailed(String),
-    /// libclang yüklendi ama sürüm bilgisi okunamadı.
-    #[error("libclang sürüm bilgisi okunamadı")]
+    /// libclang was loaded but its version could not be read.
+    #[error("could not read the libclang version")]
     VersionUnavailable,
-    /// Verilen header dosyası yok.
-    #[error("header bulunamadı: {}", .0.display())]
+    /// The given header file does not exist.
+    #[error("header not found: {}", .0.display())]
     FileNotFound(PathBuf),
-    /// Yol veya argüman libclang'a geçirilemiyor (UTF-8 değil ya da NUL karakteri içeriyor).
-    #[error("libclang'a geçirilemeyen argüman: {0}")]
+    /// A path or argument cannot be passed to libclang (not UTF-8, or contains a NUL character).
+    #[error("argument that cannot be passed to libclang: {0}")]
     InvalidArgument(String),
-    /// libclang dosyayı hiç açamadı.
-    #[error("libclang header'ı açamadı (hata kodu {0})")]
+    /// libclang could not open the file at all.
+    #[error("libclang could not open the header (error code {0})")]
     ClangFailed(i32),
-    /// Header'da derleme hataları var.
-    #[error("header ayrıştırılamadı: {} hata", diagnostics.len())]
+    /// The header has compile errors.
+    #[error("could not parse the header: {} errors", diagnostics.len())]
     ParseFailed {
-        /// Hata ve ölümcül hata seviyesindeki tanılar. Uyarılar dahil değildir.
+        /// Diagnostics at the error and fatal error levels. Warnings are not included.
         diagnostics: Vec<Diagnostic>,
     },
 }
 
-/// libclang bu iş parçacığında yüklü değilse yükler.
+/// Loads libclang if it is not loaded on this thread.
 fn ensure_loaded() -> Result<(), ParserError> {
     if clang_sys::is_loaded() {
         return Ok(());
@@ -105,12 +105,12 @@ fn ensure_loaded() -> Result<(), ParserError> {
     clang_sys::load().map_err(ParserError::LoadFailed)
 }
 
-/// Yüklenen libclang'ın sürüm metnini döndürür (ör. `"Homebrew clang version 23.1.6"`).
+/// Returns the version text of the loaded libclang (e.g. `"Homebrew clang version 23.1.6"`).
 ///
 /// # Errors
 ///
-/// libclang bulunamazsa [`ParserError::LoadFailed`], sürüm metni okunamazsa
-/// [`ParserError::VersionUnavailable`] döner.
+/// Returns [`ParserError::LoadFailed`] if libclang cannot be found, and
+/// [`ParserError::VersionUnavailable`] if the version text cannot be read.
 pub fn libclang_version() -> Result<String, ParserError> {
     ensure_loaded()?;
     let version = clang::version();
@@ -121,39 +121,39 @@ pub fn libclang_version() -> Result<String, ParserError> {
     }
 }
 
-/// Bir C++ header'ını okur ve içindeki bildirimleri IR'a çevirir.
+/// Reads a C++ header and turns its declarations into IR.
 ///
-/// Yalnızca `header` dosyasının kendi bildirimleri alınır; `#include` edilen dosyalardakiler ve
-/// [`ParseOptions::prelude`] alınmaz. Desteklenmeyen yapılar atılmaz, IR'da nedenleriyle
-/// birlikte yer alır. Birden fazla header için [`parse_headers`].
+/// Only the declarations of the `header` file itself are taken; those in `#include`d files and
+/// the [`ParseOptions::prelude`] are not. Unsupported constructs are not dropped; they appear in
+/// the IR with their reasons. For several headers, see [`parse_headers`].
 ///
 /// # Errors
 ///
-/// Dosya yoksa [`ParserError::FileNotFound`], libclang yüklenemezse
-/// [`ParserError::LoadFailed`], header'da derleme hatası varsa [`ParserError::ParseFailed`]
-/// döner.
+/// Returns [`ParserError::FileNotFound`] if the file does not exist, [`ParserError::LoadFailed`]
+/// if libclang cannot be loaded, and [`ParserError::ParseFailed`] if the header has compile
+/// errors.
 pub fn parse_header(header: &Path, options: &ParseOptions) -> Result<Module, ParserError> {
     parse_headers(&[header], options)
 }
 
-/// Birden fazla header'ı tek bir bridge için okur: hepsi aynı çeviri biriminde, verilen sırayla
-/// include edilir ve hepsinin bildirimleri alınır. Böylece bir header'da tanımlı tip, diğerindeki
-/// fonksiyonlarda kullanılabilir.
+/// Reads several headers for a single bridge: they are all included in the same translation
+/// unit, in the given order, and the declarations of all of them are taken. So a type defined in
+/// one header can be used in the functions of another.
 ///
-/// Header'lar libclang'a doğrudan "ana dosya" olarak verilmez; onları `#include` eden, bellekte
-/// üretilmiş bir çeviri birimi okunur. Böylece header'ın `#pragma once` koruması, header kendini
-/// dolaylı olarak yeniden include ettiğinde de çalışır (ana dosyada `#pragma once` işlemez).
+/// The headers are not given to libclang directly as the "main file"; a translation unit
+/// generated in memory that `#include`s them is read instead. So a header's `#pragma once` guard
+/// works even when the header includes itself again indirectly (`#pragma once` does not work in the main file).
 ///
 /// # Errors
 ///
-/// [`parse_header`] ile aynı; ayrıca header listesi boşsa [`ParserError::InvalidArgument`].
+/// The same as [`parse_header`]; in addition, [`ParserError::InvalidArgument`] if the header list is empty.
 pub fn parse_headers<P: AsRef<Path>>(
     headers: &[P],
     options: &ParseOptions,
 ) -> Result<Module, ParserError> {
     if headers.is_empty() {
         return Err(ParserError::InvalidArgument(
-            "header listesi boş".to_owned(),
+            "the header list is empty".to_owned(),
         ));
     }
     let mut paths = Vec::with_capacity(headers.len());
@@ -176,7 +176,7 @@ pub fn parse_headers<P: AsRef<Path>>(
         .iter()
         .map(|p| to_c_string(p))
         .collect::<Result<Vec<_>, _>>()?;
-    // Kaynak dizini yüklenen kütüphanenin yolundan bulunduğu için önce yükle.
+    // The resource directory is found from the loaded library's path, so load it first.
     ensure_loaded()?;
     let args = clang_args(options)?;
 
@@ -202,7 +202,7 @@ pub fn parse_headers<P: AsRef<Path>>(
         });
     }
 
-    // Header'lar ayrıştırıldıysa çeviri biriminde mutlaka vardır.
+    // If the headers were parsed, they are certainly in the translation unit.
     let targets = header_names
         .iter()
         .map(|name| {
@@ -213,12 +213,12 @@ pub fn parse_headers<P: AsRef<Path>>(
     Ok(lower::lower(&tu, targets, &aliases))
 }
 
-/// Tanıyı kullanıcının gördüğü dosyalara göre konumlandırır.
+/// Positions a diagnostic relative to the files the user sees.
 ///
-/// Konumu sentetik çeviri biriminde olan bir tanı (ör. header'da kapanmamış bir parantez dosya
-/// sonunda fark edilir, dosya sonu da artık sentetik birimdedir) kullanıcıya bir şey söylemez.
-/// Başka bir dosyayı gösteren ilk notu varsa ("to match this '('") tanı oraya taşınır ve notun
-/// metni mesaja eklenir. Yoksa olduğu gibi bırakılır; hiçbir tanı atılmaz.
+/// A diagnostic located in the synthetic translation unit (e.g. an unclosed parenthesis in a
+/// header is noticed at the end of the file, and the end of the file is now in the synthetic unit) tells the user nothing.
+/// If it has a first note pointing to another file ("to match this '('"), the diagnostic is moved there and the
+/// note's text is appended to the message. Otherwise it is left as is; no diagnostic is dropped.
 fn user_facing(
     diagnostic: clang::RawDiagnostic,
     unit_name: &str,
@@ -231,7 +231,7 @@ fn user_facing(
         ..
     } = diagnostic;
     if location.file == unit_name {
-        // `[templates]` girdisinden üretilen satırdaki hata: girdiyi adıyla göster.
+        // An error on a line generated from a `[templates]` entry: show the entry by name.
         if let Some((_, label)) = labels.iter().find(|(line, _)| *line == location.line) {
             return Diagnostic {
                 file: String::new(),
@@ -260,20 +260,20 @@ fn user_facing(
     }
 }
 
-/// Header'ı include eden, bellekte üretilmiş çeviri birimi.
+/// A translation unit generated in memory that includes the header.
 struct SyntheticUnit {
-    /// Diskte olmayan dosyanın adı: header'ın yanında, böylece tanılardaki yol anlaşılır olur.
+    /// The name of the file that is not on disk: next to the header, so the path in diagnostics makes sense.
     name: CString,
     contents: String,
-    /// (satır, girdi) çiftleri: o satırdaki hata kullanıcıya girdinin adıyla gösterilir.
+    /// (line, entry) pairs: an error on that line is shown to the user with the entry's name.
     labels: Vec<(u32, String)>,
 }
 
-/// Her `[templates]` girdisi için birime bir `using` takma adı ve sınıfı örneklemeye zorlayan
-/// bir `static_assert` ekler (üyelerin bildirimleri örneklenir, tanımları değil).
+/// For every `[templates]` entry, adds a `using` alias and a `static_assert` that forces the
+/// class to be instantiated (the members' declarations are instantiated, not their definitions).
 ///
-/// Yazım birime metin olarak girer; bir tipten başka bir şey yazılamasın diye `;`, `{`, `}`,
-/// `"`, `#` ve satır sonu içeren yazımlar reddedilir.
+/// The spelling enters the unit as text; so that nothing but a type can be written, spellings
+/// containing `;`, `{`, `}`, `"`, `#` or a line break are rejected.
 fn instantiation_lines(
     unit: &mut SyntheticUnit,
     instantiate: &[(String, String)],
@@ -282,7 +282,7 @@ fn instantiation_lines(
     for (index, (rust_name, spelling)) in instantiate.iter().enumerate() {
         if spelling.trim().is_empty() || spelling.contains([';', '{', '}', '"', '#', '\n', '\r']) {
             return Err(ParserError::InvalidArgument(format!(
-                "`[templates]` {rust_name} = {spelling:?}: bir C++ tip yazımı olmalı"
+                "`[templates]` {rust_name} = {spelling:?}: must be a C++ type spelling"
             )));
         }
         let alias = format!("__ferrobridge_inst_{index}");
@@ -301,11 +301,11 @@ fn instantiation_lines(
     Ok(aliases)
 }
 
-/// `headers` (mutlak yollar) için her biri bir `#include "<header>"` satırı olan çeviri birimi.
-/// Adı ilk header'ın yanında.
+/// A translation unit with one `#include "<header>"` line for each of `headers` (absolute paths).
+/// Its name is next to the first header.
 ///
-/// `#include "..."` içinde kaçış dizisi yoktur; `"` ya da satır sonu içeren yollar bu satıra
-/// yazılamaz ve reddedilir.
+/// There are no escape sequences inside `#include "..."`; paths containing `"` or a line break
+/// cannot be written on this line and are rejected.
 fn synthetic_unit<S: AsRef<str>>(headers: &[S]) -> Result<SyntheticUnit, ParserError> {
     let mut contents = String::new();
     for header in headers {
@@ -317,7 +317,7 @@ fn synthetic_unit<S: AsRef<str>>(headers: &[S]) -> Result<SyntheticUnit, ParserE
     }
     let first = headers
         .first()
-        .ok_or_else(|| ParserError::InvalidArgument("header listesi boş".to_owned()))?;
+        .ok_or_else(|| ParserError::InvalidArgument("the header list is empty".to_owned()))?;
     Ok(SyntheticUnit {
         name: to_c_string(&format!("{}.ferrobridge.cc", first.as_ref()))?,
         contents,
@@ -329,7 +329,7 @@ fn to_c_string(text: &str) -> Result<CString, ParserError> {
     CString::new(text).map_err(|_| ParserError::InvalidArgument(text.to_owned()))
 }
 
-/// libclang'a geçirilecek derleyici argümanları.
+/// Compiler arguments to pass to libclang.
 fn clang_args(options: &ParseOptions) -> Result<Vec<CString>, ParserError> {
     let mut args = vec![
         "-x".to_owned(),
@@ -352,12 +352,12 @@ fn clang_args(options: &ParseOptions) -> Result<Vec<CString>, ParserError> {
     args.iter().map(|arg| to_c_string(arg)).collect()
 }
 
-/// Derleyicinin yerleşik header'larını (`stdarg.h`, `stddef.h`...) içeren kaynak dizini.
+/// The resource directory containing the compiler's built-in headers (`stdarg.h`, `stddef.h`...).
 ///
-/// Çalışma anında yüklenen libclang (ör. Homebrew'unki) bu dizini kendisi bulamayabilir; o
-/// zaman `<string>`, `<memory>` gibi header'lar derlenemez. Dizin, yüklenen kütüphanenin
-/// yanındaki `clang/<sürüm>/` klasörüdür (macOS'ta ve Linux dağıtımlarında aynı düzen).
-/// Kullanıcı `-resource-dir` verdiyse ya da dizin bulunamazsa `None`.
+/// A libclang loaded at run time (e.g. Homebrew's) may not find this directory itself; then
+/// headers such as `<string>` and `<memory>` cannot be compiled. The directory is the
+/// `clang/<version>/` folder next to the loaded library (the same layout on macOS and Linux distributions).
+/// `None` if the user gave `-resource-dir` or the directory cannot be found.
 fn default_resource_dir(extra_args: &[String]) -> Option<String> {
     if extra_args
         .iter()
@@ -369,8 +369,8 @@ fn default_resource_dir(extra_args: &[String]) -> Option<String> {
     resource_dir_near(library.path())
 }
 
-/// `.../lib/libclang.dylib` için `.../lib/clang/<en yüksek sürüm>/`; `include/stdarg.h`
-/// içermeyen klasörler yok sayılır.
+/// `.../lib/clang/<highest version>/` for `.../lib/libclang.dylib`; folders not containing
+/// `include/stdarg.h` are ignored.
 fn resource_dir_near(library: &Path) -> Option<String> {
     let clang_dir = library.parent()?.join("clang");
     let mut candidates: Vec<(u32, PathBuf)> = std::fs::read_dir(clang_dir)
@@ -394,8 +394,8 @@ fn resource_dir_near(library: &Path) -> Option<String> {
     best.to_str().map(str::to_owned)
 }
 
-/// macOS'ta, kullanıcı kendisi vermediyse SDK yolunu `xcrun` ile bulur. Homebrew libclang
-/// sistem header'larını (`<cstdint>` gibi) ancak bu yolla bulabilir.
+/// On macOS, finds the SDK path with `xcrun` unless the user gave one. Homebrew libclang
+/// can find the system headers (such as `<cstdint>`) only this way.
 #[cfg(target_os = "macos")]
 fn default_sysroot(extra_args: &[String]) -> Option<String> {
     let user_set = extra_args
@@ -426,7 +426,7 @@ mod tests {
         let version = libclang_version().unwrap();
         assert!(
             version.contains("clang version"),
-            "beklenmeyen sürüm metni: {version}"
+            "unexpected version text: {version}"
         );
     }
 

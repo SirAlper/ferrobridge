@@ -1,7 +1,7 @@
-//! `ferrobridge generate` komutunun uçtan uca testleri.
+//! End-to-end tests of the `ferrobridge generate` command.
 
-// Bu dosya yalnızca test kodu; `clippy.toml`'daki test istisnası yardımcı fonksiyonları
-// kapsamadığı için burada açıkça izin veriliyor.
+// This file is test code only; the test exception in `clippy.toml` does not cover helper
+// functions, so it is allowed explicitly here.
 #![allow(clippy::unwrap_used)]
 
 use std::fs;
@@ -16,7 +16,7 @@ fn fixture(name: &str) -> PathBuf {
     root().join("tests/fixtures").join(name).join("input.h")
 }
 
-/// Test başına benzersiz, temiz bir çıktı dizini.
+/// A unique, clean output directory per test.
 fn out_dir(test: &str) -> PathBuf {
     let dir = std::env::temp_dir()
         .join(format!("ferrobridge-cli-{}", std::process::id()))
@@ -32,7 +32,7 @@ fn ferrobridge(args: &[&str]) -> Output {
         .unwrap()
 }
 
-/// E2E crate'inin derlediği fixture'lar (`crates/ferrobridge-e2e/build.rs` ile aynı liste).
+/// The fixtures the e2e crate builds (the same list as `crates/ferrobridge-e2e/build.rs`).
 const E2E_FIXTURES: [&str; 11] = [
     "classes",
     "enums",
@@ -47,8 +47,8 @@ const E2E_FIXTURES: [&str; 11] = [
     "no_exceptions",
 ];
 
-/// Fixture dizinindeki bütün `.h` dosyaları (alt dizinler hariç), ad sırasıyla: bridge'in
-/// header'ları. Çoğu fixture'da yalnızca `input.h`.
+/// All `.h` files in the fixture directory (not subdirectories), in name order: the bridge's
+/// headers. Most fixtures have only `input.h`.
 fn bridge_headers(name: &str) -> Vec<PathBuf> {
     let dir = root().join("tests/fixtures").join(name);
     let mut headers: Vec<PathBuf> = fs::read_dir(&dir)
@@ -60,8 +60,8 @@ fn bridge_headers(name: &str) -> Vec<PathBuf> {
     headers
 }
 
-/// `ferrobridge-e2e` crate'inin kullandığı ayarlarla üretir. Fixture'ın yanında
-/// `ferrobridge.toml` varsa `--config` ile verilir.
+/// Generates with the settings the `ferrobridge-e2e` crate uses. If the fixture has a
+/// `ferrobridge.toml` next to it, it is passed with `--config`.
 fn generate_like_e2e(name: &str, out: &Path) -> Output {
     let config = fixture(name).with_file_name("ferrobridge.toml");
     let headers = bridge_headers(name);
@@ -86,9 +86,9 @@ fn generate_like_e2e(name: &str, out: &Path) -> Output {
     ferrobridge(&args)
 }
 
-/// Taslaktaki yorum satırı değerleri açar; dönüşlerde her tablonun ilk seçeneğini seçer.
-/// Her tablo ve anahtar için ilk seçeneği açar (aynı anahtarın satırları alternatiftir).
-/// Taslağın açıklama başlığındaki örnekler (`#   { slice = "n" } ...`) anahtar değildir.
+/// Enables the commented-out values in the draft; for returns, picks the first option of each table.
+/// Enables the first option for every table and key (the lines of the same key are alternatives).
+/// The examples in the draft's annotation header (`#   { slice = "n" } ...`) are not keys.
 fn uncomment_first_choices(draft: &str) -> String {
     let mut seen = std::collections::HashSet::new();
     let mut table = String::new();
@@ -130,17 +130,17 @@ fn generate_writes_three_files_and_reports_skipped_items() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "stderr: {stderr}");
     for file in ["bridge.rs", "shim.h", "shim.cc"] {
-        assert!(out.join(file).is_file(), "{file} yazılmadı");
+        assert!(out.join(file).is_file(), "{file} was not written");
     }
     assert!(
         stderr.contains("⚠ geo::Vehicle::total_km"),
         "stderr: {stderr}"
     );
-    assert!(stdout.contains("bağlandı"), "stdout: {stdout}");
+    assert!(stdout.contains("bound"), "stdout: {stdout}");
 }
 
-/// Üretici ile `ferrobridge-e2e`'deki commit'li dosyalar senkron mu? Başarısız olursa
-/// `ferrobridge-e2e/README.md`'deki komutla dosyaları yeniden üretin.
+/// Are the generator and the committed files in `ferrobridge-e2e` in sync? If this fails,
+/// regenerate the files with the command in `ferrobridge-e2e/README.md`.
 #[test]
 fn generated_files_match_the_committed_e2e_files() {
     for name in E2E_FIXTURES {
@@ -159,7 +159,7 @@ fn generated_files_match_the_committed_e2e_files() {
             let stored = fs::read_to_string(committed.join(file)).unwrap_or_default();
             assert!(
                 fresh == stored,
-                "{name}/{file} commit'li dosyadan farklı; e2e dosyalarını yeniden üretin"
+                "{name}/{file} differs from the committed file; regenerate the e2e files"
             );
         }
     }
@@ -211,7 +211,7 @@ fn invalid_shim_namespace_is_rejected() {
 fn refuses_to_overwrite_files_it_did_not_generate() {
     let out = out_dir("overwrite");
     fs::create_dir_all(&out).unwrap();
-    fs::write(out.join("bridge.rs"), "// elle yazılmış bridge\n").unwrap();
+    fs::write(out.join("bridge.rs"), "// hand-written bridge\n").unwrap();
     let header = fixture("free_functions");
     let args = [
         "generate",
@@ -225,10 +225,10 @@ fn refuses_to_overwrite_files_it_did_not_generate() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("--force"));
     assert_eq!(
         fs::read_to_string(out.join("bridge.rs")).unwrap(),
-        "// elle yazılmış bridge\n"
+        "// hand-written bridge\n"
     );
 
-    // Kendi ürettiği dosyaların üzerine yazar.
+    // It overwrites the files it generated itself.
     let mut forced = args.to_vec();
     forced.push("--force");
     assert!(ferrobridge(&forced).status.success());
@@ -250,7 +250,7 @@ fn suggest_prints_a_draft_that_resolves_the_warnings_once_filled() {
         "{draft}"
     );
     assert!(draft.contains("# out = \"borrowed\""), "{draft}");
-    // `void*` açıklamayla çözülmez: taslağa girmez.
+    // `void*` is not solved by an annotation: it does not enter the draft.
     assert!(!draft.contains("raw_handle"), "{draft}");
 
     let config = write_config("suggest-filled", &uncomment_first_choices(&draft));
@@ -277,11 +277,11 @@ fn suggest_prints_a_draft_that_resolves_the_warnings_once_filled() {
         "{bridge}"
     );
     assert!(
-        bridge.contains("Açıklamaya dayanan varsayımlar (1)"),
+        bridge.contains("Assumptions based on annotations (1)"),
         "{bridge}"
     );
 
-    // Mevcut açıklamalarla yeniden sorulunca söylenecek bir şey kalmaz.
+    // Asked again with the existing annotations, there is nothing left to say.
     let output = ferrobridge(&[
         "suggest",
         header.to_str().unwrap(),
@@ -290,7 +290,7 @@ fn suggest_prints_a_draft_that_resolves_the_warnings_once_filled() {
     ]);
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "# Açıklama gereken yer yok.\n"
+        "# Nothing needs an annotation.\n"
     );
 }
 
@@ -312,10 +312,15 @@ fn annotations_that_do_not_match_the_header_fail_with_lines() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success());
     assert!(
-        stderr.contains("ferrobridge.toml:1: `geo::Vehicle::read_odometr` header'da bulunamadı"),
+        stderr.contains(
+            "ferrobridge.toml:1: `geo::Vehicle::read_odometr` was not found in the header"
+        ),
         "stderr: {stderr}"
     );
-    assert!(!out.join("bridge.rs").exists(), "hatada dosya yazılmamalı");
+    assert!(
+        !out.join("bridge.rs").exists(),
+        "no file must be written on error"
+    );
 }
 
 #[test]
@@ -336,10 +341,10 @@ fn malformed_annotations_fail_with_lines() {
         "suggest",
         fixture("classes").to_str().unwrap(),
         "--config",
-        "/olmayan/ferrobridge.toml",
+        "/missing/ferrobridge.toml",
     ]);
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("okunamadı"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("could not read"));
 }
 
 #[test]
@@ -360,7 +365,7 @@ fn unnecessary_annotations_are_warned_about() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(output.status.success(), "stderr: {stderr}");
     assert!(
-        stderr.contains("⚠ ferrobridge.toml:2: `geo::Vehicle::drive` parametre `km`"),
+        stderr.contains("⚠ ferrobridge.toml:2: `geo::Vehicle::drive` parameter `km`"),
         "stderr: {stderr}"
     );
 }

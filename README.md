@@ -1,81 +1,81 @@
 # ferrobridge
 
-C++ header'larından **güvenli ve idiomatik** Rust binding'leri üreten araç. cxx üzerine kuruludur, sahiplik bilgisini bir açıklama dosyasından (`ferrobridge.toml`) alır ve Bazel gerektirmez.
+A tool that generates **safe and idiomatic** Rust bindings from C++ headers. It is built on cxx, takes ownership information from an annotation file (`ferrobridge.toml`) and does not need Bazel.
 
-> Durum: erken geliştirme (Milestone 6 / v0.1 öncesi). Henüz yayınlanmış bir sürüm yok. Gerçek dünya demosu: ArduPilot `AP_Math` ([`demo/ap_math/`](demo/ap_math/README.md)).
+> Status: early development (Milestone 6 / before v0.1). No release has been published yet. Real-world demo: ArduPilot `AP_Math` ([`demo/ap_math/`](demo/ap_math/README.md)).
 
 ## Demo: ArduPilot `AP_Math`
 
-ArduPilot'un matematik kütüphanesi Rust'tan, elle bridge ya da `unsafe` yazmadan kullanılıyor. Bridge'i `build.rs` derleme sırasında üretiyor; elle yazılan tek şey 59 satırlık bir `ferrobridge.toml` ([`demo/ap_math/`](demo/ap_math/README.md)):
+ArduPilot's math library is used from Rust without writing a bridge or `unsafe` by hand. `build.rs` generates the bridge during the build; the only hand-written thing is a 59-line `ferrobridge.toml` ([`demo/ap_math/`](demo/ap_math/README.md)):
 
 ```rust
 use ferrobridge_demo_ap_math::{self as ap, Quaternion, Rotation, Vector3f};
 
-let a = Vector3f { x: 1.0, y: 2.0, z: 2.0 };              // C++ `Vector3<float>`, gerçek Rust struct'ı
-let b = a + Vector3f { x: 0.0, y: 1.0, z: 0.0 } * 2.0;    // C++ operatörleri, `std::ops` ile
+let a = Vector3f { x: 1.0, y: 2.0, z: 2.0 };              // C++ `Vector3<float>`, a real Rust struct
+let b = a + Vector3f { x: 0.0, y: 1.0, z: 0.0 } * 2.0;    // C++ operators, through `std::ops`
 let mut q = Quaternion::new_noargs();
 q.from_euler_f32_f32_f32(0.0, 0.0, std::f32::consts::FRAC_PI_2);
-let nose = q * Vector3f { x: 1.0, y: 0.0, z: 0.0 };       // quaternion × vektör
+let nose = q * Vector3f { x: 1.0, y: 0.0, z: 0.0 };       // quaternion × vector
 let mut accel = Vector3f { x: 0.0, y: 0.0, z: -9.80665 };
-accel.rotate(Rotation::ROTATION_ROLL_180);                // başka header'daki enum
-let crc = !ap::crc_crc32(!0, b"123456789")?;              // `const uint8_t*` + uzunluk → `&[u8]`
+accel.rotate(Rotation::ROTATION_ROLL_180);                // an enum from another header
+let crc = !ap::crc_crc32(!0, b"123456789")?;              // `const uint8_t*` + length → `&[u8]`
 ```
 
 ```text
 $ ARDUPILOT_DIR=~/ardupilot cargo run --manifest-path demo/ap_math/Cargo.toml --example tour
-2) Yönelim: Euler açılarından quaternion, vektör döndürme
-   burun (gövde) Vector3f { x: 1.000, y: 0.000, z: 0.000 } → (yer) Vector3f { x: 0.000, y: 1.000, z: 0.000 }
-   geri: roll 0.0°, pitch 0.0°, yaw 90.0°
-5) CRC: `&[u8]` girer, uzunluk taşarsa `Err` (sessiz kırpma yok)
+2) Orientation: quaternion from Euler angles, rotating a vector
+   nose (body) Vector3f { x: 1.000, y: 0.000, z: 0.000 } → (earth) Vector3f { x: 0.000, y: 1.000, z: 0.000 }
+   back: roll 0.0°, pitch 0.0°, yaw 90.0°
+5) CRC: `&[u8]` in, `Err` if the length overflows (no silent truncation)
    CRC-32("123456789") = 0xcbf43926
-   crc_crc8(300 bayt) → Err: crc_crc8: `p` uzunluk parametresinin tipine (unsigned char) sığmayacak kadar uzun
+   crc_crc8(300 bytes) → Err: crc_crc8: `p` is too long for the type of its length parameter (unsigned char)
 ```
 
-`AP_Math` API'sinin yaklaşık %82'si bağlanıyor. Bağlanmayanlar (fonksiyon template'leri, sınır denetimsiz `operator[]`...) nedenleriyle listeleniyor.
+About 82% of the `AP_Math` API is bound. What is not bound (function templates, `operator[]` without bounds checks...) is listed with reasons.
 
-## Gereksinimler
+## Requirements
 
-- Rust (edition 2024, en az 1.85)
-- LLVM / libclang **16 veya üstü**
-- C++17 derleyicisi (üretilen kodu derlemek için)
+- Rust (edition 2024, at least 1.85)
+- LLVM / libclang **16 or later**
+- A C++17 compiler (to compile the generated code)
 
 ```bash
 brew install llvm
 export LIBCLANG_PATH="$(brew --prefix llvm)/lib"
 ```
 
-Ortamı kontrol etmek için:
+To check the environment:
 
 ```bash
 cargo run -p ferrobridge-cli -- doctor
 ```
 
-## Kullanım
+## Usage
 
-### Bridge üretmek
+### Generating a bridge
 
 ```bash
 cargo run -p ferrobridge-cli -- generate include/vehicle.h --out-dir src/ffi \
   --include-as vehicle.h --shim-namespace ferrobridge::vehicle -- -I include
 ```
 
-`src/ffi/` altına üç dosya yazılır:
+Three files are written under `src/ffi/`:
 
-| Dosya | İçerik |
+| File | Contents |
 |---|---|
-| `bridge.rs` | Güvenli Rust API'si (sarmalayıcılar, metotlar, gerçek `enum`'lar, serbest fonksiyonlar) ve altındaki ham `#[cxx::bridge] pub mod ffi` |
-| `shim.h`, `shim.cc` | cxx'in doğrudan çağıramadıkları için C++ yardımcıları: constructor fabrikaları (`Vehicle_new_i32`), statik metotlar, değerle dönen sınıf/`std::string`/`std::vector` sarmalayıcıları, açıklamalı pointer'lar ve bütün C++ exception'larını `Err`'e çeviren işleyici |
+| `bridge.rs` | The safe Rust API (wrappers, methods, real `enum`s, free functions) and the raw `#[cxx::bridge] pub mod ffi` under it |
+| `shim.h`, `shim.cc` | C++ helpers for what cxx cannot call directly: constructor factories (`Vehicle_new_i32`), static methods, wrappers for classes/`std::string`/`std::vector` returned by value, annotated pointers, and a handler that turns every C++ exception into `Err` |
 
-Bağlanamayan her öğe uyarı olarak basılır ve üretilen dosyaların başında nedeniyle listelenir; hiçbir şey sessizce atlanmaz. Üretilen dosyalar commit'lenir ve elle düzenlenmez (ADR-0004). `generate`, ferrobridge'in üretmediği bir dosyanın üzerine `--force` olmadan yazmaz.
+Every item that cannot be bound is printed as a warning and listed with its reason at the top of the generated files; nothing is skipped silently. Generated files are committed and not edited by hand (ADR-0004). `generate` does not overwrite a file ferrobridge did not generate unless `--force` is given.
 
-Üretilen `bridge.rs`'i bir modül olarak dahil edin ve crate'inize `cxx` ile `ferrobridge` (çalışma zamanı: ortak hata tipi) bağımlılıklarını ekleyin:
+Include the generated `bridge.rs` as a module and add `cxx` and `ferrobridge` (the runtime: a shared error type) as dependencies of your crate:
 
 ```rust
 #[path = "ffi/bridge.rs"]
 pub mod vehicle;
 ```
 
-C++ tarafını `build.rs`'te `ferrobridge-build` derler (`[build-dependencies]`). `ferrobridge-e2e/build.rs` aynı yolu kullanır:
+The C++ side is compiled in `build.rs` by `ferrobridge-build` (`[build-dependencies]`). `ferrobridge-e2e/build.rs` uses the same path:
 
 ```rust
 // build.rs
@@ -83,26 +83,26 @@ fn main() {
     let mut build = ferrobridge_build::Build::new();
     build
         .committed("src/ffi")         // bridge.rs, shim.h, shim.cc
-        .include_dir("include")       // `--include-as vehicle.h` buradan çözülür
-        .include_dir("src/ffi")       // bridge'in `include!("shim.h")`'si (varsayılan `--shim-include`)
-        .file("cpp/vehicle.cc");      // kütüphanenin gerçeklemesi
+        .include_dir("include")       // `--include-as vehicle.h` is resolved from here
+        .include_dir("src/ffi")       // the bridge's `include!("shim.h")` (the default `--shim-include`)
+        .file("cpp/vehicle.cc");      // the library's implementation
     if let Err(error) = build.compile("vehicle") {
         panic!("{error}");
     }
 }
 ```
 
-Bir bridge birden fazla header'dan üretilebilir: `ferrobridge generate a.h b.h ...` (header başına bir `--include-as`). Bir header'da tanımlı tip diğerlerinin fonksiyonlarında kullanılabilir. Bridge'e eklenmemiş bir header'daki tip atlanır, mesaj hangi header'ı ekleyeceğinizi söyler (ADR-0009).
+A bridge can be generated from several headers: `ferrobridge generate a.h b.h ...` (one `--include-as` per header). A type defined in one header can be used in the functions of the others. A type from a header not added to the bridge is skipped, and the message tells you which header to add (ADR-0009).
 
-Header kendi başına derlenmiyorsa (başka bir header'dan önce include edilmesi gerekiyorsa) `--prelude <header>` verin; hem libclang hem shim onu önce include eder.
+If a header does not compile on its own (it must be included after another header), pass `--prelude <header>`; both libclang and the shim include it first.
 
-Üretilmiş dosyaları commit'leyemiyorsanız (ör. kütüphanenin lisansı yüzünden), `ferrobridge-build`'in `generate` özelliği header'ı derleme sırasında okuyup bridge'i `OUT_DIR`'e üretir. Bu mod her derlemede libclang ister (ADR-0008):
+If you cannot commit generated files (e.g. because of the library's license), the `generate` feature of `ferrobridge-build` reads the header during the build and generates the bridge into `OUT_DIR`. This mode needs libclang on every build (ADR-0008):
 
 ```rust
 // build.rs (ferrobridge-build = { ..., features = ["generate"] })
 build.generate(
-    ferrobridge_build::Generate::new("include/vehicle.h", "vehicle")
-        .include_as("vehicle.h")
+    ferrobridge_build::Generate::new("vehicle")
+        .header("include/vehicle.h")
         .config("ferrobridge.toml"),
 );
 
@@ -112,78 +112,78 @@ pub mod vehicle {
 }
 ```
 
-Rust tarafında hiç `unsafe`, `Pin` ya da cxx tipi gerekmez (gerçek fixture'larla derlenen kopyası: `crates/ferrobridge-e2e/tests/readme.rs`):
+No `unsafe`, `Pin` or cxx type is needed on the Rust side (a copy compiled with the real fixtures: `crates/ferrobridge-e2e/tests/readme.rs`):
 
 ```rust
 use vehicle::{Vehicle, Mode};
 
 fn main() -> ferrobridge::Result<()> {
-    let mut car = Vehicle::new_i32(4)?;           // C++ constructor; sahip olan sarmalayıcı
+    let mut car = Vehicle::new_i32(4)?;           // C++ constructor; an owning wrapper
     car.drive(12.5)?;                             // &mut self; C++ exception → Err
-    let km = car.odometer();                      // noexcept → doğrudan değer
-    let text: String = vehicle::greet("Ada")?;    // &str girer, String çıkar
-    match vehicle::next(Mode::Auto)? {            // gerçek Rust enum'u, kapsam denetimli
+    let km = car.odometer();                      // noexcept → a plain value
+    let text: String = vehicle::greet("Ada")?;    // &str in, String out
+    match vehicle::next(Mode::Auto)? {            // a real Rust enum, checked for exhaustiveness
         Mode::Manual | Mode::Auto | Mode::Hybrid => {}
     }
     Ok(())
 }
 ```
 
-| C++ | Güvenli API |
+| C++ | Safe API |
 |---|---|
-| Constructor, değerle dönen sınıf | Sahip olan sarmalayıcı `T` (düşünce C++ destructor'ı çalışır) |
-| Bütün alanları public, bit bit kopyalanabilen sınıf (`struct Pt { double x, y; }`) | Değer tipi: `#[repr(C)]` Rust struct'ı, alanlar doğrudan, değerle geçer, metotlar `&self`/`&mut self`. Düzen C++'ta `static_assert` ile doğrulanır (ADR-0010) |
-| Üye operatörler (`+ - * / %`, `+=`..., `==`, tekli `-`) | Değer tiplerinde `std::ops` trait'leri (hata dönmüyorsa), her durumda adlı metotlar (`op_add`). `operator[]` bağlanmaz: sınır denetimi yok |
-| Sınıf template'i (`[templates]` ile örneklenmiş) | Örneklemesi (`Vector3f`), diğer sınıflar gibi; değer tipi de olabilir |
-| `owned` pointer, `std::unique_ptr<T>` dönüşü | `Option<T>` |
-| Metotlar | `&self` / `&mut self`; ödünç nesnelerde (`&ffi::T`, `Pin<&mut ffi::T>`) aynı metotlar |
-| `const std::string&` / `std::string` dönüşü | `&str` / `String` (geçersiz UTF-8 → `Err`) |
-| `const std::vector<T>&` (T sayı) / değerle dönen vector | `&[T]` / `Vec<T>`, `Vec<String>` (kopyalanır) |
-| `enum` | Gerçek Rust `enum`'u; C++'tan tanımsız değer → `Err` |
-| `const`/`constexpr` sayı ve `bool` sabitleri | `pub const` (değer üretim anında hesaplanır; tamsayılar C++ derlemesinde `static_assert` ile yeniden doğrulanır) |
-| Tanımı header'da olan `static inline` fonksiyon | Sıradan güvenli fonksiyon |
-| Exception fırlatabilen her şey | `ferrobridge::Result<T>`; hata C++ öğesinin adını taşır (`geo::Vehicle::break_down: motor arızası`) |
+| Constructor, class returned by value | An owning wrapper `T` (the C++ destructor runs when it is dropped) |
+| A trivially copyable class with all fields public (`struct Pt { double x, y; }`) | A value type: a `#[repr(C)]` Rust struct, fields directly, passed by value, methods take `&self`/`&mut self`. The layout is checked in C++ with `static_assert` (ADR-0010) |
+| Member operators (`+ - * / %`, `+=`..., `==`, unary `-`) | `std::ops` traits on value types (when they do not return errors), named methods (`op_add`) in every case. `operator[]` is not bound: no bounds checks |
+| A class template (instantiated with `[templates]`) | Its instantiation (`Vector3f`), like other classes; can also be a value type |
+| An `owned` pointer, a `std::unique_ptr<T>` return | `Option<T>` |
+| Methods | `&self` / `&mut self`; the same methods on borrowed objects (`&ffi::T`, `Pin<&mut ffi::T>`) |
+| `const std::string&` / a `std::string` return | `&str` / `String` (invalid UTF-8 → `Err`) |
+| `const std::vector<T>&` (T a number) / a vector returned by value | `&[T]` / `Vec<T>`, `Vec<String>` (copied) |
+| `enum` | A real Rust `enum`; an undefined value from C++ → `Err` |
+| `const`/`constexpr` number and `bool` constants | `pub const` (the value is computed at generation time; integers are re-checked with `static_assert` in the C++ build) |
+| A `static inline` function defined in the header | An ordinary safe function |
+| Anything that can throw | `ferrobridge::Result<T>`; the error carries the C++ item's name (`geo::Vehicle::break_down: engine failure`) |
 
-Değiştirilebilir `std::string&` / `std::vector<T>&` ve sınıf elemanlı vector'ler cxx tipleri olarak kalır: kopyala-geri yaz, C++ referansı saklıyorsa sessizce yanlış olurdu. Ham cxx katmanı `vehicle::ffi` altında kaçış kapısı olarak durur (metotlar `raw_<ad>`). Sarmalayıcıyı `&ffi::T` bekleyen bir fonksiyona `&araba` diye verebilirsiniz (deref coercion); bunun için değer bir değişkene bağlı olmalı. Tasarım: ADR-0007.
+Mutable `std::string&` / `std::vector<T>&` and vectors of classes stay as cxx types: copy-and-write-back would be silently wrong if C++ keeps the reference. The raw cxx layer stays under `vehicle::ffi` as an escape hatch (its methods are `raw_<name>`). You can pass the wrapper to a function expecting `&ffi::T` as `&car` (deref coercion); for that the value must be bound to a variable. Design: ADR-0007.
 
-Adlandırma kuralları (overload'lar için `clamp_i32_i32_i32`, namespace çakışmaları için `geo_length`, constructor'lar için `Vehicle::new_i32`) ADR-0005'te. Gerçek bir örnek için `crates/ferrobridge-e2e/`.
+The naming rules (`clamp_i32_i32_i32` for overloads, `geo_length` for namespace clashes, `Vehicle::new_i32` for constructors) are in ADR-0005. For a real example, see `crates/ferrobridge-e2e/`.
 
-### Sahiplik açıklamaları (`ferrobridge.toml`)
+### Ownership annotations (`ferrobridge.toml`)
 
-C++ header'ı bir pointer'ın sahibini ve ömrünü söylemez; ferrobridge bunu **tahmin etmez**. Ham pointer (`T*`) ve const olmayan primitif referans (`double& out`) içeren öğeler, siz açıklayana kadar bağlanmaz. Açıklama bekleyen yerler için taslak:
+A C++ header does not say who owns a pointer or how long it lives; ferrobridge **does not guess**. Items with raw pointers (`T*`) and non-const primitive references (`double& out`) are not bound until you annotate them. A draft for the places waiting for annotations:
 
 ```bash
 cargo run -p ferrobridge-cli -- suggest include/vehicle.h > ferrobridge.toml
 ```
 
-Taslaktaki değerler yorum satırıdır. C++ kütüphanesini bilerek, emin olduğunuz satırları açın:
+The values in the draft are comments. Knowing the C++ library, enable the lines you are sure of:
 
 ```toml
-# Dönen pointer `new` ile ayrıldı; silmek çağırana düşüyor.
+# The returned pointer was allocated with `new`; deleting it is up to the caller.
 [functions."geo::make_widget"]
 returns = "owned"
 
-# Dönen pointer nesnenin sahip olduğu bir şeyi gösteriyor; nesne yaşadıkça geçerli.
+# The returned pointer points to something the object owns; valid while the object lives.
 [functions."geo::Widget::child"]
 returns = "borrowed"
 
-# Yalnızca çağrı süresince kullanılıyor, saklanmıyor, null değil, tek bir nesne (dizi değil).
+# Used only during the call, not kept, not null, a single object (not an array).
 [functions."geo::Widget::attach".params]
 target = "borrowed"
 
 [functions."geo::Vehicle::read_odometer".params]
 out = "borrowed"
 
-# `p`, `len` parametresi kadar elemanlık bir dizi; yalnızca çağrı süresince kullanılıyor.
+# `p` is an array with as many elements as the `len` parameter; used only during the call.
 [functions."crc_crc8".params]
 p = { slice = "len" }
 
-# Sınıf template'lerini somut tiplerle örnekle (kütüphanenin gerçekten örneklediği tipler).
+# Instantiate class templates with concrete types (types the library really instantiates).
 [templates]
 Vector3f = "Vector3<float>"
 
-# Kütüphane exception fırlatmıyor (ör. `-fno-exceptions`): fonksiyonlar `Result` yerine
-# doğrudan değer döndürür. Söz bozulursa program sonlanır, tanımsız davranış olmaz (ADR-0011).
+# The library does not throw exceptions (e.g. `-fno-exceptions`): functions return values
+# directly instead of `Result`. If the promise is broken, the program ends; no undefined behavior (ADR-0011).
 [library]
 exceptions = false
 ```
@@ -192,36 +192,36 @@ exceptions = false
 cargo run -p ferrobridge-cli -- generate include/vehicle.h --out-dir src/ffi --config ferrobridge.toml
 ```
 
-| C++ | Açıklama | Rust |
+| C++ | Annotation | Rust |
 |---|---|---|
-| `T* f()` (T: sınıf, `std::string`, `std::vector`) | `returns = "owned"` | `UniquePtr<T>` (null → boş `UniquePtr`) |
-| `T* m()` (metot) | `returns = "borrowed"` | `Result<&T>` / `Result<Pin<&mut T>>`, ömrü nesneye bağlı; null → `Err` |
-| `double& m()` (metot) | `returns = "borrowed"` | `&mut f64` |
-| `f(const T* p)` / `f(T* p)` | `p = "borrowed"` | `&T` / `Pin<&mut T>` (primitifte `&mut f64`) |
+| `T* f()` (T: class, `std::string`, `std::vector`) | `returns = "owned"` | `UniquePtr<T>` (null → an empty `UniquePtr`) |
+| `T* m()` (method) | `returns = "borrowed"` | `Result<&T>` / `Result<Pin<&mut T>>`, its lifetime tied to the object; null → `Err` |
+| `double& m()` (method) | `returns = "borrowed"` | `&mut f64` |
+| `f(const T* p)` / `f(T* p)` | `p = "borrowed"` | `&T` / `Pin<&mut T>` (`&mut f64` for primitives) |
 | `f(double& out)` | `out = "borrowed"` | `&mut f64` |
-| `f(const uint8_t* p, uint8_t len)` / `f(float* p, size_t n)` | `p = { slice = "len" }` | `f(p: &[u8])` / `f(p: &mut [f32])`; uzunluk Rust imzasından kalkar. Slice C++ uzunluk tipine sığmazsa `Err` (sessiz kırpma yok) |
+| `f(const uint8_t* p, uint8_t len)` / `f(float* p, size_t n)` | `p = { slice = "len" }` | `f(p: &[u8])` / `f(p: &mut [f32])`; the length leaves the Rust signature. If the slice does not fit the C++ length type, `Err` (no silent truncation) |
 
-Boş bir Rust slice'ı C++'a null olmayan (ama okunmaması gereken) bir pointer ve `0` uzunlukla gelir; C++ `p == nullptr`'a ayrıca bakıyorsa farklı davranabilir.
+An empty Rust slice reaches C++ as a non-null pointer (that must not be read) with length `0`; if C++ also checks `p == nullptr`, it may behave differently.
 
-Tanımı header'da olan `static` / `static inline` fonksiyonlar bridge'in kendi çeviri biriminde derlenir. Gövdelerinde `static` yerel değişken varsa Rust'tan yapılan çağrılar, C++ kütüphanesinin kendi kopyasından ayrı bir duruma bakar (tanımsız davranış değil, ama durum paylaşılmaz).
+`static` / `static inline` functions defined in the header are compiled in the bridge's own translation unit. If their bodies have `static` local variables, calls from Rust see a separate state from the C++ library's own copy (not undefined behavior, but the state is not shared).
 
-Anahtar tam C++ adıdır (constructor için `ns::Sınıf::Sınıf`; isimsiz parametreler `arg0`, `arg1`...) ve aynı adlı **bütün overload'lara** uygulanır. Bu durumda bir uyarı basılır.
+The key is the full C++ name (`ns::Class::Class` for a constructor; unnamed parameters are `arg0`, `arg1`...) and applies to **all overloads** with that name. A warning is printed in that case.
 
-> ⚠️ ferrobridge, C++ fonksiyonlarının ön koşullarını bilemez: ön koşulu bozulunca tanımsız davranışa giren bir C++ fonksiyonu, güvenli Rust'tan çağrılınca da girer. Bu, bütün bağlama araçlarının sınırı. ferrobridge pointer ve uzunlukları slice yapar, null dönüşleri `Err` yapar, denetimsiz `operator[]`'yi bağlamaz.
+> ⚠️ ferrobridge cannot know the preconditions of C++ functions: a C++ function that has undefined behavior when its precondition is broken has it when called from safe Rust too. This is a limit of every binding tool. ferrobridge turns pointers and lengths into slices, turns null returns into `Err`, and does not bind `operator[]` without bounds checks.
 
-> ⚠️ Her açıklama, C++ kütüphanesi hakkında verdiğiniz bir **sözdür**, tıpkı Rust'taki `unsafe` bloğu gibi. Söz yanlışsa (ör. `owned` dediğiniz nesne `new` ile ayrılmamışsa) üretilen kod tanımsız davranışa yol açabilir. Kullanılan her söz, üretilen dosyaların başında "Açıklamaya dayanan varsayımlar" olarak listelenir. ferrobridge ucuz olan kontrolleri yine de yapar. Ödünç dönüş null gelirse referans yerine `Err` döner. Destructor'ı public olmayan sınıflar için `UniquePtr` üretilmez. Polimorfik bir sınıfın destructor'ı sanal değilse `owned` reddedilir.
+> ⚠️ Every annotation is a **promise** you make about the C++ library, just like an `unsafe` block in Rust. If the promise is wrong (e.g. an object you declared `owned` was not allocated with `new`), the generated code can cause undefined behavior. Every promise used is listed at the top of the generated files under "Assumptions based on annotations". ferrobridge still does the cheap checks. If a borrowed return is null, `Err` is returned instead of a reference. No `UniquePtr` is generated for classes whose destructor is not public. `owned` is rejected if a polymorphic class's destructor is not virtual.
 
-Header'da karşılığı olmayan açıklamalar (yazım hatası, olmayan parametre) satır numarasıyla hata verir. Açıklama gerektirmeyen yere yazılan açıklama uyarı verir. Karar: ADR-0006.
+Annotations with no counterpart in the header (a typo, a nonexistent parameter) are errors with a line number. An annotation on a place that needs none is a warning. Decision: ADR-0006.
 
-### Header'ı incelemek
+### Inspecting a header
 
-Bir header'ın içinde ne bulunduğunu görmek için:
+To see what is inside a header:
 
 ```bash
 cargo run -p ferrobridge-cli -- parse tests/fixtures/free_functions/input.h
 ```
 
-Çıktı, header'daki fonksiyonları, sınıfları ve enum'ları içeren girintili JSON'dur (IR). Henüz desteklenmeyen yapılar (template, union...) atlanmaz; `"kind": "unsupported"` öğesi olarak nedenleriyle listelenir. clang'a ek argüman vermek için `--` kullanın:
+The output is indented JSON (the IR) containing the functions, classes and enums in the header. Constructs not supported yet (templates, unions...) are not skipped; they are listed as `"kind": "unsupported"` items with their reasons. Use `--` to pass extra arguments to clang:
 
 ```bash
 cargo run -p ferrobridge-cli -- parse include/mylib.h --std c++20 -- -I include -DMYLIB_EXPORT=
@@ -229,35 +229,33 @@ cargo run -p ferrobridge-cli -- parse include/mylib.h --std c++20 -- -I include 
 
 ## Workspace
 
-| Crate | Görev |
+| Crate | Role |
 |---|---|
-| `ferrobridge-ir` | Dilden bağımsız ara model (başka ferrobridge crate'ine bağımlı değil) |
-| `ferrobridge-parser` | libclang ile C++ header okuma |
-| `ferrobridge-analysis` | Neyin güvenle bağlanabileceğine karar verir (güvenlik kuralları), Rust adlarını atar |
-| `ferrobridge-codegen` | Güvenli Rust API, cxx bridge ve C++ shim üretimi |
-| `ferrobridge` | Üretilen kodun çalışma zamanı: `ferrobridge::Error` ve dönüşüm yardımcıları (yalnızca `cxx`'e bağlı, `unsafe` yok) |
-| `ferrobridge-build` | `build.rs` içinden çağrılan API: commit'li bridge'leri ya da (`generate` özelliği) derleme sırasında üretilenleri derler |
-| `ferrobridge-cli` | `ferrobridge` komut satırı aracı (`doctor`, `parse`, `generate`, `suggest`) |
-| `ferrobridge-e2e` | Uçtan uca testler: üretilen bridge'ler gerçek C++ ile derlenip Rust'tan çağrılır |
+| `ferrobridge-ir` | The language-independent intermediate model (depends on no other ferrobridge crate) |
+| `ferrobridge-parser` | Reads C++ headers with libclang |
+| `ferrobridge-analysis` | Decides what can be bound safely (the safety rules), assigns Rust names |
+| `ferrobridge-codegen` | Generates the safe Rust API, the cxx bridge and the C++ shim |
+| `ferrobridge` | The runtime of the generated code: `ferrobridge::Error` and conversion helpers (depends only on `cxx`, no `unsafe`) |
+| `ferrobridge-build` | The API called from `build.rs`: compiles committed bridges or (with the `generate` feature) those generated during the build |
+| `ferrobridge-cli` | The `ferrobridge` command-line tool (`doctor`, `parse`, `generate`, `suggest`) |
+| `ferrobridge-e2e` | End-to-end tests: generated bridges are compiled with real C++ and called from Rust |
 
-`demo/ap_math/` kök workspace'in parçası değildir: ArduPilot'a bağlandığı için GPL-3.0-or-later lisanslı ayrı bir crate (ADR-0008).
+`demo/ap_math/` is not part of the root workspace: because it links against ArduPilot, it is a separate crate licensed GPL-3.0-or-later (ADR-0008).
 
-Test fixture'ları `tests/fixtures/<konu>/input.h` altında, beklenen çıktılar `crates/*/tests/snapshots/` altında [insta](https://insta.rs) snapshot'ı olarak tutulur. Çıktı değiştiğinde `cargo insta review` ile inceleyin.
+Test fixtures are under `tests/fixtures/<topic>/input.h`, and the expected outputs are kept as [insta](https://insta.rs) snapshots under `crates/*/tests/snapshots/`. When the output changes, review it with `cargo insta review`.
 
-## Belgeler
+## Documents
 
-- Gereksinimler: [`.claude/prds/ferrobridge.prd.md`](.claude/prds/ferrobridge.prd.md)
-- Mimari kararlar: [`docs/adr/`](docs/adr/README.md)
+- Requirements: [`.claude/prds/ferrobridge.prd.md`](.claude/prds/ferrobridge.prd.md)
+- Architecture decisions: [`docs/adr/`](docs/adr/README.md)
 
-## Lisans
+## License
 
-ferrobridge açık kaynaktır ve iki lisansın birini seçebileceğiniz şekilde dağıtılır:
+ferrobridge is open source and distributed under your choice of either of two licenses:
 
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
 - MIT license ([LICENSE-MIT](LICENSE-MIT))
 
-### Katkı
-
-Aksi açıkça belirtilmedikçe, Apache-2.0 lisansında tanımlandığı şekliyle bu projeye dahil edilmek üzere bilerek gönderdiğiniz her katkı, ek şart veya koşul olmadan yukarıdaki gibi çift lisanslanır.
+### Contribution
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.

@@ -1,36 +1,36 @@
-# ADR-NNNN: [Karar başlığı]
+# ADR-NNNN: [Decision title]
 
-**Tarih**: YYYY-MM-DD
-**Durum**: proposed | accepted | deprecated | superseded by ADR-NNNN
-**Karar verenler**: [kimler]
+**Date**: YYYY-MM-DD
+**Status**: proposed | accepted | deprecated | superseded by ADR-NNNN
+**Deciders**: [who]
 
-## Bağlam
+## Context
 
-[2–5 cümle: durum, kısıtlar ve etkenler]
+[2–5 sentences: the situation, constraints and forces]
 
-## Karar
+## Decision
 
-[1–3 cümle: kararın açık ifadesi]
+[1–3 sentences: a clear statement of the decision]
 
-## Değerlendirilen alternatifler
+## Alternatives considered
 
-### Alternatif 1: [Ad]
-- **Artıları**:
-- **Eksileri**:
-- **Neden seçilmedi**:
+### Alternative 1: [Name]
+- **Pros**:
+- **Cons**:
+- **Why not chosen**:
 
-### Alternatif 2: [Ad]
-- **Artıları**:
-- **Eksileri**:
-- **Neden seçilmedi**:
+### Alternative 2: [Name]
+- **Pros**:
+- **Cons**:
+- **Why not chosen**:
 
-## Sonuçlar
+## Consequences
 
-### Olumlu
+### Positive
 -
 
-### Olumsuz
+### Negative
 -
 
-### Riskler
-- [risk ve önlem]
+### Risks
+- [risk and mitigation]

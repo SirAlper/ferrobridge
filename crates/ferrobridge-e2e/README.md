@@ -1,8 +1,8 @@
 # ferrobridge-e2e
 
-Uçtan uca testler: `ferrobridge generate`'in ürettiği bridge'ler gerçek C++ koduyla derlenir ve Rust testlerinden çağrılır. Elle yazılmış bridge veya `unsafe` yoktur.
+End-to-end tests: the bridges produced by `ferrobridge generate` are compiled together with real C++ code and called from Rust tests. There are no hand-written bridges and no `unsafe`.
 
-| Fixture | C++ | Üretilmiş dosyalar | Testler |
+| Fixture | C++ | Generated files | Tests |
 |---|---|---|---|
 | classes | `tests/fixtures/classes/{input.h,impl.cc}` | `src/generated/classes/` | `tests/classes.rs` |
 | enums | `tests/fixtures/enums/{input.h,impl.cc}` | `src/generated/enums/` | `tests/enums.rs` |
@@ -16,9 +16,9 @@ Uçtan uca testler: `ferrobridge generate`'in ürettiği bridge'ler gerçek C++ 
 | no_exceptions | `tests/fixtures/no_exceptions/{input.h,impl.cc,ferrobridge.toml}` | `src/generated/no_exceptions/` | `tests/no_exceptions.rs` |
 | multi_header | `tests/fixtures/multi_header/{geometry.h,input.h,impl.cc}` | `src/generated/multi_header/` | `tests/multi_header.rs` |
 
-## Üretilmiş dosyaları yenilemek
+## Regenerating the generated files
 
-`src/generated/` elle düzenlenmez. Üretici değişince ya da fixture header'ları değişince depo kökünden:
+`src/generated/` is never edited by hand. When the generator or a fixture header changes, run this from the repository root:
 
 ```bash
 for f in classes enums strings ownership vectors slices inline_and_constants multi_header value_types operators no_exceptions; do
@@ -31,6 +31,6 @@ for f in classes enums strings ownership vectors slices inline_and_constants mul
 done
 ```
 
-Fixture dizinindeki bütün `.h` dosyaları (alt dizinler hariç) bridge'in header'larıdır; çoğunda yalnızca `input.h` var. Fixture'ın yanında `ferrobridge.toml` varsa `--config` ile verilir (şu an `ownership`, `slices`, `value_types` ve `no_exceptions`). Yeni fixture eklerken `build.rs`'teki `FIXTURES` listesini ve `ferrobridge-cli/tests/generate.rs`'teki `E2E_FIXTURES` listesini birlikte güncelleyin.
+All `.h` files in a fixture directory (not subdirectories) are the bridge's headers; most fixtures have only `input.h`. If a fixture has a `ferrobridge.toml` next to it, it is passed with `--config` (currently `ownership`, `slices`, `value_types` and `no_exceptions`). When adding a fixture, update both the `FIXTURES` list in `build.rs` and the `E2E_FIXTURES` list in `ferrobridge-cli/tests/generate.rs`.
 
-`ferrobridge-cli`'deki `generated_files_match_the_committed_e2e_files` testi, commit'li dosyalar üreticinin güncel çıktısından farklıysa başarısız olur.
+The `generated_files_match_the_committed_e2e_files` test in `ferrobridge-cli` fails when the committed files differ from the generator's current output.

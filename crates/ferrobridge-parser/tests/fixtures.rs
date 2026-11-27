@@ -1,9 +1,9 @@
-//! `tests/fixtures/<ad>/input.h` dosyalarını okuyup IR'ı JSON snapshot olarak karşılaştırır.
+//! Reads the `tests/fixtures/<name>/input.h` files and compares the IR as JSON snapshots.
 //!
-//! Snapshot'lar `tests/snapshots/` altında. Değişiklikleri `cargo insta review` ile inceleyin.
+//! The snapshots are under `tests/snapshots/`. Review changes with `cargo insta review`.
 
-// Bu dosya yalnızca test kodu; `clippy.toml`'daki test istisnası yardımcı fonksiyonları
-// kapsamadığı için burada açıkça izin veriliyor.
+// This file is test code only; the test exception in `clippy.toml` does not cover helper
+// functions, so it is allowed explicitly here.
 #![allow(clippy::unwrap_used)]
 
 use std::path::PathBuf;
@@ -17,11 +17,11 @@ fn fixture(name: &str) -> PathBuf {
         .join("input.h")
 }
 
-/// Platforma bağlı ayrıntılar snapshot'a girmez: sabit genişlikli tamsayıların temel adı
-/// (`uint64_t` glibc'de `unsigned long`, macOS'ta `unsigned long long`) ve standart kütüphane
-/// tipi içeren sınıfların düzeni (`std::string` libstdc++'ta 32, libc++'ta 24 bayt). Üretilen
-/// kod ikisine de bakmaz: analiz sabit genişlikte boyutu ve işareti kullanır, böyle sınıflar
-/// opak kalır.
+/// Platform-dependent details do not enter the snapshot: the underlying name of fixed-width integers
+/// (`uint64_t` is `unsigned long` in glibc, `unsigned long long` on macOS) and the layout of classes
+/// containing a standard library type (`std::string` is 32 bytes in libstdc++, 24 in libc++). The
+/// generated code looks at neither: analysis uses the fixed-width size and signedness, and such
+/// classes stay opaque.
 fn portable(module: &ferrobridge_ir::Module) -> serde_json::Value {
     fn walk(value: &mut serde_json::Value) {
         match value {
@@ -29,7 +29,7 @@ fn portable(module: &ferrobridge_ir::Module) -> serde_json::Value {
                 if map.get("kind").and_then(|k| k.as_str()) == Some("integer")
                     && map.get("fixed_width") == Some(&serde_json::Value::Bool(true))
                 {
-                    map.insert("builtin".to_owned(), "(platforma bağlı)".into());
+                    map.insert("builtin".to_owned(), "(platform-dependent)".into());
                 }
                 let has_std_field =
                     map.get("fields")
@@ -43,11 +43,11 @@ fn portable(module: &ferrobridge_ir::Module) -> serde_json::Value {
                             })
                         });
                 if has_std_field {
-                    map.insert("layout".to_owned(), "(platforma bağlı)".into());
+                    map.insert("layout".to_owned(), "(platform-dependent)".into());
                     if let Some(serde_json::Value::Array(fields)) = map.get_mut("fields") {
                         for field in fields {
                             if let serde_json::Value::Object(f) = field {
-                                f.insert("offset_bits".to_owned(), "(platforma bağlı)".into());
+                                f.insert("offset_bits".to_owned(), "(platform-dependent)".into());
                             }
                         }
                     }
@@ -117,7 +117,7 @@ fn destructors() {
 
 #[test]
 fn self_including_header_is_read_once() {
-    // Header ana dosya olarak verilseydi `#pragma once` işlemez, `Counter` iki kez tanımlanırdı.
+    // Had the header been given as the main file, `#pragma once` would not work and `Counter` would be defined twice.
     snapshot("self_include");
 }
 
@@ -136,11 +136,11 @@ fn prelude_is_included_before_the_header_but_not_lowered() {
 fn header_without_its_prelude_fails_to_parse() {
     let error = parse_header(&fixture("prelude"), &ParseOptions::default()).unwrap_err();
     let ParserError::ParseFailed { diagnostics } = &error else {
-        panic!("ParseFailed bekleniyordu, gelen: {error:?}");
+        panic!("ParseFailed was expected, got: {error:?}");
     };
     assert!(
         diagnostics.iter().all(|d| d.file.ends_with("input.h")),
-        "tanılar header'ı göstermeli: {diagnostics:?}"
+        "the diagnostics should point at the header: {diagnostics:?}"
     );
 }
 
@@ -189,7 +189,7 @@ fn an_instantiation_that_does_not_compile_names_its_entry() {
     )
     .unwrap_err();
     let ParserError::ParseFailed { diagnostics } = &error else {
-        panic!("ParseFailed bekleniyordu: {error:?}");
+        panic!("ParseFailed was expected: {error:?}");
     };
     let first = diagnostics[0].to_string();
     assert!(
@@ -215,12 +215,12 @@ fn an_instantiation_spelling_cannot_inject_code() {
 fn syntax_error_reports_diagnostics_with_line_numbers() {
     let error = parse_header(&fixture("syntax_error"), &ParseOptions::default()).unwrap_err();
     let ParserError::ParseFailed { diagnostics } = &error else {
-        panic!("ParseFailed bekleniyordu, gelen: {error:?}");
+        panic!("ParseFailed was expected, got: {error:?}");
     };
     assert!(!diagnostics.is_empty());
     let first = diagnostics[0].to_string();
-    assert!(first.contains("input.h:"), "konum yok: {first}");
-    assert_eq!(diagnostics[0].line, 4, "tanı: {first}");
+    assert!(first.contains("input.h:"), "no location: {first}");
+    assert_eq!(diagnostics[0].line, 4, "diagnostic: {first}");
 }
 
 #[test]
@@ -229,11 +229,11 @@ fn missing_file_is_reported() {
     let error = parse_header(&path, &ParseOptions::default()).unwrap_err();
     assert!(
         matches!(&error, ParserError::FileNotFound(p) if p == &path),
-        "beklenmeyen hata: {error:?}"
+        "unexpected error: {error:?}"
     );
 }
 
-/// Geçici bir header yazar ve okur.
+/// Writes a temporary header and reads it.
 fn parse_text(name: &str, text: &str) -> ferrobridge_ir::Module {
     let dir =
         std::env::temp_dir().join(format!("ferrobridge-parser-{}-{name}", std::process::id()));
@@ -247,8 +247,8 @@ fn parse_text(name: &str, text: &str) -> ferrobridge_ir::Module {
 
 #[test]
 fn chained_constants_are_checked_in_linear_time() {
-    // Her sabit bir öncekine iki kez dayanıyor: başlatıcılar her başvuruda yeniden gezilseydi
-    // 2^60 adım gerekirdi.
+    // Every constant depends on the previous one twice: if the initializers were walked again on
+    // every reference, 2^60 steps would be needed.
     let mut text = String::from("#pragma once\nconstexpr unsigned long long A0 = 1;\n");
     for i in 1..=60 {
         text.push_str(&format!(
@@ -260,7 +260,7 @@ fn chained_constants_are_checked_in_linear_time() {
     let module = parse_text("chain", &text);
     let last = module.items.last().unwrap();
     let ferrobridge_ir::Item::Constant(last) = last else {
-        panic!("sabit bekleniyordu: {last:?}");
+        panic!("a constant was expected: {last:?}");
     };
     assert_eq!(last.value, ferrobridge_ir::ConstantValue::Unsigned(1 << 60));
 }

@@ -7,6 +7,6 @@ void takes_plain(char a, signed char b, unsigned char c, short d, unsigned int e
 void takes_pointers(const int* in, float* out, const char* name);
 void takes_refs(const double& in, int& out, std::int64_t&& moved);
 
-// typedef zinciri: my_id -> std::int32_t
+// typedef chain: my_id -> std::int32_t
 typedef std::int32_t my_id;
 my_id next_id(my_id current);

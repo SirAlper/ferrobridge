@@ -19,7 +19,7 @@ void Vehicle::drive(double km) {
 int Vehicle::honk() const { return wheels_ * 10; }
 int Vehicle::max_wheels() { return 18; }
 
-void Vehicle::break_down() { throw std::runtime_error("motor arızası"); }
+void Vehicle::break_down() { throw std::runtime_error("engine failure"); }
 void Vehicle::throw_unknown() { throw 42; }
 
 Point Vehicle::position() const { return position_; }

@@ -17,7 +17,7 @@ uint32_t total(const uint8_t* bytes, uint8_t len) {
 
 int32_t checked_sqrt(int32_t x) {
     if (x < 0) {
-        throw std::domain_error("negatif sayının karekökü");
+        throw std::domain_error("square root of a negative number");
     }
     return static_cast<int32_t>(std::sqrt(x));
 }

@@ -1,42 +1,42 @@
-# ADR-0003: Açık kaynak, MIT OR Apache-2.0 çift lisansı
+# ADR-0003: Open source, dual licensed MIT OR Apache-2.0
 
-**Tarih**: 2026-11-26
-**Durum**: accepted
-**Karar verenler**: Alper (proje sahibi)
+**Date**: 2026-11-26
+**Status**: accepted
+**Deciders**: Alper (project owner)
 
-## Bağlam
+## Context
 
-Proje sahibi ferrobridge'in tamamen açık kaynak olacağını belirledi. PRD'de lisans açık soru olarak duruyordu. Hedef kullanıcılar ferrobridge'i kendi (çoğu zaman ticari) projelerinin build sürecine ekleyecek; bu yüzden lisansın şirketlerin hukuk birimlerinde sorun çıkarmaması gerekiyor. Üzerine inşa ettiğimiz cxx ve bindgen gibi araçlar Rust ekosisteminin standart lisansını kullanıyor.
+The project owner decided that ferrobridge will be fully open source. The license was an open question in the PRD. Target users will add ferrobridge to the build process of their own (often commercial) projects, so the license must not cause problems with companies' legal departments. Tools we build on, such as cxx and bindgen, use the standard license of the Rust ecosystem.
 
-## Karar
+## Decision
 
-Tüm crate'ler `MIT OR Apache-2.0` çift lisansıyla dağıtılır. Kökte `LICENSE-MIT` ve `LICENSE-APACHE` bulunur; README'de Rust projelerinde yaygın olan katkı maddesi yer alır (katkılar da aynı çift lisansla kabul edilir). crates.io yayını v0.1'e (Milestone 6) kadar `publish = false` ile kapalı kalır.
+All crates are distributed under the `MIT OR Apache-2.0` dual license. The root contains `LICENSE-MIT` and `LICENSE-APACHE`; the README contains the contribution clause common in Rust projects (contributions are accepted under the same dual license). Publishing to crates.io stays disabled with `publish = false` until v0.1.
 
-## Değerlendirilen alternatifler
+## Alternatives considered
 
-### Alternatif 1: Yalnızca MIT
-- **Artıları**: En kısa ve en basit lisans.
-- **Eksileri**: Açık patent lisansı yok.
-- **Neden seçilmedi**: Apache-2.0'ın patent maddesi kurumsal kullanıcılar için önemli; çift lisans ikisini de sunuyor.
+### Alternative 1: MIT only
+- **Pros**: The shortest and simplest license.
+- **Cons**: No explicit patent license.
+- **Why not chosen**: Apache-2.0's patent clause matters to corporate users; the dual license offers both.
 
-### Alternatif 2: Yalnızca Apache-2.0
-- **Artıları**: Patent koruması.
-- **Eksileri**: GPLv2 projeleriyle uyumsuz.
-- **Neden seçilmedi**: GPLv2 kod tabanlarıyla birlikte kullanım imkânını kapatmak istemiyoruz.
+### Alternative 2: Apache-2.0 only
+- **Pros**: Patent protection.
+- **Cons**: Incompatible with GPLv2 projects.
+- **Why not chosen**: We do not want to rule out use together with GPLv2 code bases.
 
-### Alternatif 3: Copyleft (GPL / MPL-2.0)
-- **Artıları**: Türev çalışmaların da açık kalmasını sağlar.
-- **Eksileri**: Bir build aracının ürettiği kodun ve kütüphanelerin lisans durumu kullanıcı için belirsizleşir; şirketlerde benimsenmeyi zorlaştırır.
-- **Neden seçilmedi**: Hedef, aracın mümkün olduğunca geniş kullanılması.
+### Alternative 3: copyleft (GPL / MPL-2.0)
+- **Pros**: Keeps derivative works open too.
+- **Cons**: The license status of code and libraries produced by a build tool becomes unclear to users; it makes adoption in companies harder.
+- **Why not chosen**: The goal is for the tool to be used as widely as possible.
 
-## Sonuçlar
+## Consequences
 
-### Olumlu
-- Rust ekosistemiyle (cxx, bindgen, Rust'ın kendisi) aynı lisans; kullanıcılar için sürpriz yok.
-- Kurumsal kullanıma ve GPLv2 projelerine açık.
+### Positive
+- The same license as the Rust ecosystem (cxx, bindgen, Rust itself); no surprises for users.
+- Open to corporate use and to GPLv2 projects.
 
-### Olumsuz
-- Başkaları kodu kapalı kaynak ürünlerde kullanabilir; değişikliklerini geri vermek zorunda değiller.
+### Negative
+- Others can use the code in closed-source products and do not have to give their changes back.
 
-### Riskler
-- **Üçüncü taraf kod ve fixture'lar (ör. ArduPilot `AP_Math`, GPLv3) repoya kopyalanırsa lisans karışır.** Önlem: GPL lisanslı kodu repoya **kopyalamıyoruz**; demo ve testler bu kodu dışarıdan (ör. git submodule veya indirme betiği) kullanır ve lisansı ayrıca belirtilir. Kendi yazdığımız küçük fixture header'ları çift lisans altındadır.
+### Risks
+- **Licenses get mixed if third-party code and fixtures (e.g. ArduPilot `AP_Math`, GPLv3) are copied into the repo.** Mitigation: we **do not copy** GPL-licensed code into the repo; demos and tests use that code from outside (e.g. a checkout pointed to by an environment variable) and state its license separately. The small fixture headers we write ourselves are under the dual license.

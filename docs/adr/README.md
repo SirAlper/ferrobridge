@@ -1,17 +1,17 @@
 # Architecture Decision Records
 
-Mimari kararların kaydı. Yeni ADR için `template.md` dosyasını kopyalayıp numarayı bir artırın. Obsidian'daki `rust/ferrobridge/03 Mimari` notunun ADR tablosu da güncellenmeli.
+The record of architecture decisions. For a new ADR, copy `template.md` and increment the number.
 
-| ADR | Başlık | Durum | Tarih |
-|-----|--------|-------|-------|
-| [0001](0001-libclang-via-clang-sys.md) | C++ header'larını okumak için libclang'ı `clang-sys` üzerinden kullanmak | accepted | 2026-11-26 |
-| [0002](0002-build-on-cxx.md) | Arka uç olarak `cxx` üstüne inşa etmek | accepted | 2026-11-26 |
-| [0003](0003-open-source-dual-license.md) | Açık kaynak, MIT OR Apache-2.0 çift lisansı | accepted | 2026-11-26 |
-| [0004](0004-generated-code-is-written-and-committed.md) | Üretilen kod dosyaya yazılır ve commit'lenir | accepted | 2026-11-27 |
-| [0005](0005-overload-and-collision-naming.md) | Overload ve ad çakışması adlandırma kuralı | accepted | 2026-11-27 |
-| [0006](0006-ownership-annotations-in-a-separate-toml-file.md) | Sahiplik açıklamaları ayrı bir TOML dosyasında | accepted | 2026-11-27 |
-| [0007](0007-safe-api-layer-over-cxx.md) | cxx katmanının üstünde güvenli API katmanı | accepted | 2026-11-27 |
-| [0008](0008-build-time-generation-for-gpl-demo.md) | Derleme sırasında üretim ve GPL'li demo | accepted | 2026-11-27 |
-| [0009](0009-multi-header-bridges-and-template-instantiation.md) | Çok header'lı bridge'ler ve template örnekleme | accepted | 2026-11-27 |
-| [0010](0010-trivially-copyable-classes-as-rust-value-types.md) | Bit bit kopyalanabilen sınıflar Rust değer tipi olur | accepted | 2026-11-27 |
-| [0011](0011-libraries-without-exceptions.md) | Exception kullanmayan kütüphaneler (`[library] exceptions = false`) | accepted | 2026-11-27 |
+| ADR | Title | Status | Date |
+|-----|-------|--------|------|
+| [0001](0001-libclang-via-clang-sys.md) | Use libclang through `clang-sys` to read C++ headers | accepted | 2026-11-26 |
+| [0002](0002-build-on-cxx.md) | Build on `cxx` as the backend | accepted | 2026-11-26 |
+| [0003](0003-open-source-dual-license.md) | Open source, dual licensed MIT OR Apache-2.0 | accepted | 2026-11-26 |
+| [0004](0004-generated-code-is-written-and-committed.md) | Generated code is written to files and committed | accepted | 2026-11-27 |
+| [0005](0005-overload-and-collision-naming.md) | Naming rule for overloads and name collisions | accepted | 2026-11-27 |
+| [0006](0006-ownership-annotations-in-a-separate-toml-file.md) | Ownership annotations in a separate TOML file | accepted | 2026-11-27 |
+| [0007](0007-safe-api-layer-over-cxx.md) | A safe API layer on top of the cxx layer | accepted | 2026-11-27 |
+| [0008](0008-build-time-generation-for-gpl-demo.md) | Build-time generation and the GPL demo | accepted | 2026-11-27 |
+| [0009](0009-multi-header-bridges-and-template-instantiation.md) | Multi-header bridges and template instantiation | accepted | 2026-11-27 |
+| [0010](0010-trivially-copyable-classes-as-rust-value-types.md) | Trivially copyable classes become Rust value types | accepted | 2026-11-27 |
+| [0011](0011-libraries-without-exceptions.md) | Libraries without exceptions (`[library] exceptions = false`) | accepted | 2026-11-27 |

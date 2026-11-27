@@ -1,8 +1,8 @@
-//! `tests/fixtures/operators`: değer tiplerinin operatörleri `std::ops` ile; diğerleri adlı
-//! metot.
+//! `tests/fixtures/operators`: operators of value types through `std::ops`; the others as named
+//! methods.
 
-// Bu dosya yalnızca test kodu; `clippy.toml`'daki test istisnası yardımcı fonksiyonları
-// kapsamadığı için burada açıkça izin veriliyor.
+// This file is test code only; the test exception in `clippy.toml` does not cover helper
+// functions, so it is allowed explicitly here.
 #![allow(clippy::unwrap_used)]
 
 use ferrobridge::Error;
@@ -20,9 +20,9 @@ fn arithmetic_operators_are_rust_operators() {
     assert_eq!((neg.x, neg.y), (-1.0, -2.0));
     let scaled = a * 2.0;
     assert_eq!((scaled.x, scaled.y), (2.0, 4.0));
-    // Aynı operatörün başka sağ tarafı: iç çarpım.
+    // Another right-hand side of the same operator: the dot product.
     assert_eq!(a * b, 13.0);
-    // `%` çapraz çarpım.
+    // `%` is the cross product.
     assert_eq!(a % b, -1.0);
 }
 
@@ -33,7 +33,7 @@ fn compound_assignment_and_equality() {
     assert_eq!((a.x, a.y), (2.0, 3.0));
     assert!(a == V2 { x: 2.0, y: 3.0 });
     assert!(a != V2 { x: 0.0, y: 0.0 });
-    // Karşılaştırma adlı metot.
+    // A comparison is a named method.
     assert!(V2 { x: 1.0, y: 9.0 }.op_lt(&V2 { x: 2.0, y: 0.0 }));
 }
 

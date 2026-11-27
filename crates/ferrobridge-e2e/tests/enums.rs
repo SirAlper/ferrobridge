@@ -1,4 +1,4 @@
-//! `tests/fixtures/enums`, güvenli API ile: gerçek Rust `enum`'ları.
+//! `tests/fixtures/enums`, with the safe API: real Rust `enum`s.
 
 use ferrobridge::Error;
 use ferrobridge_e2e::enums::{self as io, Color, Level, Mode};
@@ -13,13 +13,13 @@ fn scoped_enums_round_trip() -> ferrobridge::Result<()> {
 
 #[test]
 fn matches_are_exhaustive() -> ferrobridge::Result<()> {
-    // `_` kolu yok: gerçek bir Rust enum'u olduğu için derleyici kapsamı denetler.
+    // No `_` arm: because it is a real Rust enum, the compiler checks exhaustiveness.
     let label = match io::next(Mode::Manual)? {
-        Mode::Manual => "elle",
-        Mode::Auto => "otomatik",
-        Mode::Hybrid => "karma",
+        Mode::Manual => "manual",
+        Mode::Auto => "automatic",
+        Mode::Hybrid => "hybrid",
     };
-    assert_eq!(label, "otomatik");
+    assert_eq!(label, "automatic");
     Ok(())
 }
 

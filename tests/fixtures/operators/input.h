@@ -1,5 +1,5 @@
-// Üye operatörler: değer tiplerinde `std::ops` trait'leri (hata dönmeyenler için) ve her
-// durumda adlı metotlar (`op_add`...).
+// Member operators: `std::ops` traits on value types (for those that do not return errors) and
+// named methods in every case (`op_add`...).
 #pragma once
 
 namespace geo {
@@ -14,9 +14,9 @@ struct V2 {
     V2 operator-(const V2& o) const noexcept { return V2(x - o.x, y - o.y); }
     V2 operator-() const noexcept { return V2(-x, -y); }
     V2 operator*(float k) const noexcept { return V2(x * k, y * k); }
-    // İç çarpım: aynı operatörün başka sağ taraf tipli overload'u.
+    // Dot product: an overload of the same operator with another right-hand type.
     float operator*(const V2& o) const noexcept { return x * o.x + y * o.y; }
-    // Çapraz çarpım (ArduPilot'taki gibi `%`).
+    // Cross product (`%`, as in ArduPilot).
     float operator%(const V2& o) const noexcept { return x * o.y - y * o.x; }
     V2& operator+=(const V2& o) noexcept {
         x += o.x;
@@ -25,17 +25,17 @@ struct V2 {
     }
     bool operator==(const V2& o) const noexcept { return x == o.x && y == o.y; }
     bool operator!=(const V2& o) const noexcept { return !(*this == o); }
-    // Karşılaştırma: adlı metot kalır.
+    // Comparison: stays a named method.
     bool operator<(const V2& o) const noexcept { return x < o.x; }
-    // `noexcept` değil: yalnızca `Result` dönen adlı metot.
+    // Not `noexcept`: only a named method returning `Result`.
     V2 operator/(float k) const;
-    // Atama: bağlanmaz.
+    // Assignment: not bound.
     V2& operator=(const V2&) = default;
-    // İndeks: sınır denetimi olmadığı için bağlanmaz (güvenli Rust'tan UB olurdu).
+    // Index: not bound because there is no bounds check (it would be UB from safe Rust).
     const float& operator[](int i) const noexcept { return i == 0 ? x : y; }
 };
 
-// Opak sınıfın operatörü: adlı metot.
+// An operator of an opaque class: a named method.
 class Counter {
 public:
     Counter();

@@ -1,24 +1,24 @@
-// `static inline` fonksiyonlar ve sabitler (ArduPilot `AP_Math.h` ve `definitions.h` gibi).
+// `static inline` functions and constants (like ArduPilot's `AP_Math.h` and `definitions.h`).
 #pragma once
 
 #include <cmath>
 #include <cstdint>
 
-// Tanımı header'da olan iç bağlantılı fonksiyonlar bağlanır: header'ı include eden shim'in
-// çeviri biriminde tanımlıdırlar.
+// Internal-linkage functions defined in the header are bound: they are defined in the translation
+// unit of the shim that includes the header.
 static inline int add_one(int x) { return x + 1; }
 static inline constexpr float half(float x) { return x * 0.5f; }
 [[maybe_unused]] static double triple(double x) { return 3 * x; }
 
-// Tanımı görünmeyen iç bağlantılı fonksiyon bağlanamaz.
+// An internal-linkage function whose definition is not visible cannot be bound.
 [[maybe_unused]] static int hidden(int x);
 
 namespace {
-// Anonim namespace'teki fonksiyonun Rust'tan yazılabilecek bir adı yok.
+// A function in an anonymous namespace has no name that can be written from Rust.
 inline int anonymous(int x) { return x; }
 }
 
-// Sonlu ve derleme anında kesin değeri olan sabitler.
+// Constants that are finite and have an exact value at compile time.
 static const double WGS84_A = 6378137.0;
 static const double WGS84_IF = 298.257223563;
 static const double WGS84_F = ((double)1.0 / WGS84_IF);
@@ -34,21 +34,21 @@ namespace units {
 constexpr double FEET_PER_METER = 3.28084;
 }
 
-// Başlatıcısında fonksiyon çağrısı olan sabitler: değer çalışma anında libm ile hesaplanabilir,
-// derleme anında hesaplanan değerle aynı olduğu kesin değil.
+// Constants with a function call in the initializer: the value may be computed at run time with
+// libm, and it is not certain to be the same as the value computed at compile time.
 static const double ROOT_TWO = sqrt(2.0);
 static const double TWO_ROOT_TWO = 2 * ROOT_TWO;
 static const float QUIET_NAN = nanf("0x4152");
 
-// Sonlu olmayan değer: `f64::INFINITY` yazılabilirdi, ama NaN'larla aynı kural uygulanır.
+// A non-finite value: `f64::INFINITY` could be written, but the same rule as for NaNs applies.
 static const double TOO_BIG = 1e308 * 10;
 
-// Sabit olmayan, değeri olmayan ya da sayı olmayan değişkenler.
-inline int counter = 0;  // `inline`: header birden fazla çeviri birimine girer
+// Variables that are not constant, have no value or are not numbers.
+inline int counter = 0;  // `inline`: the header enters more than one translation unit
 extern const int EXTERNAL;
 const char* const NAME = "x";
 
-// Sabitlerin C++'ta çalışma anındaki değerleri: e2e testi Rust `const`'larının bunlarla bit bit
-// aynı olduğunu doğrular.
+// The run-time values of the constants in C++: the e2e test checks that the Rust `const`s are
+// bit-for-bit identical to them.
 double wgs84_f_at_runtime();
 float tenth_at_runtime();

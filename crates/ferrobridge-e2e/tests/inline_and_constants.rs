@@ -1,5 +1,5 @@
-//! `tests/fixtures/inline_and_constants`, güvenli API ile: header'da tanımlı `static inline`
-//! fonksiyonlar ve Rust `const` olarak üretilen sabitler.
+//! `tests/fixtures/inline_and_constants`, with the safe API: `static inline` functions defined
+//! in the header and constants generated as Rust `const`.
 
 use ferrobridge_e2e::inline_and_constants as k;
 
@@ -26,8 +26,8 @@ fn constants_keep_their_cpp_types_and_values() {
 
 #[test]
 fn constants_are_bit_for_bit_what_cpp_sees_at_run_time() -> ferrobridge::Result<()> {
-    // `WGS84_F = 1.0 / WGS84_IF`: bölme derleme anında (ferrobridge) ve çalışma anında (C++)
-    // aynı sonucu vermeli. `TENTH`: `float`'a dar dönüşüm (`0.1` → `0.1f`).
+    // `WGS84_F = 1.0 / WGS84_IF`: the division must give the same result at compile time (ferrobridge)
+    // and at run time (C++). `TENTH`: a narrowing conversion to `float` (`0.1` → `0.1f`).
     assert_eq!(k::WGS84_F.to_bits(), k::wgs84_f_at_runtime()?.to_bits());
     assert_eq!(k::TENTH.to_bits(), k::tenth_at_runtime()?.to_bits());
     Ok(())

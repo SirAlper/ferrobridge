@@ -1,10 +1,10 @@
-//! Fixture header'larından üretilen üç dosyanın snapshot testleri.
+//! Snapshot tests of the three files generated from the fixture headers.
 //!
 //! Zincir: `ferrobridge-parser` → `ferrobridge-analysis::check` → `ferrobridge-codegen::generate`.
-//! Snapshot'lar `tests/snapshots/` altında; değişiklikleri `cargo insta review` ile inceleyin.
+//! The snapshots are under `tests/snapshots/`; review changes with `cargo insta review`.
 
-// Bu dosya yalnızca test kodu; `clippy.toml`'daki test istisnası yardımcı fonksiyonları
-// kapsamadığı için burada açıkça izin veriliyor.
+// This file is test code only; the test exception in `clippy.toml` does not cover helper
+// functions, so it is allowed explicitly here.
 #![allow(clippy::unwrap_used)]
 
 use std::path::PathBuf;
@@ -117,7 +117,7 @@ fn generated_bridge_is_valid_rust() {
     ] {
         let files = generated(name);
         if let Err(error) = syn::parse_file(&files.bridge_rs) {
-            panic!("{name}: geçersiz Rust: {error}\n{}", files.bridge_rs);
+            panic!("{name}: invalid Rust: {error}\n{}", files.bridge_rs);
         }
     }
 }
@@ -140,16 +140,16 @@ fn assumptions_are_listed_in_every_generated_file() {
         ("shim.cc", &files.shim_cc),
     ] {
         assert!(
-            text.contains("Açıklamaya dayanan varsayımlar"),
-            "{name}: varsayımlar bloğu yok"
+            text.contains("Assumptions based on annotations"),
+            "{name}: no assumptions block"
         );
         assert!(
-            text.contains("own::make_widget dönüş `owned` (ferrobridge.toml:4)"),
+            text.contains("own::make_widget return `owned` (ferrobridge.toml:4)"),
             "{name}"
         );
     }
-    // Açıklaması olmayan dosyada blok yok.
-    assert!(!generated("classes").bridge_rs.contains("varsayımlar"));
+    // A file without annotations has no block.
+    assert!(!generated("classes").bridge_rs.contains("Assumptions"));
 }
 
 #[test]

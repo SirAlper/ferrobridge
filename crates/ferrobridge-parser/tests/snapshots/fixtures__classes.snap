@@ -1,6 +1,6 @@
 ---
 source: crates/ferrobridge-parser/tests/fixtures.rs
-expression: module
+expression: portable(&module)
 ---
 {
   "format_version": 5,
@@ -787,7 +787,7 @@ expression: module
         {
           "construct": "base_class",
           "name": "geo::Square : Shape",
-          "reason": "Kalıtım v0.2 hedefi: base sınıfın metotları bu sınıf üzerinden bağlanmıyor.",
+          "reason": "Inheritance is a v0.2 goal: the base class's methods are not bound through this class.",
           "location": {
             "file": "input.h",
             "line": 57,

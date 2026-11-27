@@ -1,4 +1,4 @@
-//! Analizin çıktısı: kod üretiminin tükettiği bağlama planı.
+//! The output of analysis: the binding plan consumed by code generation.
 
 use std::fmt;
 
@@ -7,83 +7,83 @@ use ferrobridge_ir::{EnumVariant, SourceLocation};
 
 use crate::config::ReturnAnnotation;
 
-/// Bir header için neyin, nasıl bağlanacağı.
+/// What is bound for a header, and how.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BridgePlan {
-    /// Bağlanan enum'lar.
+    /// The bound enums.
     pub enums: Vec<EnumPlan>,
-    /// Bağlanan sınıflar (opak tip olarak) ve üyeleri.
+    /// The bound classes (as opaque types) and their members.
     pub classes: Vec<ClassPlan>,
-    /// Bağlanan serbest fonksiyonlar.
+    /// The bound free functions.
     pub functions: Vec<FunctionPlan>,
-    /// Rust `const` olarak üretilen sabitler.
+    /// Constants generated as Rust `const`.
     pub constants: Vec<ConstantPlan>,
-    /// Bağlanamayan öğeler ve nedenleri.
+    /// Items that could not be bound, and why.
     pub skipped: Vec<Skipped>,
-    /// Bağlanan ama kullanıcının bilmesi gereken durumlar.
+    /// Things that are bound but the user should know about.
     pub notes: Vec<Skipped>,
-    /// Üretilen kodun dayandığı, `ferrobridge.toml`'daki sözler (güven noktaları).
+    /// The promises in `ferrobridge.toml` the generated code relies on (points of trust).
     pub assumptions: Vec<Assumption>,
-    /// Açıklama eklenirse bağlanabilecek yerler (`ferrobridge suggest` bunları basar).
+    /// Places that could be bound if an annotation were added (`ferrobridge suggest` prints them).
     pub suggestions: Vec<Suggestion>,
-    /// Gereksiz açıklamalar: hata değil, ama dosyada yanlış bir inanç olabilir.
+    /// Unnecessary annotations: not errors, but the file may hold a wrong belief.
     pub annotation_warnings: Vec<AnnotationIssue>,
 }
 
-/// Üretilen kodun dayandığı bir açıklama.
+/// An annotation the generated code relies on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Assumption {
-    /// Öğenin tam C++ adı (ör. `geo::make_widget`).
+    /// The item's full C++ name (e.g. `geo::make_widget`).
     pub name: String,
-    /// Neye uygulandığı (ör. "dönüş", "parametre `out`").
+    /// What it applies to (e.g. "return", "parameter `out`").
     pub subject: String,
-    /// Açıklamanın değeri (`owned`, `borrowed`).
+    /// The annotation's value (`owned`, `borrowed`).
     pub annotation: String,
-    /// Kullanıcının bu açıklamayla verdiği söz.
+    /// The promise the user makes with this annotation.
     pub promise: String,
-    /// Açıklamanın yeri (`ferrobridge.toml:3`; yalnızca dosya adı).
+    /// Where the annotation is (`ferrobridge.toml:3`; the file name only).
     pub origin: String,
 }
 
-/// Açıklama gerektiği için bağlanamayan bir yer.
+/// A place that could not be bound because it needs an annotation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Suggestion {
-    /// `ferrobridge.toml`'daki anahtar (tam C++ adı).
+    /// The key in `ferrobridge.toml` (the full C++ name).
     pub key: String,
-    /// Okunabilir imza (ör. `geo::Widget::attach(geo::Widget* target)`).
+    /// A readable signature (e.g. `geo::Widget::attach(geo::Widget* target)`).
     pub signature: String,
-    /// Açıklanması gereken yer.
+    /// The place that needs an annotation.
     pub target: SuggestionTarget,
-    /// Açıklanacak C++ tipi (ör. `geo::Widget*`).
+    /// The C++ type to annotate (e.g. `geo::Widget*`).
     pub cpp_type: String,
-    /// Bildirimin kaynaktaki yeri.
+    /// Where the declaration is in the source.
     pub location: SourceLocation,
 }
 
-/// Önerinin hedefi.
+/// The target of a suggestion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SuggestionTarget {
-    /// Dönüş değeri; seçilebilecek açıklamalarla.
+    /// The return value; with the annotations that can be chosen.
     Return {
-        /// Bu bağlamda anlamlı açıklamalar.
+        /// The annotations that make sense in this context.
         options: Vec<ReturnAnnotation>,
     },
-    /// Bir parametre (adı; isimsizse `argN`). `borrowed` her zaman seçenektir.
+    /// A parameter (its name; `argN` if unnamed). `borrowed` is always an option.
     Param {
-        /// Parametre adı.
+        /// The parameter's name.
         name: String,
-        /// Pointer sayı dizisi olabiliyorsa `{ slice = "..." }` için aday uzunluk parametreleri
-        /// (aynı fonksiyondaki tamsayı parametreleri); yoksa boş.
+        /// If the pointer can be an array of numbers, the candidate length parameters for `{ slice = "..." }`
+        /// (integer parameters of the same function); empty otherwise.
         slice_lengths: Vec<String>,
     },
 }
 
-/// Açıklama dosyasıyla header arasındaki bir uyumsuzluk.
+/// A mismatch between the annotation file and the header.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnnotationIssue {
-    /// Açıklamanın yeri (`ferrobridge.toml:3`).
+    /// Where the annotation is (`ferrobridge.toml:3`).
     pub origin: String,
-    /// Sorun ve çözümü.
+    /// The problem and its fix.
     pub message: String,
 }
 
@@ -93,106 +93,106 @@ impl fmt::Display for AnnotationIssue {
     }
 }
 
-/// Bağlanamayan bir öğe ya da bir not.
+/// An item that could not be bound, or a note.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Skipped {
-    /// Öğenin tam C++ adı (ör. `geo::Vehicle::total_km`).
+    /// The item's full C++ name (e.g. `geo::Vehicle::total_km`).
     pub name: String,
-    /// Neden ve (varsa) ne zaman desteklenmesinin planlandığı.
+    /// The reason and (if any) when support is planned.
     pub reason: String,
-    /// Bildirimin kaynaktaki yeri.
+    /// Where the declaration is in the source.
     pub location: SourceLocation,
 }
 
-/// Bridge'de adı geçen bir sınıf veya enum.
+/// A class or enum whose name appears in the bridge.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeRef {
-    /// Bridge içindeki Rust adı (çakışmalarda namespace ön ekli: `PhysicsVehicle`).
+    /// The Rust name inside the bridge (with a namespace prefix on clashes: `PhysicsVehicle`).
     pub rust_name: String,
-    /// Tam nitelenmiş C++ yolu (ör. `::geo::Vehicle`).
+    /// The fully qualified C++ path (e.g. `::geo::Vehicle`).
     pub cpp_path: String,
 }
 
-/// Bağlanan bir sınıf.
+/// A bound class.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassPlan {
-    /// Tipin adları.
+    /// The type's names.
     pub type_ref: TypeRef,
-    /// C++'taki adı.
+    /// Its name in C++.
     pub cpp_name: String,
-    /// C++ namespace yolu.
+    /// The C++ namespace path.
     pub namespace: Vec<String>,
-    /// Fabrika fonksiyonu olarak bağlanan constructor'lar.
+    /// Constructors bound as factory functions.
     pub constructors: Vec<FunctionPlan>,
-    /// Bağlanan metotlar (statikler dahil).
+    /// The bound methods (including static ones).
     pub methods: Vec<FunctionPlan>,
-    /// Değer tipiyse Rust'taki `#[repr(C)]` struct'ın düzeni; opak sınıfsa `None`.
+    /// If it is a value type, the layout of the `#[repr(C)]` struct in Rust; `None` for an opaque class.
     pub value: Option<ValueLayout>,
-    /// Template örneklemesiyse C++ yazımı (ör. `geo::Vec3<float>`); shim buna Rust adıyla bir
-    /// takma ad (`using`) tanımlar.
+    /// If it is a template instantiation, its C++ spelling (e.g. `geo::Vec3<float>`); the shim defines
+    /// an alias (`using`) for it with the Rust name.
     pub instance_spelling: Option<String>,
 }
 
-/// Değer tipi bir sınıfın Rust'taki düzeni (ADR-0010). C++ tarafı bunu `static_assert` ile
-/// doğrular.
+/// The Rust layout of a value-type class (ADR-0010). The C++ side checks it with
+/// `static_assert`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValueLayout {
     /// `sizeof`
     pub size_bytes: u64,
     /// `alignof`
     pub align_bytes: u64,
-    /// Alanlar, C++'taki sırayla.
+    /// The fields, in C++ order.
     pub fields: Vec<FieldPlan>,
 }
 
-/// Değer tipinin bir alanı.
+/// A field of a value type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldPlan {
-    /// Rust'taki adı (anahtar kelimelerden kaçınılmış).
+    /// Its name in Rust (keywords avoided).
     pub rust_name: String,
-    /// C++'taki adı.
+    /// Its name in C++.
     pub cpp_name: String,
-    /// Tipi: sayı, `bool`, `c_char` ya da başka bir değer tipi.
+    /// Its type: a number, `bool`, `c_char` or another value type.
     pub ty: BridgeType,
-    /// Bayt cinsinden ofset.
+    /// The offset in bytes.
     pub offset_bytes: u64,
 }
 
-/// Bağlanan bir enum.
+/// A bound enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumPlan {
-    /// Tipin adları.
+    /// The type's names.
     pub type_ref: TypeRef,
-    /// C++'taki adı.
+    /// Its name in C++.
     pub cpp_name: String,
-    /// C++ namespace yolu.
+    /// The C++ namespace path.
     pub namespace: Vec<String>,
-    /// Altta yatan tamsayı tipi.
+    /// The underlying integer type.
     pub repr: IntType,
-    /// Değerler.
+    /// The values.
     pub variants: Vec<EnumVariant>,
 }
 
-/// Rust `const` olarak üretilen bir C++ sabiti. Değer üretim anında yazılır; C++ tarafı
-/// çağrılmaz.
+/// A C++ constant generated as a Rust `const`. The value is written at generation time; the C++
+/// side is not called.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConstantPlan {
-    /// Rust'taki adı.
+    /// Its name in Rust.
     pub rust_name: String,
-    /// C++'taki adı.
+    /// Its name in C++.
     pub cpp_name: String,
-    /// C++ namespace yolu.
+    /// The C++ namespace path.
     pub namespace: Vec<String>,
     /// Tipi: [`BridgeType::Bool`], [`BridgeType::Char`], [`BridgeType::Int`],
     /// [`BridgeType::F32`] ya da [`BridgeType::F64`].
     pub ty: BridgeType,
-    /// Değeri; tipe sığdığı analizde doğrulandı.
+    /// Its value; analysis verified that it fits the type.
     pub value: ConstantValue,
-    /// Bildirimin kaynaktaki yeri.
+    /// Where the declaration is in the source.
     pub location: SourceLocation,
 }
 
-/// Rust ile C++ arasında her platformda aynı olan tamsayı tipleri.
+/// Integer types that are the same in Rust and C++ on every platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntType {
     /// `i8` / `std::int8_t`
@@ -214,7 +214,7 @@ pub enum IntType {
 }
 
 impl IntType {
-    /// Boyut ve işaretten tip; desteklenmeyen boyutta `None`.
+    /// The type from the size and signedness; `None` for an unsupported size.
     pub fn from_layout(size_bytes: u64, signed: bool) -> Option<Self> {
         Some(match (size_bytes, signed) {
             (1, true) => Self::I8,
@@ -229,7 +229,7 @@ impl IntType {
         })
     }
 
-    /// Rust'taki adı (`"i32"`).
+    /// Its name in Rust (`"i32"`).
     pub fn rust_name(self) -> &'static str {
         match self {
             Self::I8 => "i8",
@@ -243,7 +243,7 @@ impl IntType {
         }
     }
 
-    /// Alabileceği en küçük ve en büyük değer.
+    /// The smallest and largest values it can take.
     pub fn range(self) -> (i128, i128) {
         match self {
             Self::I8 => (i8::MIN.into(), i8::MAX.into()),
@@ -257,7 +257,7 @@ impl IntType {
         }
     }
 
-    /// cxx'in kullandığı C++ adı (`"::std::int32_t"`).
+    /// The C++ name cxx uses (`"::std::int32_t"`).
     pub fn cpp_name(self) -> &'static str {
         match self {
             Self::I8 => "::std::int8_t",
@@ -272,135 +272,135 @@ impl IntType {
     }
 }
 
-/// Bridge sınırındaki bir tip.
+/// A type on the bridge boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BridgeType {
     /// `bool`
     Bool,
     /// C++ `char` / Rust `c_char`
     Char,
-    /// Sabit genişlikli tamsayı.
+    /// A fixed-width integer.
     Int(IntType),
     /// `f32` / `float`
     F32,
     /// `f64` / `double`
     F64,
-    /// Opak sınıf (yalnızca referans veya `UniquePtr` arkasında kullanılır).
+    /// An opaque class (used only behind a reference or a `UniquePtr`).
     Class(TypeRef),
-    /// Değer tipi sınıf: Rust'ta `#[repr(C)]` struct, değerle geçer (ADR-0010).
+    /// A value-type class: a `#[repr(C)]` struct in Rust, passed by value (ADR-0010).
     Value(TypeRef),
-    /// Paylaşılan enum.
+    /// A shared enum.
     Enum(TypeRef),
-    /// `CxxString` / `std::string` (yalnızca referans veya `UniquePtr` arkasında).
+    /// `CxxString` / `std::string` (only behind a reference or a `UniquePtr`).
     String,
     /// `UniquePtr<T>` / `std::unique_ptr<T>`
     UniquePtr(Box<BridgeType>),
-    /// `CxxVector<T>` / `std::vector<T>` (yalnızca referans veya `UniquePtr` arkasında).
+    /// `CxxVector<T>` / `std::vector<T>` (only behind a reference or a `UniquePtr`).
     Vector(Box<BridgeType>),
-    /// `&[T]` / `&mut [T]` (`rust::Slice<const T>` / `rust::Slice<T>`); `T` bir sayı tipi.
-    /// Yalnızca `slice` açıklamalı pointer parametrelerinde.
+    /// `&[T]` / `&mut [T]` (`rust::Slice<const T>` / `rust::Slice<T>`); `T` is a numeric type.
+    /// Only on pointer parameters annotated with `slice`.
     Slice {
-        /// `&mut [T]` mi?
+        /// Is it `&mut [T]`?
         mutable: bool,
-        /// Eleman tipi.
+        /// The element type.
         element: Box<BridgeType>,
     },
-    /// `&T` (`mutable: false`). `mutable: true` ise opak tipler (sınıf, `std::string`,
-    /// `std::vector`) için `Pin<&mut T>`, primitif ve enum'lar için `&mut T`.
+    /// `&T` (`mutable: false`). If `mutable: true`, `Pin<&mut T>` for opaque types (class, `std::string`,
+    /// `std::vector`), `&mut T` for primitives and enums.
     Ref {
-        /// Değiştirilebilir referans mı?
+        /// Is it a mutable reference?
         mutable: bool,
-        /// Başvurulan tip.
+        /// The referenced type.
         inner: Box<BridgeType>,
     },
 }
 
-/// Bir fonksiyonun dönüşü.
+/// The return of a function.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Returns {
     /// `void`
     Unit,
-    /// Olduğu gibi döner.
+    /// Returned as is.
     Value(BridgeType),
-    /// C++'ta değerle dönen sınıf; shim `std::unique_ptr`'a sarar, Rust'a `UniquePtr<T>` gelir.
+    /// A class returned by value in C++; the shim wraps it in a `std::unique_ptr`, Rust gets a `UniquePtr<T>`.
     BoxedClass(TypeRef),
-    /// C++'ta değerle dönen `std::string`; shim sarar, Rust'a `UniquePtr<CxxString>` gelir.
+    /// A `std::string` returned by value in C++; the shim wraps it, Rust gets a `UniquePtr<CxxString>`.
     OwnedString,
-    /// C++'ta değerle dönen `std::vector<T>` (eleman tipi); shim sarar, Rust'a
-    /// `UniquePtr<CxxVector<T>>` gelir.
+    /// A `std::vector<T>` returned by value in C++ (the element type); the shim wraps it, Rust gets a
+    /// `UniquePtr<CxxVector<T>>`.
     OwnedVector(BridgeType),
-    /// `"owned"` açıklamalı `T*` (gösterilen tip): shim `std::unique_ptr`'a sarar, Rust'a
-    /// `UniquePtr<T>` gelir. Null gelirse boş `UniquePtr` olur.
+    /// A `T*` annotated `"owned"` (the pointed-to type): the shim wraps it in a `std::unique_ptr`, Rust
+    /// gets a `UniquePtr<T>`. A null becomes an empty `UniquePtr`.
     OwnedPointer(BridgeType),
-    /// `"borrowed"` açıklamalı `T*` (yalnızca metotlar): shim null kontrolü yapıp referansa
-    /// çevirir; null ise exception → `Err`. Referansın ömrü alıcıya bağlıdır.
+    /// A `T*` annotated `"borrowed"` (methods only): the shim checks for null and turns it into a
+    /// reference; a null becomes an exception → `Err`. The reference's lifetime is tied to the receiver.
     BorrowedPointer {
-        /// Değiştirilebilir referans mı?
+        /// Is it a mutable reference?
         mutable: bool,
-        /// Gösterilen tip.
+        /// The pointed-to type.
         inner: BridgeType,
     },
 }
 
-/// Çağrılan C++ öğesi.
+/// The C++ item that is called.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Callee {
-    /// Serbest fonksiyon.
+    /// A free function.
     Free {
-        /// C++ namespace yolu.
+        /// The C++ namespace path.
         namespace: Vec<String>,
-        /// C++ adı.
+        /// The C++ name.
         cpp_name: String,
     },
-    /// Üye fonksiyon.
+    /// A member function.
     Method {
-        /// Sahibi olan sınıf.
+        /// The class that owns it.
         class: TypeRef,
-        /// C++ adı.
+        /// The C++ name.
         cpp_name: String,
-        /// `false`: `self: &T` (const metot); `true`: `self: Pin<&mut T>`.
+        /// `false`: `self: &T` (const method); `true`: `self: Pin<&mut T>`.
         receiver_mutable: bool,
     },
-    /// Statik üye fonksiyon (shim üzerinden çağrılır).
+    /// A static member function (called through a shim).
     Static {
-        /// Sahibi olan sınıf.
+        /// The class that owns it.
         class: TypeRef,
-        /// C++ adı.
+        /// The C++ name.
         cpp_name: String,
     },
-    /// Constructor (shim'deki fabrika fonksiyonu üzerinden çağrılır).
+    /// A constructor (called through the factory function in the shim).
     Constructor {
-        /// Oluşturulan sınıf.
+        /// The class that is created.
         class: TypeRef,
     },
 }
 
-/// Bağlanan bir fonksiyon, metot veya constructor.
+/// A bound function, method or constructor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionPlan {
-    /// Bridge içindeki Rust adı.
+    /// The Rust name inside the bridge.
     pub rust_name: String,
-    /// Çağrılan C++ öğesi.
+    /// The C++ item that is called.
     pub callee: Callee,
-    /// Parametreler (`this` hariç).
+    /// The parameters (excluding `this`).
     pub params: Vec<ParamPlan>,
-    /// Dönüş.
+    /// The return.
     pub returns: Returns,
-    /// `noexcept` değilse `true`: Rust tarafında `Result<T>` döner.
+    /// `true` if it is not `noexcept`: it returns `Result<T>` on the Rust side.
     pub fallible: bool,
-    /// Operatör metoduysa hangisi (kod üretimi değer tiplerinde `std::ops` impl'i ekler).
+    /// If it is an operator method, which one (code generation adds a `std::ops` impl for value types).
     pub operator: Option<OperatorKind>,
-    /// Rust imzasından çıkarılan uzunluk parametreleri (`slice` açıklamaları); shim bunları
-    /// slice'ın boyundan doldurur.
+    /// Length parameters removed from the Rust signature (`slice` annotations); the shim fills them
+    /// from the slice's length.
     pub lengths: Vec<LengthParam>,
-    /// Bildirimin kaynaktaki yeri.
+    /// Where the declaration is in the source.
     pub location: SourceLocation,
 }
 
 impl FunctionPlan {
-    /// Doğrudan cxx ile çağrılamayıp C++ shim'i gerektiriyor mu?
+    /// Does it need a C++ shim because it cannot be called directly with cxx?
     pub fn needs_shim(&self) -> bool {
-        // cxx operatör adlarını bağlayamaz; shim `fb_self.operator+(v)` diye çağırır.
+        // cxx cannot bind operator names; the shim calls `fb_self.operator+(v)`.
         self.operator.is_some()
             || matches!(
                 self.callee,
@@ -420,38 +420,38 @@ impl FunctionPlan {
                 .any(|p| matches!(p.pass, Pass::AddressOf | Pass::Slice))
     }
 
-    /// C++ fonksiyonunun parametre sayısı (Rust'a görünmeyen uzunluklar dahil).
+    /// The number of parameters of the C++ function (including lengths invisible to Rust).
     pub fn cpp_arity(&self) -> usize {
         self.params.len() + self.lengths.len()
     }
 }
 
-/// Bir üye operatör.
+/// A member operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatorKind {
-    /// İkili `+`
+    /// Binary `+`
     Add,
-    /// İkili `-`
+    /// Binary `-`
     Sub,
-    /// İkili `*`
+    /// Binary `*`
     Mul,
-    /// `/`
+    /// Binary `/`
     Div,
     /// `%`
     Rem,
-    /// Tekli `-`
+    /// Unary `-`
     Neg,
-    /// Tekli `+`
+    /// Unary `+`
     Pos,
     /// `!`
     Not,
     /// `~`
     BitNot,
-    /// İkili `^`
+    /// Binary `^`
     BitXor,
-    /// İkili `&`
+    /// Binary `&`
     BitAnd,
-    /// İkili `|`
+    /// Binary `|`
     BitOr,
     /// `+=`
     AddAssign,
@@ -478,7 +478,7 @@ pub enum OperatorKind {
 }
 
 impl OperatorKind {
-    /// C++ operatörü ve parametre sayısından (`this` hariç).
+    /// From the C++ operator and the number of parameters (excluding `this`).
     pub fn from_cpp(op: &str, arity: usize) -> Option<Self> {
         Some(match (op, arity) {
             ("+", 1) => Self::Add,
@@ -508,7 +508,7 @@ impl OperatorKind {
         })
     }
 
-    /// Rust'taki adlı metodun adı (ör. `op_add`); `std::ops` impl'i bunu çağırır.
+    /// The name of the named method in Rust (e.g. `op_add`); the `std::ops` impl calls it.
     pub fn method_name(self) -> &'static str {
         match self {
             Self::Add => "op_add",
@@ -538,37 +538,37 @@ impl OperatorKind {
     }
 }
 
-/// Rust imzasında olmayan, slice'ın boyundan doldurulan bir C++ parametresi.
+/// A C++ parameter missing from the Rust signature, filled from the slice's length.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LengthParam {
-    /// C++ parametre listesindeki yeri (0'dan başlar).
+    /// Its position in the C++ parameter list (starting at 0).
     pub position: usize,
-    /// Boyu kullanılan slice'ın [`FunctionPlan::params`] içindeki yeri.
+    /// The position in [`FunctionPlan::params`] of the slice whose length is used.
     pub slice: usize,
-    /// C++ temel tamsayı tipi (`"unsigned short"`); shim bu tipe sığıp sığmadığını kontrol
-    /// eder.
+    /// The underlying C++ integer type (`"unsigned short"`); the shim checks whether the length fits
+    /// this type.
     pub cpp_type: String,
 }
 
-/// Bir parametre.
+/// A parameter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParamPlan {
-    /// Rust'taki adı (anahtar kelimelerden kaçınılmış, isimsizse `argN`).
+    /// Its name in Rust (keywords avoided, `argN` if unnamed).
     pub rust_name: String,
-    /// Tipi.
+    /// Its type.
     pub ty: BridgeType,
-    /// C++ fonksiyonuna nasıl geçirildiği.
+    /// How it is passed to the C++ function.
     pub pass: Pass,
 }
 
-/// Bir parametrenin C++ fonksiyonuna geçirilişi.
+/// How a parameter is passed to the C++ function.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pass {
-    /// Olduğu gibi (cxx doğrudan çağırabilir).
+    /// As is (cxx can call it directly).
     Direct,
-    /// C++ pointer bekliyor, Rust referans veriyor: shim adresini alıp geçirir (`&p`).
+    /// C++ expects a pointer, Rust gives a reference: the shim takes the address and passes it (`&p`).
     AddressOf,
-    /// C++ pointer + uzunluk bekliyor, Rust slice veriyor: shim `s.data()` ve (bkz.
-    /// [`LengthParam`]) `s.size()`'ı geçirir.
+    /// C++ expects a pointer + a length, Rust gives a slice: the shim passes `s.data()` and (see
+    /// [`LengthParam`]) `s.size()`.
     Slice,
 }

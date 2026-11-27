@@ -1,5 +1,5 @@
-//! `tests/fixtures/classes`, güvenli API ile: elle yazılmış bridge, `unsafe`, `Pin` ya da
-//! cxx tipi yok. Ham katman `raw_layer.rs`'te.
+//! `tests/fixtures/classes`, with the safe API: no hand-written bridge, `unsafe`, `Pin` or
+//! cxx type. The raw layer is in `raw_layer.rs`.
 
 use ferrobridge::Error;
 use ferrobridge_e2e::classes::{self as geo, Square, Vehicle};
@@ -8,8 +8,8 @@ fn close(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9
 }
 
-/// C++'taki `length`, `float` alanlarla `std::sqrt(float)` hesaplıyor; beklenen değer de
-/// `f32` hassasiyetinde.
+/// C++'s `length` computes `std::sqrt(float)` with `float` fields; the expected value is at
+/// `f32` precision too.
 fn sqrt5_as_float() -> f64 {
     f64::from(5.0_f32.sqrt())
 }
@@ -18,7 +18,7 @@ fn sqrt5_as_float() -> f64 {
 fn constructs_an_object_and_calls_its_methods() -> ferrobridge::Result<()> {
     let mut vehicle = Vehicle::new_i32(4)?;
     assert_eq!(vehicle.wheels()?, 4);
-    // `noexcept` metot: `Result` değil, doğrudan değer.
+    // A `noexcept` method: a plain value, not `Result`.
     assert!(close(vehicle.odometer(), 0.0));
     vehicle.drive(12.5)?;
     assert!(close(vehicle.odometer(), 12.5));
@@ -42,14 +42,17 @@ fn cpp_exceptions_become_ferrobridge_errors() -> ferrobridge::Result<()> {
         error,
         Error::Cpp {
             item: "geo::Vehicle::break_down",
-            message: "motor arızası".to_owned()
+            message: "engine failure".to_owned()
         }
     );
-    assert_eq!(error.to_string(), "geo::Vehicle::break_down: motor arızası");
-    // `std::exception` türevi olmayan exception da program sonlanmadan `Err` olur.
+    assert_eq!(
+        error.to_string(),
+        "geo::Vehicle::break_down: engine failure"
+    );
+    // An exception not derived from `std::exception` also becomes `Err` without ending the program.
     let error = vehicle.throw_unknown().unwrap_err();
-    assert!(error.to_string().contains("bilinmeyen"), "{error}");
-    // Nesne hâlâ kullanılabilir.
+    assert!(error.to_string().contains("unknown"), "{error}");
+    // The object is still usable.
     assert_eq!(vehicle.wheels()?, 4);
     Ok(())
 }
@@ -58,10 +61,10 @@ fn cpp_exceptions_become_ferrobridge_errors() -> ferrobridge::Result<()> {
 fn classes_returned_by_value_and_by_reference() -> ferrobridge::Result<()> {
     let mut vehicle = Vehicle::new_i32(4)?;
     vehicle.drive(3.0)?;
-    // Değerle dönen `Point`: sahip olan sarmalayıcı.
+    // `Point` returned by value: an owning wrapper.
     let position = vehicle.position()?;
     assert!(close(geo::geo_length(&position)?, 3.0));
-    // Referansla dönen `const Point&`: ömrü `vehicle`'a bağlı.
+    // `const Point&` returned by reference: its lifetime is tied to `vehicle`.
     assert!(close(geo::geo_length(vehicle.home()?)?, sqrt5_as_float()));
     Ok(())
 }
@@ -70,8 +73,8 @@ fn classes_returned_by_value_and_by_reference() -> ferrobridge::Result<()> {
 fn method_overloads_with_class_and_primitive_params() -> ferrobridge::Result<()> {
     let mut vehicle = Vehicle::new_i32(4)?;
     vehicle.move_to_f32_f32(3.0, 4.0)?;
-    // Sarmalayıcı `&Point` → `&ffi::Point` deref coercion'ı, değer bir değişkene bağlıyken
-    // çalışır (`&f()?` biçiminde `?`'in tipi bağlamdan çıkarılamaz).
+    // Deref coercion from the wrapper `&Point` to `&ffi::Point` works while the value is bound to a
+    // variable (in the form `&f()?`, the type of `?` cannot be inferred from the context).
     let position = vehicle.position()?;
     assert!(close(geo::geo_length(&position)?, 5.0));
 
@@ -92,7 +95,7 @@ fn free_function_overloads_and_namespaces() -> ferrobridge::Result<()> {
 
 #[test]
 fn abstract_classes_through_unique_ptr_and_virtual_dispatch() -> ferrobridge::Result<()> {
-    let shape = geo::make_unit_square()?.expect("C++ null olmayan bir şekil döndürür");
+    let shape = geo::make_unit_square()?.expect("C++ returns a non-null shape");
     assert!(close(shape.area()?, 1.0));
     let square = Square::new(2.0)?;
     assert!(close(square.area()?, 4.0));

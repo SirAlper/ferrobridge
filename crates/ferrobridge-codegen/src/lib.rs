@@ -1,13 +1,13 @@
-//! Bağlama planından kod üretimi (ADR-0002, ADR-0004).
+//! Code generation from the binding plan (ADR-0002, ADR-0004).
 //!
-//! Üç dosya üretilir:
-//! - `bridge.rs`: `#[cxx::bridge]` modülü (cxx'in derleyeceği Rust tarafı).
-//! - `shim.h` / `shim.cc`: cxx'in doğrudan çağıramadığı şeyler için C++ yardımcıları
-//!   (constructor fabrikaları, statik metotlar, değerle dönen sınıf, `std::string` ve
-//!   `std::vector`'ler, açıklamalı pointer'lar) ve
-//!   bütün C++ exception'larını yakalayan `rust::behavior::trycatch` (güvenlik kuralı 4).
+//! Three files are generated:
+//! - `bridge.rs`: the `#[cxx::bridge]` module (the Rust side cxx compiles).
+//! - `shim.h` / `shim.cc`: C++ helpers for things cxx cannot call directly
+//!   (constructor factories, static methods, classes, `std::string` and `std::vector`s
+//!   returned by value, annotated pointers) and
+//!   `rust::behavior::trycatch`, which catches all C++ exceptions (safety rule 4).
 //!
-//! Üretilen dosyalar kullanıcı tarafından görülür, incelenir ve commit'lenir (ADR-0004).
+//! The generated files are seen, reviewed and committed by the user (ADR-0004).
 
 mod bridge;
 mod safe;
@@ -18,23 +18,23 @@ use std::collections::HashSet;
 
 use ferrobridge_analysis::{BridgePlan, Callee, FunctionPlan, TypeRef};
 
-/// Kod üretimi ayarları.
+/// Code generation settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodegenOptions {
-    /// Shim'in bridge'in header'larını `#include` ederken kullanacağı yollar, sırasıyla (ör.
-    /// `["mylib/vehicle.h"]`). En az bir tane olmalı.
+    /// The paths the shim uses to `#include` the bridge's headers, in order (e.g.
+    /// `["mylib/vehicle.h"]`). There must be at least one.
     pub header_includes: Vec<String>,
-    /// Bridge'in ve `shim.cc`'nin `shim.h`'yi `#include` ederken kullanacağı yol.
+    /// The path the bridge and `shim.cc` use to `#include` `shim.h`.
     pub shim_include: String,
-    /// Shim fonksiyonlarının C++ namespace'i (ör. `"ferrobridge::vehicle"`). Aynı programdaki
-    /// farklı header'ların shim'leri çakışmasın diye header'a özgü olmalı.
+    /// The C++ namespace of the shim functions (e.g. `"ferrobridge::vehicle"`). Must be specific to the
+    /// header, so the shims of different headers in the same program do not clash.
     pub shim_namespace: String,
-    /// Shim'in header'dan önce include edeceği dosyalar (kendi başına derlenmeyen header'lar
-    /// için; parser'daki `prelude` ile aynı). Include yollarından çözülmeli.
+    /// Files the shim includes before the header (for headers that do not compile on their
+    /// own; the same as `prelude` in the parser). Must be resolvable from the include paths.
     pub prelude: Vec<String>,
 }
 
-/// Üretilen dosyaların içerikleri.
+/// The contents of the generated files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedFiles {
     /// `bridge.rs`
@@ -45,28 +45,28 @@ pub struct GeneratedFiles {
     pub shim_cc: String,
 }
 
-/// Kod üretimi hataları.
+/// Code generation errors.
 #[derive(Debug, thiserror::Error)]
 pub enum CodegenError {
-    /// Ayar olarak verilen namespace geçerli bir C++ namespace yolu değil.
-    #[error("geçersiz shim namespace'i: `{0}` (ör. `ferrobridge::vehicle`)")]
+    /// The namespace given as a setting is not a valid C++ namespace path.
+    #[error("invalid shim namespace: `{0}` (e.g. `ferrobridge::vehicle`)")]
     InvalidNamespace(String),
-    /// `#include "..."` satırına yazılamayan bir yol (`"` ya da satır sonu içeriyor, boş).
-    #[error("`#include` yolu olarak kullanılamayan değer: {0:?}")]
+    /// A path that cannot be written on an `#include "..."` line (contains `"` or a line break, or is empty).
+    #[error("value that cannot be used as an `#include` path: {0:?}")]
     InvalidInclude(String),
-    /// Bir ad Rust tanımlayıcısı olarak kullanılamıyor.
-    #[error("Rust tanımlayıcısı olarak kullanılamayan ad: `{0}`")]
+    /// A name cannot be used as a Rust identifier.
+    #[error("name that cannot be used as a Rust identifier: `{0}`")]
     InvalidIdentifier(String),
-    /// Üretilen Rust kodu ayrıştırılamadı; bu ferrobridge'de bir hatadır.
-    #[error("üretilen bridge kodu geçersiz (ferrobridge hatası, lütfen bildirin): {0}")]
+    /// The generated Rust code could not be parsed; this is a bug in ferrobridge.
+    #[error("the generated bridge code is invalid (a ferrobridge bug, please report it): {0}")]
     Internal(String),
 }
 
-/// Planı kullanarak üç dosyayı üretir.
+/// Generates the three files using the plan.
 ///
 /// # Errors
 ///
-/// Ayarlar geçersizse ya da bir ad Rust'ta kullanılamıyorsa hata döner.
+/// Returns an error if the settings are invalid or a name cannot be used in Rust.
 pub fn generate(
     plan: &BridgePlan,
     options: &CodegenOptions,
@@ -76,8 +76,8 @@ pub fn generate(
             options.shim_namespace.clone(),
         ));
     }
-    // Bu değerler üretilen C++'a `#include "..."` olarak yazılır; satırı bozup araya kod
-    // sokamasınlar.
+    // These values are written into the generated C++ as `#include "..."`; they must not break the
+    // line and inject code.
     if options.header_includes.is_empty() {
         return Err(CodegenError::InvalidInclude(String::new()));
     }
@@ -112,17 +112,17 @@ pub fn generate(
     })
 }
 
-/// C++ shim üzerinden çağrılan bir fonksiyon. Rust'taki ve C++'taki adı aynıdır.
+/// A function called through a C++ shim. Its name is the same in Rust and in C++.
 pub(crate) struct ShimFn<'p> {
     pub(crate) name: String,
     pub(crate) plan: &'p FunctionPlan,
 }
 
-/// Shim gerektiren bütün fonksiyonlar, bridge'deki sırayla.
+/// All functions that need a shim, in bridge order.
 ///
-/// Serbest kapsamdakilerin (serbest fonksiyon, constructor, statik metot) adları analizde
-/// zaten benzersiz yapıldı. Metot shim'leri `<Sınıf>_<metot>` adını alır ve gerekirse
-/// sıra numarasıyla benzersizleştirilir.
+/// The names of those in free scope (free functions, constructors, static methods) were already
+/// made unique in analysis. Method shims get the name `<Class>_<method>` and are made unique with
+/// a sequence number if needed.
 fn shim_functions(plan: &BridgePlan) -> Vec<ShimFn<'_>> {
     let mut used: HashSet<String> = plan
         .functions
@@ -187,19 +187,19 @@ fn is_cpp_namespace(path: &str) -> bool {
         })
 }
 
-/// Üretilen her dosyanın başındaki açıklama: nereden üretildiği ve neyin bağlanmadığı.
+/// The comment at the top of every generated file: where it was generated from and what was not bound.
 fn header_comment(plan: &BridgePlan, options: &CodegenOptions) -> Vec<String> {
     let mut lines = vec![
-        "@generated by ferrobridge — elle düzenlemeyin; header değişince yeniden üretin."
+        "@generated by ferrobridge — do not edit by hand; regenerate when the header changes."
             .to_owned(),
         match options.header_includes.as_slice() {
-            [one] => format!("Kaynak header: {one}"),
-            many => format!("Kaynak header'lar: {}", many.join(", ")),
+            [one] => format!("Source header: {one}"),
+            many => format!("Source headers: {}", many.join(", ")),
         },
     ];
     if !plan.skipped.is_empty() {
         lines.push(String::new());
-        lines.push(format!("Bağlanmayan öğeler ({}):", plan.skipped.len()));
+        lines.push(format!("Items not bound ({}):", plan.skipped.len()));
         for skipped in &plan.skipped {
             lines.push(format!(
                 "  - {} ({}:{}): {}",
@@ -210,10 +210,10 @@ fn header_comment(plan: &BridgePlan, options: &CodegenOptions) -> Vec<String> {
     if !plan.assumptions.is_empty() {
         lines.push(String::new());
         lines.push(format!(
-            "Açıklamaya dayanan varsayımlar ({}). Bunlar `ferrobridge.toml`'daki sözlerdir; biri",
+            "Assumptions based on annotations ({}). These are promises in `ferrobridge.toml`; if one",
             plan.assumptions.len()
         ));
-        lines.push("yanlışsa üretilen kod tanımsız davranışa yol açabilir:".to_owned());
+        lines.push("is wrong, the generated code can cause undefined behavior:".to_owned());
         for assumption in &plan.assumptions {
             lines.push(format!(
                 "  - {} {} `{}` ({}): {}",

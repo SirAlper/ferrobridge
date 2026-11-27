@@ -1,11 +1,11 @@
-//! ArduPilot'un `AP_Math` kütüphanesini ve ondan üretilen bridge'leri derler.
+//! Builds ArduPilot's `AP_Math` library and the bridges generated from it.
 //!
-//! ArduPilot kodu bu depoya girmez (GPL-3.0; ADR-0003). `ARDUPILOT_DIR` bir checkout'u
-//! göstermeli; bridge'ler derleme sırasında `OUT_DIR`'e üretilir ve commit'lenmez (ADR-0008).
+//! ArduPilot code does not enter this repository (GPL-3.0; ADR-0003). `ARDUPILOT_DIR` must point
+//! to a checkout; the bridges are generated into `OUT_DIR` during the build and not committed (ADR-0008).
 
 use std::path::{Path, PathBuf};
 
-/// waf'ın SITL derlemesinde tanımladıkları (ölçüm ve M5 Task 0).
+/// What waf defines in the SITL build (the measurement and M5 Task 0).
 const DEFINES: [(&str, &str); 6] = [
     ("CONFIG_HAL_BOARD", "HAL_BOARD_SITL"),
     ("CONFIG_HAL_BOARD_SUBTYPE", "HAL_BOARD_SUBTYPE_NONE"),
@@ -22,23 +22,23 @@ fn main() {
     let mut build = ferrobridge_build::Build::new();
     build
         .include_dir(&libraries)
-        // macOS'ta `feenableexcept` buradan gelir.
+        // On macOS, `feenableexcept` comes from here.
         .include_dir(libraries.join("AP_Common/missing"))
         // `hwdef.h`
         .include_dir("stubs")
         .file("stubs/ap_stubs.cc")
         .files(cpp_sources(&libraries.join("AP_Math")))
-        // ArduPilot'un kendi uyarıları (ör. kullanılmayan parametreler) demo çıktısını
-        // boğmasın; libclang'a geçmez.
+        // ArduPilot's own warnings (e.g. unused parameters) must not drown the demo's
+        // output; not passed to libclang.
         .flag("-w");
     for (name, value) in DEFINES {
         build.define(name, Some(value));
     }
-    // Bütün `AP_Math` header'ları tek bir bridge: bir header'daki tip (`Vector3f`, `Rotation`)
-    // diğerlerinin fonksiyonlarında kullanılabilir.
+    // All `AP_Math` headers form a single bridge: a type from one header (`Vector3f`, `Rotation`)
+    // can be used in the functions of the others.
     let mut bridge = ferrobridge_build::Generate::new("ap_math")
-        // Bazı header'lar kendi başına derlenmiyor (`SCurve.h` `Vector3f`'i, `rotations.h`
-        // `uint8_t`'yi include etmiyor); ArduPilot'ta hep `AP_Math.h`'dan sonra gelirler.
+        // Some headers do not compile on their own (`SCurve.h` does not include `Vector3f`, `rotations.h`
+        // does not include `uint8_t`); in ArduPilot they always come after `AP_Math.h`.
         .prelude("AP_Math/AP_Math.h")
         .config("ferrobridge.toml");
     for header in headers(&libraries.join("AP_Math")) {
@@ -57,27 +57,27 @@ fn main() {
 fn ardupilot_libraries() -> PathBuf {
     let Some(dir) = std::env::var_os("ARDUPILOT_DIR") else {
         panic!(
-            "`ARDUPILOT_DIR` ayarlı değil. Bir ArduPilot checkout'unu göstermeli, ör.:\n  \
+            "`ARDUPILOT_DIR` is not set. It must point to an ArduPilot checkout, e.g.:\n  \
              ARDUPILOT_DIR=~/ardupilot cargo test\n\
-             Seyrek klonlama komutları: demo/ap_math/README.md"
+             Sparse clone commands: demo/ap_math/README.md"
         );
     };
     let libraries = PathBuf::from(dir).join("libraries");
     if !libraries.join("AP_Math/AP_Math.h").is_file() {
         panic!(
-            "`{}` bir ArduPilot checkout'u değil (`libraries/AP_Math/AP_Math.h` yok).",
+            "`{}` is not an ArduPilot checkout (`libraries/AP_Math/AP_Math.h` is missing).",
             libraries.display()
         );
     }
     libraries
 }
 
-/// `AP_Math`'in bütün header'ları, ad sırasıyla.
+/// All headers of `AP_Math`, in name order.
 fn headers(dir: &Path) -> Vec<PathBuf> {
     files_with_extension(dir, "h")
 }
 
-/// `AP_Math`'in bütün `.cpp` dosyaları, ad sırasıyla (derleme tekrarlanabilir olsun).
+/// All `.cpp` files of `AP_Math`, in name order (so the build is reproducible).
 fn cpp_sources(dir: &Path) -> Vec<PathBuf> {
     files_with_extension(dir, "cpp")
 }

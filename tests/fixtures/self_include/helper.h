@@ -1,4 +1,4 @@
-// `input.h`'ı geri include eder. Buradaki bildirimler IR'a girmemeli.
+// Includes `input.h` back. The declarations here must not enter the IR.
 #pragma once
 
 #include "input.h"

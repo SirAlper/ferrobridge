@@ -1,4 +1,4 @@
-//! `bridge.rs`: `#[cxx::bridge]` modülünü üretir.
+//! `bridge.rs`: generates the `#[cxx::bridge]` module.
 
 use ferrobridge_analysis::{
     BridgePlan, Callee, ClassPlan, EnumPlan, FunctionPlan, ParamPlan, TypeRef,
@@ -11,8 +11,8 @@ use quote::quote;
 use crate::spelling::{ident, returns_reference, rust_return, rust_type};
 use crate::{CodegenError, CodegenOptions, ShimFn};
 
-/// Shim fonksiyonlarında alıcının (C++'taki `this`) parametre adı. C++ anahtar kelimesi
-/// olmamalı: cxx parametre adlarını üretilen C++ koduna olduğu gibi kopyalar.
+/// The parameter name of the receiver (C++'s `this`) in shim functions. It must not be a C++
+/// keyword: cxx copies parameter names into the generated C++ code as they are.
 pub(crate) const SHIM_SELF: &str = "fb_self";
 
 pub(crate) fn generate(
@@ -74,8 +74,8 @@ pub(crate) fn generate(
     let namespace_blocks = blocks.into_tokens();
     let safe_layer = crate::safe::generate(plan, shims, &options.shim_namespace)?;
 
-    // `#[rustfmt::skip]`: dosya commit'lenir (ADR-0004); `cargo fmt` onu prettyplease'ten farklı
-    // biçimlendirip üreticinin çıktısıyla uyumsuz hale getirmesin.
+    // `#[rustfmt::skip]`: the file is committed (ADR-0004); `cargo fmt` must not format it differently
+    // from prettyplease and make it inconsistent with the generator's output.
     let module = quote! {
         #[cxx::bridge]
         #[rustfmt::skip]
@@ -101,14 +101,14 @@ pub(crate) fn generate(
     )))
 }
 
-/// `prettyplease` yorumları atar; değer tiplerinin `unsafe impl ExternType`'ının gerekçesini
-/// (5. kural) biçimlendirmeden sonra, impl'in özniteliklerinin üstüne ekler.
+/// `prettyplease` drops comments; adds the justification of the value types' `unsafe impl ExternType`
+/// (rule 5) after formatting, above the impl's attributes.
 fn with_safety_comments(code: &str) -> String {
-    const SAFETY: &str = "// SAFETY: Rust struct'ı `#[repr(C)]` ve alanları C++ sınıfıyla aynı \
-sırada ve tipte; `shim.cc` C++ tipinin bit bit kopyalanabildiğini (`is_trivially_copyable`), \
-standart düzende olduğunu ve boyutunu, hizalamasını, her alanın ofsetini `static_assert` ile, \
-Rust tarafı da `size_of`/`offset_of!` ile doğruluyor. Bu yüzden cxx'in `Trivial` türü (değerle \
-taşıma, `&mut` ile değiştirme) güvenli.";
+    const SAFETY: &str = "// SAFETY: the Rust struct is `#[repr(C)]` and its fields have the same order and \
+types as the C++ class; `shim.cc` checks with `static_assert` that the C++ type is trivially \
+copyable (`is_trivially_copyable`) and standard-layout, and checks its size, alignment and every \
+field's offset; the Rust side checks them with `size_of`/`offset_of!`. So cxx's `Trivial` kind \
+(moving by value, changing through `&mut`) is safe.";
     let lines: Vec<&str> = code.lines().collect();
     let mut out = String::with_capacity(code.len());
     for (index, line) in lines.iter().enumerate() {
@@ -137,7 +137,7 @@ fn add_class(
     class: &ClassPlan,
     shim_namespace: &[String],
 ) -> Result<(), CodegenError> {
-    // Template örneklemesinin C++'ta adı yok: shim namespace'inde Rust adıyla bir takma adı var.
+    // A template instantiation has no name in C++: it has an alias with the Rust name in the shim namespace.
     let (namespace, cpp_name) = if class.instance_spelling.is_some() {
         (shim_namespace.to_vec(), class.type_ref.rust_name.as_str())
     } else {
@@ -164,7 +164,7 @@ fn add_class(
             mutable: *receiver_mutable,
             value: class.value.is_some(),
         };
-        // Ham metot `raw_<ad>` olur: asıl ad, aynı tipe yazılan güvenli metoda kalır.
+        // The raw method becomes `raw_<name>`: the real name is left to the safe method written on the same type.
         block.push(function_decl(
             &raw_method_name(&method.rust_name),
             Some(cpp_name),
@@ -175,13 +175,13 @@ fn add_class(
     Ok(())
 }
 
-/// cxx katmanındaki metodun Rust adı. Güvenli katman metodu asıl adla aynı tipe yazar
-/// (`impl ffi::Vehicle { pub fn wheels(..) }`); ikisi çakışmasın diye ham olana ön ek gelir.
+/// The Rust name of a method in the cxx layer. The safe layer writes the method with the real name
+/// on the same type (`impl ffi::Vehicle { pub fn wheels(..) }`); so the two do not clash, the raw one gets a prefix.
 pub(crate) fn raw_method_name(rust_name: &str) -> String {
     format!("raw_{rust_name}")
 }
 
-/// Paylaşılan enum: cxx, değerlerin C++'takiyle aynı olduğunu derleme zamanında doğrular.
+/// A shared enum: cxx checks at compile time that the values are the same as in C++.
 fn shared_enum(enumeration: &EnumPlan) -> Result<TokenStream, CodegenError> {
     let namespace = enumeration.namespace.join("::");
     let name = ident(&enumeration.type_ref.rust_name)?;
@@ -212,12 +212,12 @@ fn shared_enum(enumeration: &EnumPlan) -> Result<TokenStream, CodegenError> {
     })
 }
 
-/// Değer tipi: Rust'taki `#[repr(C)]` struct'a takma ad; cxx onu `ExternType` ile tanır.
+/// A value type: an alias to the `#[repr(C)]` struct in Rust; cxx recognizes it through `ExternType`.
 fn value_type(type_ref: &TypeRef, cpp_name: &str) -> Result<TokenStream, CodegenError> {
     let name = ident(&type_ref.rust_name)?;
     let rename = cxx_name_attr(&type_ref.rust_name, cpp_name);
-    // `prettyplease` `extern` bloğundaki `type X = super::X;`'i yazdıramıyor: işaretli bir
-    // `type X;` üretilir, biçimlendirmeden sonra takma ada çevrilir (`with_type_aliases`).
+    // `prettyplease` cannot print `type X = super::X;` in an `extern` block: a marked
+    // `type X;` is generated and turned into the alias after formatting (`with_type_aliases`).
     Ok(quote! {
         #[doc = #ALIAS_MARKER]
         #rename
@@ -225,12 +225,12 @@ fn value_type(type_ref: &TypeRef, cpp_name: &str) -> Result<TokenStream, Codegen
     })
 }
 
-/// [`value_type`]'ın işaretleyicisi; üretilen dosyada kalmaz.
+/// The marker of [`value_type`]; it does not stay in the generated file.
 const ALIAS_MARKER: &str = "__ferrobridge_value_type__";
 
-/// İşaretli `type X;` satırlarını `type X = super::X;` yapar ve işaretleyiciyi siler.
+/// Turns the marked `type X;` lines into `type X = super::X;` and removes the marker.
 fn with_type_aliases(code: &str) -> String {
-    // `prettyplease` `#[doc = "..."]`'yı `///` yorumu olarak yazar.
+    // `prettyplease` writes `#[doc = "..."]` as a `///` comment.
     let markers = [
         format!("#[doc = \"{ALIAS_MARKER}\"]"),
         format!("///{ALIAS_MARKER}"),
@@ -266,12 +266,12 @@ fn extern_type(type_ref: &TypeRef, cpp_name: &str) -> Result<TokenStream, Codege
     })
 }
 
-/// Metodun alıcısı.
+/// The receiver of a method.
 struct Receiver<'a> {
     name: &'static str,
     class: &'a TypeRef,
     mutable: bool,
-    /// Değer tipi mi (değiştirilebilir alıcı `Pin` değil düz `&mut`)?
+    /// Is it a value type (a mutable receiver is a plain `&mut`, not `Pin`)?
     value: bool,
 }
 
@@ -302,8 +302,8 @@ fn function_decl(
 ) -> Result<TokenStream, CodegenError> {
     let name = ident(rust_name)?;
     let rename = cpp_name.map(|cpp| cxx_name_attr(rust_name, cpp));
-    // Shim'ler serbest fonksiyondur; `self` ömür kuralı işlemez. Dönen referans alıcıya açık
-    // bir ömürle bağlanır (başka referans parametresi varsa cxx bunu zorunlu tutar).
+    // Shims are free functions; the `self` lifetime rule does not apply. The returned reference is
+    // tied to the receiver with an explicit lifetime (cxx requires this if there is another reference parameter).
     let lifetime = receiver
         .as_ref()
         .filter(|r| r.name != "self" && returns_reference(plan))
@@ -343,7 +343,7 @@ fn function_decl(
     })
 }
 
-/// Rust adı C++ adından farklıysa `#[cxx_name = "..."]`.
+/// `#[cxx_name = "..."]` if the Rust name differs from the C++ name.
 fn cxx_name_attr(rust_name: &str, cpp_name: &str) -> TokenStream {
     if rust_name == cpp_name {
         quote!()
@@ -360,7 +360,7 @@ fn namespace_attr(namespace: &str) -> TokenStream {
     }
 }
 
-/// Namespace başına bir `unsafe extern "C++"` bloğu, ilk görülme sırasıyla.
+/// One `unsafe extern "C++"` block per namespace, in order of first appearance.
 #[derive(Default)]
 struct NamespaceBlocks {
     blocks: Vec<(Vec<String>, Vec<TokenStream>)>,

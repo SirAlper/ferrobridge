@@ -1,4 +1,4 @@
-//! `ferrobridge` komut satırı aracı.
+//! The `ferrobridge` command-line tool.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use ferrobridge_analysis::{Annotations, BridgePlan};
 use ferrobridge_codegen::{CodegenOptions, GeneratedFiles};
 use ferrobridge_parser::{ParseOptions, ParserError};
 
-/// C++ header'larından güvenli Rust binding'leri üretir.
+/// Generates safe Rust bindings from C++ headers.
 #[derive(Parser)]
 #[command(name = "ferrobridge", version, about)]
 struct Cli {
@@ -19,52 +19,52 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Geliştirme ortamını kontrol eder (libclang erişimi).
+    /// Checks the development environment (access to libclang).
     Doctor,
-    /// Bir C++ header'ını okur ve içinde bulduklarını (IR) JSON olarak basar.
+    /// Reads a C++ header and prints what it found inside (the IR) as JSON.
     Parse {
-        /// Okunacak C++ header dosyası.
+        /// The C++ header file to read.
         header: PathBuf,
         #[command(flatten)]
         parse: ParseArgs,
     },
-    /// Bir ya da daha fazla C++ header'ından tek bir cxx bridge'i (`bridge.rs`) ve C++ shim'ini
-    /// (`shim.h`, `shim.cc`) üretir. Bir header'da tanımlı tip diğerlerindeki fonksiyonlarda
-    /// kullanılabilir. Bağlanamayan her öğe nedeniyle birlikte uyarı olarak basılır.
+    /// Generates a single cxx bridge (`bridge.rs`) and C++ shim (`shim.h`, `shim.cc`) from one or
+    /// more C++ headers. A type defined in one header can be used in functions in the others.
+    /// Every item that cannot be bound is printed as a warning with its reason.
     Generate {
-        /// Okunacak C++ header dosyaları (bridge'in header'ları).
+        /// The C++ header files to read (the bridge's headers).
         #[arg(required = true, num_args = 1..)]
         headers: Vec<PathBuf>,
-        /// Üç dosyanın yazılacağı dizin (yoksa oluşturulur).
+        /// The directory to write the three files to (created if missing).
         #[arg(long)]
         out_dir: PathBuf,
-        /// Shim'in header'ı `#include` ederken kullanacağı yol; header başına bir kez, aynı
-        /// sırayla. Varsayılan: header'ların dosya adları.
+        /// The path the shim uses to `#include` the header; once per header, in the same
+        /// order. Default: the headers' file names.
         #[arg(long)]
         include_as: Vec<String>,
-        /// Bridge'in `shim.h`'yi `#include` ederken kullanacağı yol.
+        /// The path the bridge uses to `#include` `shim.h`.
         #[arg(long, default_value = "shim.h")]
         shim_include: String,
-        /// Shim fonksiyonlarının C++ namespace'i. Varsayılan: `ferrobridge::<header adı>`.
+        /// The C++ namespace of the shim functions. Default: `ferrobridge::<header name>`.
         #[arg(long)]
         shim_namespace: Option<String>,
-        /// Sahiplik açıklamaları dosyası (`ferrobridge.toml`). Verilmezse açıklama yok sayılır
-        /// ve sahipliği belirsiz pointer'lar bağlanmaz.
+        /// The ownership annotation file (`ferrobridge.toml`). If not given, there are no annotations
+        /// and pointers with unclear ownership are not bound.
         #[arg(long)]
         config: Option<PathBuf>,
-        /// ferrobridge'in üretmediği (elle yazılmış görünen) dosyaların da üzerine yaz.
+        /// Also overwrite files that ferrobridge did not generate (that look hand-written).
         #[arg(long)]
         force: bool,
         #[command(flatten)]
         parse: ParseArgs,
     },
-    /// Açıklama gerektiren her pointer/referans için yorum satırlı bir `ferrobridge.toml`
-    /// taslağı basar. Emin olduğun satırları açıp `generate --config` ile kullan.
+    /// Prints a commented-out `ferrobridge.toml` draft for every pointer/reference that needs an
+    /// annotation. Enable the lines you are sure of and use it with `generate --config`.
     Suggest {
-        /// Okunacak C++ header dosyaları (`generate`'e verilenlerle aynı).
+        /// The C++ header files to read (the same as those given to `generate`).
         #[arg(required = true, num_args = 1..)]
         headers: Vec<PathBuf>,
-        /// Var olan açıklamalar; bunların çözdüğü yerler taslağa girmez.
+        /// Existing annotations; places they resolve do not enter the draft.
         #[arg(long)]
         config: Option<PathBuf>,
         #[command(flatten)]
@@ -72,19 +72,19 @@ enum Command {
     },
 }
 
-/// Header'ı okuma ayarları; `parse`, `generate` ve `suggest` için ortak.
+/// Settings for reading the header; shared by `parse`, `generate` and `suggest`.
 #[derive(clap::Args)]
 struct ParseArgs {
-    /// C++ standardı (clang'a `-std=<değer>` olarak geçer).
+    /// The C++ standard (passed to clang as `-std=<value>`).
     #[arg(long, default_value = "c++17")]
     std: String,
-    /// Header'dan önce include edilecek dosya; kendi başına derlenmeyen header'lar için.
-    /// Tekrarlanabilir, verildiği sırayla include edilir; buradaki bildirimler bağlanmaz.
-    /// `generate`'te shim de header'dan önce bunu include eder: include yollarından çözülen bir
-    /// ad verin (ör. `AP_Math/AP_Math.h`).
+    /// A file to include before the header; for headers that do not compile on their own.
+    /// Repeatable, included in the given order; declarations here are not bound.
+    /// In `generate`, the shim also includes it before the header: give a name resolvable from
+    /// the include paths (e.g. `AP_Math/AP_Math.h`).
     #[arg(long, value_name = "HEADER")]
     prelude: Vec<String>,
-    /// `--` sonrasında clang'a olduğu gibi geçirilecek argümanlar (ör. `-- -I include`).
+    /// Arguments after `--` passed to clang as they are (e.g. `-- -I include`).
     #[arg(last = true)]
     clang_args: Vec<String>,
 }
@@ -100,12 +100,12 @@ impl From<ParseArgs> for ParseOptions {
     }
 }
 
-/// Üretilen her dosyanın ilk satırı; üzerine yazmadan önce bununla kontrol edilir.
+/// The first line of every generated file; checked before overwriting.
 const GENERATED_MARKER: &str = "// @generated by ferrobridge";
 const OUTPUT_FILES: [&str; 3] = ["bridge.rs", "shim.h", "shim.cc"];
 
 const LIBCLANG_HINT: &str =
-    "  İpucu: `brew install llvm` ve ardından `export LIBCLANG_PATH=\"$(brew --prefix llvm)/lib\"`";
+    "  Hint: `brew install llvm`, then `export LIBCLANG_PATH=\"$(brew --prefix llvm)/lib\"`";
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -129,11 +129,11 @@ fn main() -> ExitCode {
                 let foreign = foreign_files(&out_dir);
                 if !foreign.is_empty() {
                     eprintln!(
-                        "✗ şu dosyalar ferrobridge tarafından üretilmemiş görünüyor, üzerine \
-                         yazılmadı: {}",
+                        "✗ these files do not look generated by ferrobridge and were not overwritten: \
+                         {}",
                         foreign.join(", ")
                     );
-                    eprintln!("  Yine de yazmak için `--force` kullanın.");
+                    eprintln!("  Use `--force` to write them anyway.");
                     return ExitCode::FAILURE;
                 }
             }
@@ -143,8 +143,8 @@ fn main() -> ExitCode {
                 include_as
             } else {
                 eprintln!(
-                    "✗ {} header için {} `--include-as` verildi; her header için bir tane, aynı \
-                     sırayla verin.",
+                    "✗ {} headers but {} `--include-as` given; give one per header, in the same \
+                     order.",
                     headers.len(),
                     include_as.len()
                 );
@@ -167,14 +167,14 @@ fn main() -> ExitCode {
     }
 }
 
-/// Header'ı okur, açıklamaları yükler ve analizi çalıştırır. Hata olursa basıp çıkış kodunu
-/// döndürür. Gereksiz açıklama uyarıları burada basılır.
+/// Reads the header, loads the annotations and runs the analysis. On error, prints it and
+/// returns the exit code. Unnecessary annotation warnings are printed here.
 fn analyze(
     headers: &[PathBuf],
     config: Option<&Path>,
     options: &ParseOptions,
 ) -> Result<BridgePlan, ExitCode> {
-    // Açıklamalar önce: `[templates]` parser'a örnekleme olarak gider.
+    // Annotations first: `[templates]` goes to the parser as instantiations.
     let annotations = match config {
         Some(path) => Annotations::from_file(path).map_err(|error| {
             eprintln!("✗ {error}");
@@ -186,7 +186,7 @@ fn analyze(
     options.instantiate = annotations.instantiations();
     let module = ferrobridge_parser::parse_headers(headers, &options).map_err(|e| report(&e))?;
     let plan = ferrobridge_analysis::check(&module, &annotations).map_err(|issues| {
-        eprintln!("✗ açıklama dosyası header'la uyuşmuyor:");
+        eprintln!("✗ the annotation file does not match the header:");
         for issue in &issues {
             eprintln!("  ✗ {issue}");
         }
@@ -206,8 +206,8 @@ fn suggest(headers: &[PathBuf], config: Option<&Path>, options: ParseOptions) ->
     print!("{}", ferrobridge_analysis::render_suggestions(&plan));
     if !plan.suggestions.is_empty() {
         eprintln!(
-            "ℹ {} yer açıklama bekliyor. Emin olduğun satırları açıp `generate --config` ile \
-             kullan.",
+            "ℹ {} places need an annotation. Enable the lines you are sure of and use them with \
+             `generate --config`.",
             plan.suggestions.len()
         );
     }
@@ -247,7 +247,10 @@ fn generate(
     }
 
     if let Err(error) = write_files(out_dir, &files) {
-        eprintln!("✗ dosyalar yazılamadı ({}): {error}", out_dir.display());
+        eprintln!(
+            "✗ could not write the files ({}): {error}",
+            out_dir.display()
+        );
         return ExitCode::FAILURE;
     }
     let bound = plan.functions.len()
@@ -257,7 +260,7 @@ fn generate(
             .map(|c| c.constructors.len() + c.methods.len())
             .sum::<usize>();
     println!(
-        "✓ {} sınıf, {} enum, {} sabit ve {bound} fonksiyon/metot bağlandı; {} öğe atlandı.",
+        "✓ bound {} classes, {} enums, {} constants and {bound} functions/methods; skipped {} items.",
         plan.classes.len(),
         plan.enums.len(),
         plan.constants.len(),
@@ -265,13 +268,13 @@ fn generate(
     );
     if !plan.assumptions.is_empty() {
         println!(
-            "  {} açıklamaya dayanan varsayım (üretilen dosyaların başında listelendi).",
+            "  {} assumptions based on annotations (listed at the top of the generated files).",
             plan.assumptions.len()
         );
     }
     if !plan.suggestions.is_empty() {
         println!(
-            "  {} yer açıklama bekliyor: `ferrobridge suggest {}`",
+            "  {} places need an annotation: `ferrobridge suggest {}`",
             plan.suggestions.len(),
             headers
                 .iter()
@@ -286,7 +289,7 @@ fn generate(
     ExitCode::SUCCESS
 }
 
-/// `out_dir`'de var olan ama `@generated by ferrobridge` ile başlamayan çıktı dosyaları.
+/// Output files in `out_dir` that exist but do not start with `@generated by ferrobridge`.
 fn foreign_files(out_dir: &Path) -> Vec<String> {
     OUTPUT_FILES
         .iter()
@@ -315,7 +318,7 @@ fn file_name(path: &Path) -> String {
     )
 }
 
-/// Header adından geçerli bir C++ tanımlayıcısı (`my-lib.h` → `my_lib`).
+/// A valid C++ identifier from the header name (`my-lib.h` → `my_lib`).
 fn identifier_from(path: &Path) -> String {
     let stem = path
         .file_stem()
@@ -334,7 +337,7 @@ fn identifier_from(path: &Path) -> String {
 fn doctor() -> ExitCode {
     match ferrobridge_parser::libclang_version() {
         Ok(version) => {
-            println!("✓ libclang bulundu: {version}");
+            println!("✓ libclang found: {version}");
             ExitCode::SUCCESS
         }
         Err(error) => report(&error),
@@ -352,13 +355,13 @@ fn parse(header: &Path, options: &ParseOptions) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("✗ IR JSON'a çevrilemedi: {error}");
+            eprintln!("✗ could not turn the IR into JSON: {error}");
             ExitCode::FAILURE
         }
     }
 }
 
-/// Hatayı stderr'e basar: önce özet, sonra varsa her tanı ve ipucu.
+/// Prints the error to stderr: first the summary, then every diagnostic and hint, if any.
 fn report(error: &ParserError) -> ExitCode {
     eprintln!("✗ {error}");
     match error {

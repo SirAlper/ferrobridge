@@ -4,7 +4,7 @@
 
 namespace text {
 
-std::string greet(const std::string& name) { return "Merhaba, " + name + "!"; }
+std::string greet(const std::string& name) { return "Hello, " + name + "!"; }
 void append_exclamation(std::string& text) { text += "!"; }
 std::string raw_bytes() { return std::string("\xff\xfe"); }
 

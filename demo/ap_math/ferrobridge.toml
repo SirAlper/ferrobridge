@@ -1,13 +1,13 @@
-# ArduPilot `AP_Math` için ferrobridge açıklamaları (commit 437a3301cc).
+# ferrobridge annotations for ArduPilot `AP_Math` (commit 437a3301cc).
 #
-# Her söz ArduPilot kaynağı okunarak verildi; ayrıntılar bölümlerin üstünde.
+# Every promise was made by reading the ArduPilot source; details above each section.
 
-# ArduPilot exception kullanmıyor (firmware `-fno-exceptions` ile derleniyor): fonksiyonlar
-# `Result` yerine doğrudan değer döndürür. Söz bozulursa program sonlanır.
+# ArduPilot does not use exceptions (the firmware is compiled with `-fno-exceptions`): functions
+# return values directly instead of `Result`. If the promise is broken, the program ends.
 [library]
 exceptions = false
 
-# Kütüphanenin `.cpp`'lerinde açıkça örneklenen template'ler (`template class Vector3<float>;`).
+# Templates explicitly instantiated in the library's `.cpp`s (`template class Vector3<float>;`).
 [templates]
 Vector2f = "Vector2<float>"
 Vector3f = "Vector3<float>"
@@ -19,9 +19,9 @@ Matrix3d = "Matrix3<double>"
 QuaternionD = "QuaternionT<double>"
 
 # ---- vector/matrix/quaternion ----
-# `to_euler` çıkış parametreleri: yalnızca yazılıyor (`quaternion.cpp`, `matrix3.cpp`),
-# saklanmıyor. `Matrix3::to_euler` pointer'ları null olabilir diye kontrol ediyor; Rust her zaman
-# geçerli bir referans verdiği için `borrowed` ("null değil") güvenli.
+# The `to_euler` output parameters: only written (`quaternion.cpp`, `matrix3.cpp`),
+# not kept. `Matrix3::to_euler` checks the pointers for null; because Rust always gives a
+# valid reference, `borrowed` ("not null") is safe.
 [functions."Quaternion::to_euler".params]
 roll = "borrowed"
 pitch = "borrowed"
@@ -43,14 +43,14 @@ pitch = "borrowed"
 yaw = "borrowed"
 
 # ---- crc ----
-# `AP_Math/crc.h` için sahiplik açıklamaları. Her satır ArduPilot'un `crc.cpp`'si okunarak
-# yazıldı (commit 437a3301cc): pointer, yanındaki uzunluk kadar elemanlık bir diziyi gösteriyor,
-# yalnızca okunuyor ve saklanmıyor.
+# Ownership annotations for `AP_Math/crc.h`. Every line was written by reading ArduPilot's `crc.cpp`
+# (commit 437a3301cc): the pointer points to an array with as many elements as the length next to it,
+# is only read, and is not kept.
 #
-# Bilerek açıklanmayanlar:
-# - `crc_crc4(uint16_t* data)`: uzunluk parametresi yok, sabit 8 kelime okunuyor; `slice`
-#   olamaz, `borrowed` ("tek nesne") da yanlış olurdu.
-# - `crc8_dvb_s2_update(..., const void* data, ...)`: `void*`, tipi bilinmiyor.
+# Deliberately not annotated:
+# - `crc_crc4(uint16_t* data)`: no length parameter, a fixed 8 words are read; it cannot be a
+#   `slice`, and `borrowed` ("a single object") would be wrong too.
+# - `crc8_dvb_s2_update(..., const void* data, ...)`: `void*`, its type is unknown.
 
 [functions.crc_crc8.params]
 p = { slice = "len" }
@@ -85,7 +85,7 @@ buf = { slice = "size" }
 [functions.crc_crc24.params]
 bytes = { slice = "len" }
 
-# Pointer `const` değil ama dizi yalnızca okunuyor; Rust'ta gereğinden kısıtlayıcı `&mut [u8]`.
+# The pointer is not `const` but the array is only read; in Rust a more restrictive than needed `&mut [u8]`.
 [functions.crc_crc16_ibm.params]
 data_blk_ptr = { slice = "data_blk_size" }
 
@@ -107,12 +107,12 @@ buf = { slice = "len" }
 [functions.crc_fletcher16.params]
 buffer = { slice = "len" }
 
-# `hash` tek bir giriş-çıkış değeri: `*hash` okunup yazılıyor.
+# `hash` is a single in-out value: `*hash` is read and written.
 [functions.hash_fnv_1a.params]
 buf = { slice = "len" }
 hash = "borrowed"
 
-# `num_words`: `uint32_t` eleman sayısı.
+# `num_words`: the number of `uint32_t` elements.
 [functions.crc_crc64.params]
 data = { slice = "num_words" }
 
@@ -123,8 +123,8 @@ data = { slice = "count" }
 data = { slice = "count" }
 
 # ---- control ----
-# `AP_Math/control.h`: `float&` / `postype_t&` parametreler giriş-çıkış değerleri; fonksiyonlar
-# (`control.cpp`) onları yalnızca çağrı süresince okuyup yazıyor, saklamıyor.
+# `AP_Math/control.h`: the `float&` / `postype_t&` parameters are in-out values; the functions
+# (`control.cpp`) only read and write them during the call, and do not keep them.
 
 [functions.update_vel_accel.params]
 vel = "borrowed"
@@ -150,14 +150,14 @@ roll_out_rad = "borrowed"
 pitch_out_rad = "borrowed"
 
 # ---- ap_math ----
-# `AP_Math/AP_Math.h`. `fill_nanf`'in iki overload'u (`float*`, `double*`) aynı anahtarı
-# paylaşıyor; ikisi de `count` elemanlık diziyi NaN ile dolduruyor (`AP_Math.cpp`).
+# `AP_Math/AP_Math.h`. The two overloads of `fill_nanf` (`float*`, `double*`) share the same
+# key; both fill an array of `count` elements with NaN (`AP_Math.cpp`).
 
 [functions.fill_nanf.params]
 f = { slice = "count" }
 
 # ---- scurve ----
-# `AP_Math/SCurve.h`: `calculate_path`'in `*_out` parametreleri yalnızca çıkış değeri.
+# `AP_Math/SCurve.h`: the `*_out` parameters of `calculate_path` are output values only.
 
 [functions."SCurve::calculate_path".params]
 Jm_out = "borrowed"

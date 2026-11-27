@@ -1,6 +1,6 @@
-// Kendini dolaylı olarak include eden header (ArduPilot'taki `vectorN.h` -> `AP_Math.h` ->
-// `vectorN.h` döngüsü gibi). Ana dosya olarak okunursa `#pragma once` işlemez ve `Counter`
-// iki kez tanımlanır.
+// A header that includes itself indirectly (like the `vectorN.h` -> `AP_Math.h` ->
+// `vectorN.h` cycle in ArduPilot). Read as the main file, `#pragma once` does not work and `Counter`
+// is defined twice.
 #pragma once
 
 #include "helper.h"

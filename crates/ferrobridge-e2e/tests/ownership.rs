@@ -1,10 +1,10 @@
-//! `tests/fixtures/ownership`: `ferrobridge.toml` açıklamalarıyla bağlanan pointer'lar,
-//! güvenli API ile. Elle yazılmış bridge, `unsafe` ya da cxx tipi yok.
+//! `tests/fixtures/ownership`: pointers bound with `ferrobridge.toml` annotations, with the
+//! safe API. No hand-written bridge, `unsafe` or cxx type.
 //!
-//! Sahipliğin gerçekten Rust'a geçtiği C++'taki canlı nesne sayaçlarıyla kanıtlanır.
+//! That ownership really passes to Rust is proven with live object counters in C++.
 
-// Bu dosya yalnızca test kodu; `clippy.toml`'daki test istisnası yardımcı fonksiyonları
-// kapsamadığı için burada açıkça izin veriliyor.
+// This file is test code only; the test exception in `clippy.toml` does not cover helper
+// functions, so it is allowed explicitly here.
 #![allow(clippy::unwrap_used)]
 
 use std::sync::{Mutex, MutexGuard};
@@ -12,8 +12,8 @@ use std::sync::{Mutex, MutexGuard};
 use ferrobridge::Error;
 use ferrobridge_e2e::ownership::{self as own, Widget};
 
-/// Sayaçlar C++'ta global ve testler paralel çalışıyor. `Widget`/`Shape` oluşturan her test bu
-/// kilidi alır; yoksa bir testin oluşturduğu nesne başka bir testin sayımını bozar.
+/// The counters are global in C++ and the tests run in parallel. Every test creating a `Widget`/`Shape`
+/// takes this lock; otherwise an object created by one test would break another test's count.
 static COUNTERS: Mutex<()> = Mutex::new(());
 
 fn counters() -> MutexGuard<'static, ()> {
@@ -30,14 +30,14 @@ fn close(a: f64, b: f64) -> bool {
 fn owned_return_is_deleted_when_the_wrapper_drops() -> ferrobridge::Result<()> {
     let _guard = counters();
     let before = own::live_widgets();
-    let widget = own::make_widget(7)?.expect("null değil");
+    let widget = own::make_widget(7)?.expect("not null");
     assert_eq!(widget.id(), 7);
     assert_eq!(own::live_widgets(), before + 1);
     drop(widget);
     assert_eq!(
         own::live_widgets(),
         before,
-        "sarmalayıcı düşünce nesne silinmeli"
+        "the object must be deleted when the wrapper is dropped"
     );
     Ok(())
 }
@@ -52,11 +52,11 @@ fn owned_null_pointer_becomes_none() -> ferrobridge::Result<()> {
 fn owned_interface_pointer_runs_the_derived_destructor() -> ferrobridge::Result<()> {
     let _guard = counters();
     let before = own::live_shapes();
-    let square = own::make_square(3.0)?.expect("null değil");
+    let square = own::make_square(3.0)?.expect("not null");
     assert!(close(square.area()?, 9.0));
     assert_eq!(own::live_shapes(), before + 1);
     drop(square);
-    // Sanal destructor sayesinde alt sınıfın (Square) destructor'ı çalıştı.
+    // Thanks to the virtual destructor, the subclass's (Square's) destructor ran.
     assert_eq!(own::live_shapes(), before);
     Ok(())
 }
@@ -73,9 +73,9 @@ fn borrowed_returns_are_never_deleted_and_null_is_an_error() -> ferrobridge::Res
     let before = own::live_widgets();
     let mut parent = Widget::new_i32(1)?;
 
-    // Çocuk yok: C++ null döndürür, Rust'a referans değil `Err` gelir.
+    // No child: C++ returns null, Rust gets `Err` instead of a reference.
     let Err(error) = parent.child_view() else {
-        panic!("null pointer referansa çevrilmemeliydi");
+        panic!("a null pointer must not have been turned into a reference");
     };
     assert!(matches!(
         error,
@@ -91,11 +91,11 @@ fn borrowed_returns_are_never_deleted_and_null_is_an_error() -> ferrobridge::Res
     parent.child()?.adopt(3)?;
     assert_eq!(own::live_widgets(), before + 3);
 
-    // Ek parametreli ödünç dönüş: ömrü `parent`'a bağlı.
+    // A borrowed return with an extra parameter: its lifetime is tied to `parent`.
     assert_eq!(parent.child_named("2")?.id(), 2);
     assert!(parent.child_named("9").is_err());
 
-    // Ödünç referanslar düştü, hiçbir nesne silinmedi; ebeveyni silmek hepsini siler.
+    // The borrowed references were dropped, no object was deleted; deleting the parent deletes them all.
     assert_eq!(own::live_widgets(), before + 3);
     drop(parent);
     assert_eq!(own::live_widgets(), before);
@@ -148,6 +148,6 @@ fn borrowed_object_params() -> ferrobridge::Result<()> {
 fn unannotated_and_untyped_items_are_not_bound() {
     let bridge = include_str!("../src/generated/ownership/bridge.rs");
     for name in ["fn unannotated", "fn raw_handle", "fn make_leaky"] {
-        assert!(!bridge.contains(name), "{name} bağlanmamalıydı");
+        assert!(!bridge.contains(name), "{name} should not have been bound");
     }
 }

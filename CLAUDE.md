@@ -1,50 +1,51 @@
 # ferrobridge
 
-C++ kütüphanelerini Rust'tan **güvenli ve idiomatik** şekilde kullanmayı sağlayan bağlama (binding) üreteci.
-libclang ile header okur → ara model (IR) → ownership çıkarımı + `ferrobridge.toml` açıklamaları → `cxx` bridge + C++ shim + güvenli Rust API üretir.
+A binding generator for using C++ libraries from Rust **safely and idiomatically**.
+It reads headers with libclang → intermediate model (IR) → ownership inference + `ferrobridge.toml` annotations → generates a `cxx` bridge, a C++ shim and a safe Rust API.
 
-Açık kaynak: `MIT OR Apache-2.0` (bkz. `docs/adr/0003-open-source-dual-license.md`).
+Open source: `MIT OR Apache-2.0` (see `docs/adr/0003-open-source-dual-license.md`).
 
-Durum: **Milestone 6 (header'lar arası tipler, template'ler, değer tipleri) tamamlandı**: bir bridge birden fazla header'dan üretiliyor; `[templates]` sınıf template'lerini örnekliyor (üyeler kalıptan, parametreler yerine konarak); bit bit kopyalanabilen, alanları public sınıflar `#[repr(C)]` Rust struct'ı (`ExternType` + C++ `static_assert`'leri); üye operatörler `std::ops`; `[library] exceptions = false` doğrudan değer döndürüyor. `demo/ap_math/` `Vector3f`/`Matrix3f`/`Quaternion` dahil `AP_Math`'in ~%82'sini bağlıyor, `cargo run --example tour` çalışıyor. Sırada Milestone 7: v0.1 yayını (`/ecc:plan .claude/prds/ferrobridge.prd.md`).
+Status: **Milestone 6 (cross-header types, templates, value types) is complete**: one bridge is generated from several headers; `[templates]` instantiates class templates (members come from the pattern, with the parameters substituted); trivially copyable classes with public fields become `#[repr(C)]` Rust structs (`ExternType` + C++ `static_assert`s); member operators become `std::ops`; `[library] exceptions = false` returns values directly. `demo/ap_math/` binds ~82% of `AP_Math`, including `Vector3f`/`Matrix3f`/`Quaternion`, and `cargo run --example tour` works. Next: Milestone 7, the v0.1 release (`/ecc:plan .claude/prds/ferrobridge.prd.md`).
 
-## Belgeler
-- Gereksinimler (PRD): `.claude/prds/ferrobridge.prd.md`. Planlama komutu `/ecc:plan .claude/prds/ferrobridge.prd.md` bu dosyayı okur.
-- Mimari kararlar: `docs/adr/` (dizin: `docs/adr/README.md`, şablon: `docs/adr/template.md`). Kabul edilmiş ADR'ler: 0001 (libclang via `clang-sys`), 0002 (cxx üstüne inşa), 0003 (açık kaynak çift lisans), 0004 (üretilen kod commit'lenir), 0005 (overload/çakışma adlandırma), 0006 (sahiplik açıklamaları ayrı TOML dosyasında), 0007 (cxx üstünde güvenli API katmanı), 0008 (derleme sırasında üretim ve GPL'li demo), 0009 (çok header'lı bridge'ler ve template örnekleme), 0010 (değer tipleri), 0011 (exception kullanmayan kütüphaneler).
-- Milestone planları: `.claude/plans/` (her planın sonunda uygulama notları ve sapmalar).
-- Kişisel notlar ve yerel yollar repoya girmez; proje sahibi bunları Git'e girmeyen `CLAUDE.local.md` dosyasında tutar.
+## Documents
+- Requirements (PRD): `.claude/prds/ferrobridge.prd.md`. The planning command `/ecc:plan .claude/prds/ferrobridge.prd.md` reads this file.
+- Architecture decisions: `docs/adr/` (index: `docs/adr/README.md`, template: `docs/adr/template.md`). Accepted ADRs: 0001 (libclang via `clang-sys`), 0002 (build on cxx), 0003 (open-source dual license), 0004 (generated code is committed), 0005 (overload/collision naming), 0006 (ownership annotations in a separate TOML file), 0007 (safe API layer over cxx), 0008 (build-time generation and the GPL demo), 0009 (multi-header bridges and template instantiation), 0010 (value types), 0011 (libraries without exceptions).
+- Milestone plans: `.claude/plans/` (each plan ends with implementation notes and deviations).
+- Personal notes and local paths stay out of the repo; the project owner keeps them in `CLAUDE.local.md`, which is not tracked by Git.
 
-## Çalışma kuralları
-- Her milestone: `/ecc:plan` ile plan → onay → TDD → review → commit.
-- MVP kapsamının dışına çıkan her karar için ADR yaz (`docs/adr/`).
-- GPL lisanslı kodu (ör. ArduPilot) repoya **kopyalama**; dışarıdan kullan (ADR-0003).
+## Working rules
+- Every milestone: plan with `/ecc:plan` → approval → TDD → review → commit.
+- Write an ADR (`docs/adr/`) for every decision that goes beyond the MVP scope.
+- Do **not copy** GPL-licensed code (e.g. ArduPilot) into the repo; use it from outside (ADR-0003).
+- Everything in the repo (documents, comments, messages) is written in English.
 
-## Güvenlik kuralları (değişmez)
-1. **Tahmin etme, sor:** Sahipliği belirsiz pointer için kod üretilmez. Açıklamalı uyarı verilir ve `ferrobridge.toml` önerisi basılır.
-2. **En kısıtlayıcı varsayılan:** Şüphede `&mut` yerine `Pin<&mut T>` ve `&T` kullanılır.
-3. **Trivial olmayan taşınabilir tipler** Rust'ta asla değer olarak tutulmaz: `UniquePtr` veya `Pin` kullanılır.
-4. **Exception'lar FFI sınırını geçmez:** Her shim `try/catch` ile sarılır.
-5. **Kullanıcıya `unsafe` sızmaz:** `unsafe` yalnızca üretilen iç katmanda, gerekçe yorumuyla bulunur.
+## Safety rules (non-negotiable)
+1. **Ask, don't guess:** No code is generated for a pointer whose ownership is unclear. An explanatory warning is printed together with a suggested `ferrobridge.toml` entry.
+2. **Most restrictive default:** When in doubt, use `Pin<&mut T>` and `&T` instead of `&mut`.
+3. **Non-trivially movable types** are never held by value in Rust: use `UniquePtr` or `Pin`.
+4. **Exceptions do not cross the FFI boundary:** every shim is wrapped in `try/catch`.
+5. **No `unsafe` leaks to the user:** `unsafe` exists only in the generated inner layer, with a justification comment.
 
-## Komutlar
+## Commands
 ```bash
-export LIBCLANG_PATH="$(brew --prefix llvm)/lib"   # macOS'ta ayarlanmazsa Apple'ın libclang'ı yüklenir
-cargo run -p ferrobridge-cli -- doctor              # hangi libclang'ın yüklendiğini gösterir
+export LIBCLANG_PATH="$(brew --prefix llvm)/lib"   # on macOS, Apple's libclang is loaded otherwise
+cargo run -p ferrobridge-cli -- doctor              # shows which libclang is loaded
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace                              # e2e için C++17 derleyicisi gerekir
-ARDUPILOT_DIR=~/ardupilot cargo test --manifest-path demo/ap_math/Cargo.toml   # AP_Math demosu
+cargo test --workspace                              # e2e needs a C++17 compiler
+ARDUPILOT_DIR=~/ardupilot cargo test --manifest-path demo/ap_math/Cargo.toml   # AP_Math demo
 ```
 
-Üretici veya fixture'lar değişince `crates/ferrobridge-e2e/src/generated/` yeniden üretilmeli (komut: `crates/ferrobridge-e2e/README.md`; `ferrobridge.toml`'u olan fixture'lar `--config` ile); aksi halde `generated_files_match_the_committed_e2e_files` testi başarısız olur. Üretilen `bridge.rs`'teki her üst düzey öğe `#[rustfmt::skip]` taşır, `cargo fmt` ona dokunmaz. Fixture dizinindeki bütün `.h` dosyaları (alt dizinler hariç) o fixture'ın bridge header'larıdır. E2e'de güvenli API testleri cxx tipi kullanmaz (`tests/idiomatic.rs` denetler); ham katman testleri `tests/raw_layer.rs`'te. Snapshot değişikliklerini `cargo insta review` ile **elle inceleyip** kabul et.
+When the generator or the fixtures change, `crates/ferrobridge-e2e/src/generated/` must be regenerated (command: `crates/ferrobridge-e2e/README.md`; fixtures with a `ferrobridge.toml` use `--config`); otherwise the `generated_files_match_the_committed_e2e_files` test fails. Every top-level item in the generated `bridge.rs` carries `#[rustfmt::skip]`, so `cargo fmt` leaves it alone. All `.h` files in a fixture directory (not subdirectories) are that fixture's bridge headers. In e2e, safe API tests use no cxx types (checked by `tests/idiomatic.rs`); raw layer tests live in `tests/raw_layer.rs`. **Review snapshot changes by hand** with `cargo insta review` before accepting them.
 
-`demo/ap_math/` kök workspace'in parçası değil ve **GPL-3.0-or-later** (ADR-0008): ArduPilot kodu ve ondan üretilen dosyalar repoya girmez (bridge'ler `OUT_DIR`'e üretilir), demo kodu ana crate'lere taşınmaz. Bütün `AP_Math` header'ları tek bridge, açıklamalar tek `demo/ap_math/ferrobridge.toml`'da (template örneklemelerinin anahtarları Rust adıyla: `Quaternion::to_euler`). Bir açıklama yazmadan önce C++ kaynağını oku: söz kaynağa dayanmalı.
+`demo/ap_math/` is not part of the root workspace and is **GPL-3.0-or-later** (ADR-0008): ArduPilot code and files generated from it never enter the repo (bridges are generated into `OUT_DIR`), and demo code is not moved into the main crates. All `AP_Math` headers form a single bridge, with all annotations in one `demo/ap_math/ferrobridge.toml` (keys for template instantiations use the Rust name: `Quaternion::to_euler`). Read the C++ source before writing an annotation: the promise must be based on the source.
 
-## Mimari (kısa)
-`parser` (libclang → IR; header bellekte üretilen bir çeviri birimiyle okunur) → `analysis` (`ferrobridge.toml` + neyin güvenle bağlanacağı + Rust adları → `BridgePlan`) → `codegen` (`bridge.rs` = güvenli katman + ham `ffi`, `shim.h`, `shim.cc`) → `cli` / `build` (`build.rs`). Üretilen kod çalışma zamanında `ferrobridge` crate'ini (`Error`, dönüşümler) kullanır. Bütün `unsafe` `crates/ferrobridge-parser/src/clang.rs`'de.
+## Architecture (short)
+`parser` (libclang → IR; the header is read through a translation unit generated in memory) → `analysis` (`ferrobridge.toml` + what can be bound safely + Rust names → `BridgePlan`) → `codegen` (`bridge.rs` = safe layer + raw `ffi`, `shim.h`, `shim.cc`) → `cli` / `build` (`build.rs`). Generated code uses the `ferrobridge` crate at runtime (`Error`, conversions). All `unsafe` lives in `crates/ferrobridge-parser/src/clang.rs`.
 
-## Kod kuralları (workspace lint'leriyle zorlanır)
-- Testler dışında `unwrap()` / `expect()` yasak (`clippy.toml` testlerde izin verir).
-- Her `unsafe` bloğun üstünde `// SAFETY:` gerekçesi zorunlu. Yeni libclang çağrıları yalnızca `clang.rs`'e eklenir.
-- Integration test dosyalarında `#![allow(clippy::unwrap_used)]` gerekir (`clippy.toml` istisnası yardımcı fonksiyonları kapsamıyor).
-- Public öğelerde doküman yorumu beklenir (`missing_docs`).
-- `ferrobridge-ir` başka hiçbir ferrobridge crate'ine bağımlı olamaz. İç bağımlılıklar ancak kullanılınca eklenir; hedef grafik kök `Cargo.toml`'da yorum olarak yazılı.
+## Code rules (enforced by workspace lints)
+- `unwrap()` / `expect()` are forbidden outside tests (`clippy.toml` allows them in tests).
+- Every `unsafe` block needs a `// SAFETY:` justification above it. New libclang calls go only into `clang.rs`.
+- Integration test files need `#![allow(clippy::unwrap_used)]` (the `clippy.toml` exception does not cover helper functions).
+- Public items are expected to have doc comments (`missing_docs`).
+- `ferrobridge-ir` may not depend on any other ferrobridge crate. Internal dependencies are added only once they are used; the target graph is written as a comment in the root `Cargo.toml`.

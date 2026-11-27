@@ -45,8 +45,8 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
-  # ArduPilot `AP_Math` demosu (GPL; ADR-0008): ArduPilot dışarıdan, sabit bir commit'te ve
-  # seyrek klonlanır (demo/ap_math/README.md'deki 28 kütüphane).
+  # The ArduPilot `AP_Math` demo (GPL; ADR-0008): ArduPilot is cloned from outside, at a fixed commit and
+  # sparsely (the 28 libraries in demo/ap_math/README.md).
   demo:
     name: demo (${{ matrix.os }})
     strategy:
@@ -74,7 +74,7 @@ jobs:
         run: |
           brew install llvm
           echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
-      - name: ArduPilot (seyrek klon)
+      - name: ArduPilot (sparse clone)
         run: |
           git init -q ardupilot
           cd ardupilot

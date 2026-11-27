@@ -1,21 +1,21 @@
-//! `tests/fixtures/strings`, güvenli API ile: `&str` girer, `String` çıkar.
+//! `tests/fixtures/strings`, with the safe API: `&str` in, `String` out.
 
 use ferrobridge::Error;
 use ferrobridge_e2e::strings::{self as text, Label};
 
 #[test]
 fn str_in_string_out() -> ferrobridge::Result<()> {
-    assert_eq!(text::greet("Dünya")?, "Merhaba, Dünya!");
+    assert_eq!(text::greet("Zoë")?, "Hello, Zoë!");
     Ok(())
 }
 
 #[test]
 fn class_holding_a_string() -> ferrobridge::Result<()> {
-    let mut label = Label::new("selam")?;
-    assert_eq!(label.text()?, "selam");
-    assert_eq!(label.shout()?, "SELAM");
-    label.set_text("güle güle")?;
-    assert_eq!(label.text()?, "güle güle");
+    let mut label = Label::new("hello")?;
+    assert_eq!(label.text()?, "hello");
+    assert_eq!(label.shout()?, "HELLO");
+    label.set_text("goodbye ✓")?;
+    assert_eq!(label.text()?, "goodbye ✓");
     Ok(())
 }
 

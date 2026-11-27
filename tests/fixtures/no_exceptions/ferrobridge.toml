@@ -1,4 +1,4 @@
-# Kütüphane exception fırlatmıyor: fonksiyonlar `Result` yerine doğrudan değer döndürür.
+# The library does not throw exceptions: functions return values directly instead of `Result`.
 [library]
 exceptions = false
 

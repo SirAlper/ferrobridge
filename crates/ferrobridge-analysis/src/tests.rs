@@ -1,4 +1,4 @@
-//! Bağlanabilirlik kuralları ve adlandırma için tablo testleri.
+//! Table tests for the bindability rules and naming.
 
 use ferrobridge_ir::{
     Class, Constructor, Destructor, Enum, EnumVariant, Function, Item, Method, Module, Param,
@@ -7,18 +7,18 @@ use ferrobridge_ir::{
 
 use super::*;
 
-/// Açıklamasız analiz (M2 davranışı).
+/// Analysis without annotations (M2 behavior).
 fn check(module: &Module) -> BridgePlan {
     super::check(module, &Annotations::default()).unwrap()
 }
 
-/// `ferrobridge.toml` metniyle analiz.
+/// Analysis with a `ferrobridge.toml` text.
 fn check_with(module: &Module, toml: &str) -> Result<BridgePlan, Vec<AnnotationIssue>> {
-    let annotations = Annotations::from_toml_str(toml, "/yerel/yol/ferrobridge.toml").unwrap();
+    let annotations = Annotations::from_toml_str(toml, "/local/path/ferrobridge.toml").unwrap();
     super::check(module, &annotations)
 }
 
-// ---- IR kurucuları -------------------------------------------------------------------------
+// ---- IR builders ---------------------------------------------------------------------------
 
 fn loc() -> SourceLocation {
     SourceLocation {
@@ -139,7 +139,7 @@ fn module(items: Vec<Item>) -> Module {
     }
 }
 
-/// Tek parametreli bir serbest fonksiyonun planı: bağlandıysa parametre tipi, atlandıysa neden.
+/// The plan of a free function with one parameter: the parameter type if bound, the reason if skipped.
 fn single_param(ty: QualType) -> Result<BridgeType, String> {
     let plan = check(&module(vec![
         class("Point", Vec::new(), Vec::new()),
@@ -153,7 +153,7 @@ fn single_param(ty: QualType) -> Result<BridgeType, String> {
             .find(|s| s.name == "f")
             .map(|s| s.reason.clone())
             .unwrap_or_default()),
-        _ => panic!("beklenmeyen plan: {plan:?}"),
+        _ => panic!("unexpected plan: {plan:?}"),
     }
 }
 
@@ -175,7 +175,7 @@ fn point_ref() -> TypeRef {
     }
 }
 
-// ---- Tip kuralları ---------------------------------------------------------------------------
+// ---- Type rules ------------------------------------------------------------------------------
 
 #[test]
 fn portable_integers_map_to_rust_integers() {
@@ -202,7 +202,7 @@ fn platform_dependent_integers_are_rejected() {
         ("long long", "long long"),
     ] {
         let reason = single_param(q(int(spelling, builtin, 8, true, false))).unwrap_err();
-        assert!(reason.contains("sabit genişlikli"), "{spelling}: {reason}");
+        assert!(reason.contains("fixed-width"), "{spelling}: {reason}");
     }
 }
 
@@ -225,10 +225,10 @@ fn references_follow_the_type_table() {
             inner: Box::new(BridgeType::F64)
         })
     );
-    // primitif T& → açıklama gerekiyor
+    // primitive T& → needs an annotation
     let reason = single_param(q(lref(q(f64_ty())))).unwrap_err();
     assert!(reason.contains("borrowed"), "{reason}");
-    // sınıf T& → Pin<&mut T>
+    // class T& → Pin<&mut T>
     assert_eq!(
         single_param(q(lref(q(record("Point"))))),
         Ok(BridgeType::Ref {
@@ -244,7 +244,7 @@ fn references_follow_the_type_table() {
             inner: Box::new(BridgeType::String)
         })
     );
-    // T&& → reddedilir
+    // T&& → rejected
     assert!(
         single_param(q(Type::RValueRef {
             referent: Box::new(q(i32_ty()))
@@ -268,7 +268,7 @@ fn classes_and_strings_by_value() {
 #[test]
 fn unknown_records_are_rejected() {
     let reason = single_param(q(lref(konst(record("Elsewhere"))))).unwrap_err();
-    assert!(reason.contains("tanımlı değil"), "{reason}");
+    assert!(reason.contains("is not defined"), "{reason}");
 }
 
 #[test]
@@ -330,7 +330,7 @@ fn a_single_unsupported_param_skips_the_whole_function() {
     );
 }
 
-// ---- Sınıflar ve enum'lar ---------------------------------------------------------------------
+// ---- Classes and enums ----------------------------------------------------------------------
 
 #[test]
 fn methods_get_receivers_and_constructors_become_factories() {
@@ -376,7 +376,7 @@ fn abstract_classes_get_no_factories() {
     }
     let plan = check(&module(vec![item]));
     assert!(plan.classes[0].constructors.is_empty());
-    assert!(plan.skipped.iter().any(|s| s.reason.contains("soyut")));
+    assert!(plan.skipped.iter().any(|s| s.reason.contains("abstract")));
 }
 
 #[test]
@@ -419,7 +419,7 @@ fn unsupported_items_and_members_are_reported() {
         Item::Unsupported(Unsupported {
             construct: "variable".to_owned(),
             name: "g".to_owned(),
-            reason: "değişken".to_owned(),
+            reason: "variable".to_owned(),
             location: loc(),
         }),
     ]));
@@ -428,7 +428,7 @@ fn unsupported_items_and_members_are_reported() {
     assert!(names.contains(&"g"), "{names:?}");
 }
 
-// ---- Adlandırma -------------------------------------------------------------------------------
+// ---- Naming ----------------------------------------------------------------------------------
 
 #[test]
 fn overloads_get_type_suffixes() {
@@ -508,7 +508,7 @@ fn type_names_colliding_across_namespaces_are_prefixed() {
     assert_eq!(names, ["GeoVehicle", "PhysicsVehicle"]);
 }
 
-// ---- Sahiplik açıklamaları (Milestone 3) -----------------------------------------------------
+// ---- Ownership annotations (Milestone 3) ----------------------------------------------------
 
 fn ptr(pointee: QualType) -> QualType {
     q(Type::Pointer {
@@ -545,7 +545,7 @@ fn reference(mutable: bool, inner: BridgeType) -> BridgeType {
     }
 }
 
-/// `f(x)` serbest fonksiyonu, `x` parametresi `borrowed` açıklamalı.
+/// The free function `f(x)`, with the parameter `x` annotated `borrowed`.
 fn borrowed_param(ty: QualType) -> Result<ParamPlan, String> {
     let plan = check_with(
         &module(vec![
@@ -604,7 +604,7 @@ fn some_pointers_stay_rejected_even_when_annotated() {
         (ptr(q(Type::Void)), "void*"),
         (ptr(konst(char_ty())), "C string"),
         (ptr(ptr(q(i32_ty()))), "T**"),
-        (ptr(q(record("Elsewhere"))), "tanımlı değil"),
+        (ptr(q(record("Elsewhere"))), "is not defined"),
     ] {
         let reason = borrowed_param(ty).unwrap_err();
         assert!(reason.contains(needle), "{needle}: {reason}");
@@ -650,9 +650,9 @@ fn unannotated_pointers_produce_suggestions() {
 
 #[test]
 fn no_suggestions_when_an_annotation_would_not_help() {
-    // `int* p, long n` M5'ten beri `p = { slice = "n" }` ile bağlanabiliyor (bkz.
-    // `pointer_next_to_an_integer_suggests_a_slice`); bilinmeyen bir sınıfın pointer'ı ise slice
-    // olamaz, `long` da başka hiçbir açıklamayla düzelmez.
+    // Since M5, `int* p, long n` can be bound with `p = { slice = "n" }` (see
+    // `pointer_next_to_an_integer_suggests_a_slice`); a pointer to an unknown class, however, cannot
+    // be a slice, and no other annotation fixes `long` either.
     let plan = check(&module(vec![function(
         &[],
         "f",
@@ -666,7 +666,7 @@ fn no_suggestions_when_an_annotation_would_not_help() {
     assert!(plan.suggestions.is_empty(), "{:?}", plan.suggestions);
 }
 
-/// `geo::make()` serbest fonksiyonu ya da `Point::get()` metodu, verilen dönüş açıklamasıyla.
+/// The free function `geo::make()` or the method `Point::get()`, with the given return annotation.
 fn annotated_return(
     ret: QualType,
     annotation: Option<&str>,
@@ -723,8 +723,8 @@ fn owned_pointer_returns_become_unique_ptrs() {
 fn owned_is_rejected_where_it_cannot_be_honoured() {
     for (ret, needle) in [
         (ptr(konst(record("Point"))), "const T*"),
-        (ptr(q(i32_ty())), "UniquePtr<primitif>"),
-        (q(lref(konst(record("Point")))), "Referans"),
+        (ptr(q(i32_ty())), "UniquePtr<primitive>"),
+        (q(lref(konst(record("Point")))), "returned reference"),
     ] {
         let reason = annotated_return(ret, Some("owned"), Some(true), plain_point()).unwrap_err();
         assert!(reason.contains(needle), "{needle}: {reason}");
@@ -735,12 +735,12 @@ fn owned_is_rejected_where_it_cannot_be_honoured() {
 fn owned_pointer_returns_check_the_destructor() {
     let ret = || ptr(q(record("Point")));
     let cases = [
-        (Destructor::NotPublic, false, Some("public değil")),
-        (Destructor::Deleted, false, Some("silinmiş")),
+        (Destructor::NotPublic, false, Some("is not public")),
+        (Destructor::Deleted, false, Some("is deleted")),
         (
             Destructor::Public { is_virtual: false },
             true,
-            Some("sanal değil"),
+            Some("is not virtual"),
         ),
         (Destructor::Public { is_virtual: true }, true, None),
         (Destructor::Public { is_virtual: false }, false, None),
@@ -775,7 +775,7 @@ fn borrowed_pointer_returns_from_methods_follow_the_receiver() {
                 inner: point_ty()
             }
         );
-        assert!(bound.fallible, "null kontrolü her zaman `Err` döndürebilir");
+        assert!(bound.fallible, "the null check can always return `Err`");
         assert!(bound.needs_shim());
     }
 }
@@ -789,7 +789,7 @@ fn borrowed_returns_are_rejected_for_free_functions() {
         plain_point(),
     )
     .unwrap_err();
-    assert!(reason.contains("yalnızca metotlarda"), "{reason}");
+    assert!(reason.contains("only on methods"), "{reason}");
 }
 
 #[test]
@@ -821,7 +821,7 @@ fn return_suggestions_offer_only_meaningful_options() {
             .iter()
             .map(|s| match &s.target {
                 SuggestionTarget::Return { options } => options.clone(),
-                SuggestionTarget::Param { .. } => panic!("parametre önerisi beklenmiyordu"),
+                SuggestionTarget::Param { .. } => panic!("no parameter suggestion was expected"),
             })
             .collect::<Vec<_>>()
     };
@@ -859,9 +859,9 @@ fn vectors_follow_the_type_table() {
         Ok(Returns::OwnedVector(BridgeType::String))
     );
     for (element, needle) in [
-        (Type::Bool, "bit paketli"),
-        (vector(i32_ty()), "eleman"),
-        (char_ty(), "eleman"),
+        (Type::Bool, "bit-packed"),
+        (vector(i32_ty()), "element"),
+        (char_ty(), "element"),
     ] {
         let reason = single_param(q(lref(konst(vector(element))))).unwrap_err();
         assert!(reason.contains(needle), "{needle}: {reason}");
@@ -882,7 +882,7 @@ fn classes_that_cannot_be_deleted_get_no_unique_ptrs() {
     assert!(
         plan.skipped
             .iter()
-            .any(|s| s.reason.contains("public değil")),
+            .any(|s| s.reason.contains("is not public")),
         "{:?}",
         plan.skipped
     );
@@ -899,7 +899,7 @@ fn classes_that_cannot_be_deleted_get_no_unique_ptrs() {
         ]));
         assert!(plan.functions.is_empty(), "{ret:?}");
     }
-    // Referansla kullanmak silmeyi gerektirmez.
+    // Using it by reference does not need deleting.
     let plan = check(&module(vec![
         guarded(),
         function(
@@ -953,8 +953,8 @@ fn used_annotations_become_assumptions_with_file_name_only() {
     assert_eq!(
         summary,
         [
-            ("parametre `seed`", "borrowed", "ferrobridge.toml:5"),
-            ("dönüş", "owned", "ferrobridge.toml:2"),
+            ("parameter `seed`", "borrowed", "ferrobridge.toml:5"),
+            ("return", "owned", "ferrobridge.toml:2"),
         ]
     );
     assert!(plan.assumptions[1].promise.contains("delete"));
@@ -989,9 +989,9 @@ returns = "owned"
     assert!(shown[1].starts_with("ferrobridge.toml:5: "), "{shown:#?}");
     assert!(shown[1].contains("`a`, `b`"), "{shown:#?}");
     assert!(shown[2].starts_with("ferrobridge.toml:1: "), "{shown:#?}");
-    assert!(shown[2].contains("bulunamadı"), "{shown:#?}");
+    assert!(shown[2].contains("was not found"), "{shown:#?}");
 
-    // Bir overload'da bulunan parametre adı hata değildir.
+    // A parameter name found in one overload is not an error.
     assert!(
         check_with(
             &module(items()),
@@ -1022,14 +1022,16 @@ fn unnecessary_annotations_are_warnings() {
         .collect();
     assert_eq!(shown.len(), 2, "{shown:#?}");
     assert!(
-        shown.iter().all(|w| w.contains("gerektirmiyor")),
+        shown
+            .iter()
+            .all(|w| w.contains("does not need an annotation")),
         "{shown:#?}"
     );
 }
 
-// ---- `suggest` taslağı -------------------------------------------------------------------------
+// ---- The `suggest` draft --------------------------------------------------------------------
 
-/// Her tablo ve anahtar için ilk seçeneği açar (seçenekler aynı anahtara alternatiflerdir).
+/// Enables the first option for every table and key (the options are alternatives for the same key).
 fn uncomment_first_choices(draft: &str) -> String {
     let mut seen = std::collections::HashSet::new();
     let mut table = String::new();
@@ -1046,7 +1048,7 @@ fn uncomment_first_choices(draft: &str) -> String {
             let Some((key, _)) = value.split_once(" = ") else {
                 return line.to_owned();
             };
-            // Açıklama başlığındaki örnekler (`#   { slice = "n" } ...`) anahtar değil.
+            // The examples in the annotation header (`#   { slice = "n" } ...`) are not keys.
             if key.is_empty() || key.contains(' ') {
                 return line.to_owned();
             }
@@ -1089,7 +1091,7 @@ fn suggestion_draft_is_valid_toml_that_binds_once_uncommented() {
     assert!(plan.classes[0].methods.is_empty());
     let draft = render_suggestions(&plan);
 
-    // Değerler yorum satırı: taslak olduğu gibi hiçbir şey vaat etmez.
+    // The values are comments: the draft as is promises nothing.
     let as_is = Annotations::from_toml_str(&draft, "ferrobridge.toml").unwrap();
     assert!(
         as_is
@@ -1097,7 +1099,7 @@ fn suggestion_draft_is_valid_toml_that_binds_once_uncommented() {
             .values()
             .all(|f| f.returns.is_none() && f.params.is_empty())
     );
-    // Overload'lar tek tabloda birleşir.
+    // Overloads are merged into a single table.
     assert_eq!(
         draft
             .matches("[functions.\"geo::Point::attach\".params]")
@@ -1117,7 +1119,10 @@ fn suggestion_draft_is_valid_toml_that_binds_once_uncommented() {
 #[test]
 fn empty_suggestion_draft_says_so() {
     let plan = check(&module(vec![plain_point()]));
-    assert_eq!(render_suggestions(&plan), "# Açıklama gereken yer yok.\n");
+    assert_eq!(
+        render_suggestions(&plan),
+        "# Nothing needs an annotation.\n"
+    );
 }
 
 #[test]
@@ -1159,7 +1164,7 @@ fn an_annotation_shared_by_overloads_is_warned_about() {
     );
 }
 
-// ---- Slice açıklamaları (Milestone 5) --------------------------------------------------------
+// ---- Slice annotations (Milestone 5) --------------------------------------------------------
 
 fn u8_ty() -> Type {
     int("uint8_t", "unsigned char", 1, false, true)
@@ -1183,7 +1188,7 @@ fn slice(mutable: bool, element: BridgeType) -> BridgeType {
     }
 }
 
-/// `f(params)` serbest fonksiyonu ve onun için bir parametre açıklama tablosu.
+/// The free function `f(params)` and a parameter annotation table for it.
 fn check_slice(params: Vec<Param>, table: &str) -> Result<BridgePlan, Vec<AnnotationIssue>> {
     check_with(
         &module(vec![function(&[], "f", params, q(Type::Void))]),
@@ -1199,7 +1204,11 @@ fn slice_annotation_turns_pointer_and_length_into_one_slice() {
     )
     .unwrap();
     let f = &plan.functions[0];
-    assert_eq!(f.params.len(), 1, "uzunluk Rust imzasından çıkmalı");
+    assert_eq!(
+        f.params.len(),
+        1,
+        "the length must leave the Rust signature"
+    );
     assert_eq!(f.params[0].rust_name, "p");
     assert_eq!(f.params[0].ty, slice(false, BridgeType::Int(IntType::U8)));
     assert_eq!(f.params[0].pass, Pass::Slice);
@@ -1213,10 +1222,10 @@ fn slice_annotation_turns_pointer_and_length_into_one_slice() {
     );
     assert!(f.needs_shim());
     let assumption = &plan.assumptions[0];
-    assert_eq!(assumption.subject, "parametre `p`");
+    assert_eq!(assumption.subject, "parameter `p`");
     assert_eq!(assumption.annotation, "{ slice = \"len\" }");
     assert!(
-        assumption.promise.contains("`len` elemanlık"),
+        assumption.promise.contains("array of `len` elements"),
         "{assumption:?}"
     );
     assert_eq!(assumption.origin, "ferrobridge.toml:2");
@@ -1224,7 +1233,7 @@ fn slice_annotation_turns_pointer_and_length_into_one_slice() {
 
 #[test]
 fn mutable_slices_and_lengths_rust_cannot_name() {
-    // `size_t` Rust'a hiç görünmediği için uzunluk olabilir; `float*` → `&mut [f32]`.
+    // `size_t` can be a length because it is never visible to Rust; `float*` → `&mut [f32]`.
     let plan = check_slice(
         vec![
             param("n", q(size_ty())),
@@ -1255,17 +1264,17 @@ fn invalid_slice_annotations_are_errors_with_lines() {
         (
             vec![p_u8()],
             "p = { slice = \"len\" }\n",
-            "`len` adında parametresi yok",
+            "has no parameter named `len`",
         ),
         (
             vec![p_u8(), param("len", q(f64_ty()))],
             "p = { slice = \"len\" }\n",
-            "tamsayı",
+            "integer",
         ),
         (
             vec![p_u8(), param("len", q(u8_ty()))],
             "p = { slice = \"p\" }\n",
-            "kendisi",
+            "itself",
         ),
         (
             vec![
@@ -1273,7 +1282,7 @@ fn invalid_slice_annotations_are_errors_with_lines() {
                 param("n", q(i32_ty())),
             ],
             "p = { slice = \"n\" }\n",
-            "sayı",
+            "numbers",
         ),
         (
             vec![param("p", ptr(konst(char_ty()))), param("n", q(i32_ty()))],
@@ -1292,12 +1301,12 @@ fn invalid_slice_annotations_are_errors_with_lines() {
                 param("n", q(i32_ty())),
             ],
             "p = { slice = \"n\" }\nq = { slice = \"n\" }\n",
-            "iki",
+            "two separate",
         ),
         (
             vec![p_u8(), param("n", q(i32_ty()))],
             "p = { slice = \"n\" }\nn = \"borrowed\"\n",
-            "uzunluk",
+            "length parameter",
         ),
     ];
     for (params, table, needle) in cases {
@@ -1307,7 +1316,7 @@ fn invalid_slice_annotations_are_errors_with_lines() {
             shown
                 .iter()
                 .any(|e| e.starts_with("ferrobridge.toml:") && e.contains(needle)),
-            "{table}: `{needle}` bekleniyordu: {shown:#?}"
+            "{table}: `{needle}` was expected: {shown:#?}"
         );
     }
 }
@@ -1334,7 +1343,7 @@ fn pointer_next_to_an_integer_suggests_a_slice() {
     let draft = render_suggestions(&plan);
     assert!(draft.contains("# buf = \"borrowed\""), "{draft}");
     assert!(draft.contains("# buf = { slice = \"size\" }"), "{draft}");
-    // Bir sınıf pointer'ı için slice önerilmez.
+    // No slice is suggested for a class pointer.
     let plan = check(&module(vec![
         plain_point(),
         function(
@@ -1356,7 +1365,7 @@ fn pointer_next_to_an_integer_suggests_a_slice() {
     );
 }
 
-// ---- Sabitler (Milestone 5) -------------------------------------------------------------------
+// ---- Constants (Milestone 5) ----------------------------------------------------------------
 
 fn constant(ns: &[&str], name: &str, ty: Type, value: ConstantValue) -> Item {
     Item::Constant(ferrobridge_ir::Constant {
@@ -1436,7 +1445,12 @@ fn constants_that_cannot_be_written_portably_are_skipped() {
             int("int8_t", "signed char", 1, true, true),
             ConstantValue::Signed(300),
         ),
-        constant(&["(anonim)"], "HIDDEN", i32_ty(), ConstantValue::Signed(1)),
+        constant(
+            &["(anonymous)"],
+            "HIDDEN",
+            i32_ty(),
+            ConstantValue::Signed(1),
+        ),
     ]));
     assert!(plan.constants.is_empty(), "{:?}", plan.constants);
     let reasons: Vec<(&str, &str)> = plan
@@ -1444,10 +1458,10 @@ fn constants_that_cannot_be_written_portably_are_skipped() {
         .iter()
         .map(|s| (s.name.as_str(), s.reason.as_str()))
         .collect();
-    assert!(reasons[0].1.contains("platformlar arasında"), "{reasons:?}");
-    assert!(reasons[1].1.contains("0–127"), "{reasons:?}");
-    assert!(reasons[2].1.contains("sığmıyor"), "{reasons:?}");
-    assert!(reasons[3].1.contains("Anonim namespace"), "{reasons:?}");
+    assert!(reasons[0].1.contains("different platforms"), "{reasons:?}");
+    assert!(reasons[1].1.contains("between 0 and 127"), "{reasons:?}");
+    assert!(reasons[2].1.contains("does not fit"), "{reasons:?}");
+    assert!(reasons[3].1.contains("anonymous namespace"), "{reasons:?}");
 }
 
 #[test]
@@ -1472,13 +1486,13 @@ fn constant_names_avoid_collisions() {
     assert_eq!(names, ["metric_UNIT", "imperial_UNIT", "type_"]);
     assert_eq!(plan.skipped.len(), 1);
     assert!(
-        plan.skipped[0].reason.contains("aynı ad alanında"),
+        plan.skipped[0].reason.contains("share a namespace"),
         "{:?}",
         plan.skipped
     );
 }
 
-// ---- Header'lar arası tipler (Milestone 6) ----------------------------------------------------
+// ---- Cross-header types (Milestone 6) -------------------------------------------------------
 
 #[test]
 fn a_type_from_a_header_outside_the_bridge_says_which_header_to_add() {
@@ -1496,10 +1510,10 @@ fn a_type_from_a_header_outside_the_bridge_says_which_header_to_add() {
     assert!(plan.functions.is_empty());
     let reason = &plan.skipped[0].reason;
     assert!(reason.contains("`rotations.h`"), "{reason}");
-    assert!(reason.contains("bridge'e ekleyin"), "{reason}");
+    assert!(reason.contains("to the bridge too"), "{reason}");
 }
 
-// ---- Değer tipleri (Milestone 6) --------------------------------------------------------------
+// ---- Value types (Milestone 6) --------------------------------------------------------------
 
 fn field(name: &str, ty: Type, offset_bits: u64, public: bool) -> ferrobridge_ir::Field {
     ferrobridge_ir::Field {
@@ -1511,7 +1525,7 @@ fn field(name: &str, ty: Type, offset_bits: u64, public: bool) -> ferrobridge_ir
     }
 }
 
-/// `geo::<name>` sınıfı, verilen alanlarla ve düzenle.
+/// The class `geo::<name>`, with the given fields and layout.
 fn value_class(
     name: &str,
     fields: Vec<ferrobridge_ir::Field>,
@@ -1568,7 +1582,7 @@ fn plain_structs_with_public_fields_become_value_types() {
         ),
     ]));
     let class = &plan.classes[0];
-    let layout = class.value.as_ref().expect("değer tipi bekleniyordu");
+    let layout = class.value.as_ref().expect("a value type was expected");
     assert_eq!(layout.size_bytes, 16);
     let fields: Vec<(&str, &BridgeType, u64)> = layout
         .fields
@@ -1579,13 +1593,13 @@ fn plain_structs_with_public_fields_become_value_types() {
         fields,
         [("x", &BridgeType::F64, 0), ("y", &BridgeType::F64, 8)]
     );
-    // Constructor değerle döner; alanlar uyarı üretmez.
+    // The constructor returns by value; fields produce no warnings.
     assert_eq!(
         class.constructors[0].returns,
         Returns::Value(value_ty("Pt"))
     );
     assert!(plan.skipped.is_empty(), "{:?}", plan.skipped);
-    // Değerle parametre ve dönüş.
+    // Parameters and returns by value.
     let mid = &plan.functions[0];
     assert_eq!(mid.params[0].ty, value_ty("Pt"));
     assert_eq!(mid.params[1].ty, reference(false, value_ty("Pt")));
@@ -1628,7 +1642,7 @@ fn classes_that_cannot_be_copied_bit_by_bit_stay_opaque() {
             "flags",
             Type::Unsupported {
                 spelling: "int".to_owned(),
-                reason: "bit alanı".to_owned(),
+                reason: "bit field".to_owned(),
             },
             0,
             true,
@@ -1636,12 +1650,12 @@ fn classes_that_cannot_be_copied_bit_by_bit_stay_opaque() {
         4,
         Vec::new(),
     );
-    // `const` alan: Rust'tan yazılırsa C++'ta `const` nesneyi değiştirmek olurdu.
+    // A `const` field: writing it from Rust would change a `const` object in C++.
     let mut frozen = value_class("Frozen", vec![field("x", f64_ty(), 0, true)], 8, Vec::new());
     if let Item::Class(c) = &mut frozen {
         c.fields[0].ty.is_const = true;
     }
-    // Opak bir sınıfı içeren sınıf da opak kalır.
+    // A class containing an opaque class stays opaque too.
     let holder = value_class(
         "Holder",
         vec![field("p", record("Private"), 0, true)],
@@ -1650,9 +1664,13 @@ fn classes_that_cannot_be_copied_bit_by_bit_stay_opaque() {
     );
     let plan = check(&module(vec![private, copy, bits, holder, frozen]));
     for class in &plan.classes {
-        assert!(class.value.is_none(), "{} opak kalmalıydı", class.cpp_name);
+        assert!(
+            class.value.is_none(),
+            "{} should have stayed opaque",
+            class.cpp_name
+        );
     }
-    // Opak sınıfların public alanları yine raporlanır.
+    // The public fields of opaque classes are still reported.
     assert!(
         plan.skipped.iter().any(|s| s.name == "geo::Copy::x"),
         "{:?}",
@@ -1680,8 +1698,11 @@ fn a_library_without_exceptions_returns_plain_values() {
         "[library]\nexceptions = false\n\n[functions.\"sum\".params]\np = { slice = \"n\" }\n",
     )
     .unwrap();
-    assert!(!plan.functions[0].fallible, "söz verildi: doğrudan değer");
-    // ferrobridge'in kendi uzunluk kontrolü `Result` olarak kalır.
+    assert!(
+        !plan.functions[0].fallible,
+        "the promise was made: a plain value"
+    );
+    // ferrobridge's own length check stays `Result`.
     assert!(plan.functions[1].fallible);
     assert!(
         plan.assumptions
@@ -1690,6 +1711,6 @@ fn a_library_without_exceptions_returns_plain_values() {
         "{:?}",
         plan.assumptions
     );
-    // Söz yoksa her şey `Result`.
+    // Without the promise, everything is `Result`.
     assert!(check(&module(items())).functions[0].fallible);
 }

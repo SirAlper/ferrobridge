@@ -1,5 +1,5 @@
-// Değer tipleri: bütün alanları public ve bit bit kopyalanabilen sınıflar Rust'ta `#[repr(C)]`
-// struct olur (ADR-0010). Private alanı olan sınıf opak kalır.
+// Value types: classes whose fields are all public and that are trivially copyable become `#[repr(C)]`
+// structs in Rust (ADR-0010). A class with a private field stays opaque.
 #pragma once
 
 namespace geo {
@@ -14,14 +14,14 @@ struct Pt {
     void scale(double k) { x *= k; y *= k; }
 };
 
-// İçinde değer tipleri olan değer tipi.
+// A value type containing value types.
 struct Line {
     Pt from;
     Pt to;
     double length() const;
 };
 
-// Değer tipi olan template örneklemesi (`ferrobridge.toml`: `Vec3f = "geo::V3<float>"`).
+// A template instantiation that is a value type (`ferrobridge.toml`: `Vec3f = "geo::V3<float>"`).
 template <typename T>
 struct V3 {
     T x, y, z;
@@ -33,15 +33,15 @@ struct V3 {
     void normalize();
 };
 
-// İki parametreli template örneklemesi: tip yazımında virgül var (`offsetof` makrosu için takma
-// ad kullanılmalı).
+// A two-parameter template instantiation: its spelling contains a comma (an alias must be used
+// for the `offsetof` macro).
 template <typename A, typename B>
 struct Pair {
     A first;
     B second;
 };
 
-// `const` alan: Rust'tan yazılırsa C++'ta `const` nesneyi değiştirmek olurdu; opak kalır.
+// A `const` field: writing it from Rust would change a `const` object in C++; stays opaque.
 struct Frozen {
     const double limit;
     Frozen() : limit(1.5) {}
@@ -53,7 +53,7 @@ Pair<int, float> make_pair(int a, float b);
 Line make_line(Pt from, Pt to);
 V3<float> cross(const V3<float>& a, const V3<float>& b);
 
-// Private alanı var: opak kalır, public alanı raporlanır.
+// Has a private field: stays opaque, its public field is reported.
 class Account {
 public:
     Account();

@@ -1,5 +1,5 @@
-//! Bridge tiplerinin Rust (cxx) ve C++ yazımları. İkisi birbirine birebir karşılık gelmeli:
-//! cxx, Rust'taki `i32`'yi C++'ta `std::int32_t` bekler, `&T`'yi `const T&`, ve böyle devam.
+//! The Rust (cxx) and C++ spellings of bridge types. The two must correspond one to one:
+//! cxx expects `std::int32_t` in C++ for `i32` in Rust, `const T&` for `&T`, and so on.
 
 use ferrobridge_analysis::{BridgeType, FunctionPlan, Returns};
 use proc_macro2::{Ident, TokenStream};
@@ -7,18 +7,18 @@ use quote::quote;
 
 use crate::CodegenError;
 
-/// Bir adı Rust tanımlayıcısına çevirir; anahtar kelime veya geçersizse hata.
+/// Turns a name into a Rust identifier; an error if it is a keyword or invalid.
 pub(crate) fn ident(name: &str) -> Result<Ident, CodegenError> {
     syn::parse_str::<Ident>(name).map_err(|_| CodegenError::InvalidIdentifier(name.to_owned()))
 }
 
-/// cxx bridge içindeki Rust tipi.
+/// The Rust type inside the cxx bridge.
 pub(crate) fn rust_type(ty: &BridgeType) -> Result<TokenStream, CodegenError> {
     rust_type_with(ty, None)
 }
 
-/// cxx'in `Pin` istediği opak tipler mi (sınıf, `CxxString`, `CxxVector`)? Primitif ve
-/// enum'lara düz `&mut` verilir.
+/// Are these the opaque types for which cxx wants `Pin` (class, `CxxString`, `CxxVector`)? Primitives
+/// and enums get a plain `&mut`.
 fn is_opaque(ty: &BridgeType) -> bool {
     matches!(
         ty,
@@ -26,7 +26,7 @@ fn is_opaque(ty: &BridgeType) -> bool {
     )
 }
 
-/// En dıştaki referansa `lifetime` (ör. `'a`) eklenmiş Rust tipi.
+/// The Rust type with `lifetime` (e.g. `'a`) added to the outermost reference.
 pub(crate) fn rust_type_with(
     ty: &BridgeType,
     lifetime: Option<&TokenStream>,
@@ -82,7 +82,7 @@ pub(crate) fn rust_type_with(
     })
 }
 
-/// Dönüş bir referans mı (ömrü alıcıya bağlanmalı)?
+/// Is the return a reference (its lifetime must be tied to the receiver)?
 pub(crate) fn returns_reference(plan: &FunctionPlan) -> bool {
     matches!(
         plan.returns,
@@ -90,8 +90,8 @@ pub(crate) fn returns_reference(plan: &FunctionPlan) -> bool {
     )
 }
 
-/// cxx bridge'deki dönüş tipi (`Result` sarmalaması hariç); `void` için `None`.
-/// `lifetime` verilirse dönen referansa eklenir.
+/// The return type in the cxx bridge (without the `Result` wrapping); `None` for `void`.
+/// If `lifetime` is given, it is added to the returned reference.
 pub(crate) fn rust_return(
     plan: &FunctionPlan,
     lifetime: Option<&TokenStream>,
@@ -122,7 +122,7 @@ pub(crate) fn rust_return(
     })
 }
 
-/// Shim imzasındaki C++ tipi.
+/// The C++ type in the shim signature.
 pub(crate) fn cpp_type(ty: &BridgeType) -> String {
     match ty {
         BridgeType::Bool => "bool".to_owned(),
@@ -153,7 +153,7 @@ pub(crate) fn cpp_type(ty: &BridgeType) -> String {
     }
 }
 
-/// Shim'in C++ dönüş tipi.
+/// The C++ return type of the shim.
 pub(crate) fn cpp_return(plan: &FunctionPlan) -> String {
     match &plan.returns {
         Returns::Unit => "void".to_owned(),

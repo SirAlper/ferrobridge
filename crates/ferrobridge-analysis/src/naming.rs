@@ -1,16 +1,16 @@
-//! Rust tarafındaki adlar (ADR-0005).
+//! Names on the Rust side (ADR-0005).
 //!
-//! - Tek tanımlı isim olduğu gibi kalır.
-//! - Aynı C++ adı farklı namespace'lerde varsa namespace ön eki alır (`geo_length`).
-//! - Overload'ların *hepsi* parametre tiplerinden türetilen sonek alır (`clamp_i32`).
-//! - Rust anahtar kelimeleri `_` ile kaçılır (`type_`); C++ adı `cxx_name` ile korunur.
-//! - Tüm bunlardan sonra hâlâ çakışan adlara sıra numarası eklenir (`_2`).
+//! - A name defined once stays as it is.
+//! - If the same C++ name exists in different namespaces, it gets a namespace prefix (`geo_length`).
+//! - *All* overloads get a suffix derived from the parameter types (`clamp_i32`).
+//! - Rust keywords are escaped with `_` (`type_`); the C++ name is kept with `cxx_name`.
+//! - Names that still clash after all this get a sequence number (`_2`).
 
 use std::collections::{HashMap, HashSet};
 
 use crate::plan::{BridgeType, Callee, FunctionPlan};
 
-/// Rust'ın katı ve ileride kullanılmak üzere ayrılmış anahtar kelimeleri.
+/// Rust's strict and reserved keywords.
 const RUST_KEYWORDS: [&str; 52] = [
     "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
     "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
@@ -19,7 +19,7 @@ const RUST_KEYWORDS: [&str; 52] = [
     "override", "priv", "typeof", "unsized", "virtual", "yield", "try", "gen",
 ];
 
-/// Bridge modülünde zaten anlamı olan adlar; aynı adlı C++ tipleri `Cpp` ön eki alır.
+/// Names that already mean something in the bridge module; C++ types with these names get a `Cpp` prefix.
 const RESERVED_TYPE_NAMES: [&str; 12] = [
     "String",
     "Str",
@@ -39,7 +39,7 @@ pub(crate) fn is_rust_keyword(name: &str) -> bool {
     RUST_KEYWORDS.contains(&name)
 }
 
-/// Anahtar kelimeyse sonuna `_` ekler.
+/// Adds `_` at the end if it is a keyword.
 pub(crate) fn escape(name: &str) -> String {
     if is_rust_keyword(name) {
         format!("{name}_")
@@ -48,7 +48,7 @@ pub(crate) fn escape(name: &str) -> String {
     }
 }
 
-/// Parametre adı: anahtar kelimelerden kaçınılmış; isimsizse konumuna göre `argN`.
+/// A parameter name: keywords avoided; `argN` by position if unnamed.
 pub(crate) fn param_name(name: Option<&str>, index: usize) -> String {
     match name {
         Some(name) if !name.is_empty() => escape(name),
@@ -56,8 +56,8 @@ pub(crate) fn param_name(name: Option<&str>, index: usize) -> String {
     }
 }
 
-/// Sınıf/enum adları: aynı ad birden fazla namespace'te varsa namespace'ler PascalCase ön ek
-/// olur (`PhysicsVehicle`); bridge'de ayrılmış adlar `Cpp` ön eki alır.
+/// Class/enum names: if the same name exists in more than one namespace, the namespaces become a
+/// PascalCase prefix (`PhysicsVehicle`); names reserved in the bridge get a `Cpp` prefix.
 pub(crate) fn type_names(types: &[(Vec<String>, String)]) -> Vec<String> {
     let mut counts: HashMap<&str, usize> = HashMap::new();
     for (_, name) in types {
@@ -94,7 +94,7 @@ fn pascal(segment: &str) -> String {
         .collect()
 }
 
-/// Overload soneki için bir tipin kısa adı.
+/// The short name of a type for an overload suffix.
 fn type_token(ty: &BridgeType) -> String {
     match ty {
         BridgeType::Bool => "bool".to_owned(),
@@ -136,7 +136,7 @@ fn overload_suffix(plan: &FunctionPlan) -> String {
     }
 }
 
-/// Aynı taban adı taşıyanların hepsine sonek ekler, sonra anahtar kelimeleri kaçar.
+/// Adds a suffix to all those carrying the same base name, then escapes keywords.
 fn apply_overloads(plans: &mut [&mut FunctionPlan], bases: Vec<String>) {
     let mut counts: HashMap<&str, usize> = HashMap::new();
     for base in &bases {
@@ -159,10 +159,10 @@ fn apply_overloads(plans: &mut [&mut FunctionPlan], bases: Vec<String>) {
     }
 }
 
-/// Bridge'in düz ad alanındaki fonksiyonlar: serbest fonksiyonlar, constructor'lar ve
-/// statik metotlar. Sınıf adları `type_names` ile önceden belirlenmiş olmalı.
+/// Functions in the bridge's flat namespace: free functions, constructors and
+/// static methods. Class names must have been decided beforehand with `type_names`.
 pub(crate) fn name_free_scope(plans: &mut [&mut FunctionPlan]) {
-    // Aynı C++ adı kaç farklı namespace'te var?
+    // In how many different namespaces does the same C++ name exist?
     let mut namespaces: HashMap<String, HashSet<Vec<String>>> = HashMap::new();
     for plan in plans.iter() {
         if let Callee::Free {
@@ -198,7 +198,7 @@ pub(crate) fn name_free_scope(plans: &mut [&mut FunctionPlan]) {
     dedupe(plans);
 }
 
-/// Bir sınıfın (statik olmayan) metotları; adlar yalnızca sınıf içinde benzersiz olmalı.
+/// The (non-static) methods of a class; names only need to be unique within the class.
 pub(crate) fn name_methods(plans: &mut [&mut FunctionPlan]) {
     let bases: Vec<String> = plans
         .iter()
@@ -212,7 +212,7 @@ pub(crate) fn name_methods(plans: &mut [&mut FunctionPlan]) {
     dedupe(plans);
 }
 
-/// Hâlâ çakışan adlara (ör. `f(int)` ve `f(const int&)` aynı soneki üretir) sıra numarası.
+/// A sequence number for names that still clash (e.g. `f(int)` and `f(const int&)` produce the same suffix).
 fn dedupe(plans: &mut [&mut FunctionPlan]) {
     let mut seen: HashMap<String, usize> = HashMap::new();
     for plan in plans.iter_mut() {
