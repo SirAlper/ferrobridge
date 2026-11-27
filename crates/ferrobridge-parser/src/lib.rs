@@ -27,6 +27,10 @@ pub struct ParseOptions {
     /// önce çalışma dizinine, sonra include yollarına göre çözülür). Kendi başına derlenmeyen
     /// header'lar için. Bu dosyalardaki bildirimler IR'a alınmaz.
     pub prelude: Vec<String>,
+    /// Örneklenecek sınıf template'leri: (Rust adı, C++ yazımı), ör. `("Vector3f",
+    /// "Vector3<float>")`. Yazım, header'lar include edildikten sonra global kapsamda çözülür.
+    /// Örneklemeler IR'da `Class` olur (`instance_of` dolu).
+    pub instantiate: Vec<(String, String)>,
 }
 
 impl Default for ParseOptions {
@@ -35,6 +39,7 @@ impl Default for ParseOptions {
             std: "c++17".to_owned(),
             extra_args: Vec::new(),
             prelude: Vec::new(),
+            instantiate: Vec::new(),
         }
     }
 }
@@ -120,11 +125,7 @@ pub fn libclang_version() -> Result<String, ParserError> {
 ///
 /// Yalnızca `header` dosyasının kendi bildirimleri alınır; `#include` edilen dosyalardakiler ve
 /// [`ParseOptions::prelude`] alınmaz. Desteklenmeyen yapılar atılmaz, IR'da nedenleriyle
-/// birlikte yer alır.
-///
-/// Header libclang'a doğrudan "ana dosya" olarak verilmez; onu `#include` eden, bellekte
-/// üretilmiş bir çeviri birimi okunur. Böylece header'ın `#pragma once` koruması, header kendini
-/// dolaylı olarak yeniden include ettiğinde de çalışır (ana dosyada `#pragma once` işlemez).
+/// birlikte yer alır. Birden fazla header için [`parse_headers`].
 ///
 /// # Errors
 ///
@@ -132,16 +133,49 @@ pub fn libclang_version() -> Result<String, ParserError> {
 /// [`ParserError::LoadFailed`], header'da derleme hatası varsa [`ParserError::ParseFailed`]
 /// döner.
 pub fn parse_header(header: &Path, options: &ParseOptions) -> Result<Module, ParserError> {
-    if !header.is_file() {
-        return Err(ParserError::FileNotFound(header.to_path_buf()));
+    parse_headers(&[header], options)
+}
+
+/// Birden fazla header'ı tek bir bridge için okur: hepsi aynı çeviri biriminde, verilen sırayla
+/// include edilir ve hepsinin bildirimleri alınır. Böylece bir header'da tanımlı tip, diğerindeki
+/// fonksiyonlarda kullanılabilir.
+///
+/// Header'lar libclang'a doğrudan "ana dosya" olarak verilmez; onları `#include` eden, bellekte
+/// üretilmiş bir çeviri birimi okunur. Böylece header'ın `#pragma once` koruması, header kendini
+/// dolaylı olarak yeniden include ettiğinde de çalışır (ana dosyada `#pragma once` işlemez).
+///
+/// # Errors
+///
+/// [`parse_header`] ile aynı; ayrıca header listesi boşsa [`ParserError::InvalidArgument`].
+pub fn parse_headers<P: AsRef<Path>>(
+    headers: &[P],
+    options: &ParseOptions,
+) -> Result<Module, ParserError> {
+    if headers.is_empty() {
+        return Err(ParserError::InvalidArgument(
+            "header listesi boş".to_owned(),
+        ));
     }
-    let header = std::fs::canonicalize(header)
-        .map_err(|_| ParserError::FileNotFound(header.to_path_buf()))?;
-    let header_text = header
-        .to_str()
-        .ok_or_else(|| ParserError::InvalidArgument(header.display().to_string()))?;
-    let unit = synthetic_unit(header_text)?;
-    let header_c = to_c_string(header_text)?;
+    let mut paths = Vec::with_capacity(headers.len());
+    for header in headers {
+        let header = header.as_ref();
+        if !header.is_file() {
+            return Err(ParserError::FileNotFound(header.to_path_buf()));
+        }
+        let canonical = std::fs::canonicalize(header)
+            .map_err(|_| ParserError::FileNotFound(header.to_path_buf()))?;
+        let text = canonical
+            .to_str()
+            .ok_or_else(|| ParserError::InvalidArgument(canonical.display().to_string()))?
+            .to_owned();
+        paths.push(text);
+    }
+    let mut unit = synthetic_unit(&paths)?;
+    let aliases = instantiation_lines(&mut unit, &options.instantiate)?;
+    let header_names = paths
+        .iter()
+        .map(|p| to_c_string(p))
+        .collect::<Result<Vec<_>, _>>()?;
     // Kaynak dizini yüklenen kütüphanenin yolundan bulunduğu için önce yükle.
     ensure_loaded()?;
     let args = clang_args(options)?;
@@ -151,7 +185,7 @@ pub fn parse_header(header: &Path, options: &ParseOptions) -> Result<Module, Par
         &index,
         &unit.name,
         &args,
-        &[(unit.name.clone(), unit.contents)],
+        &[(unit.name.clone(), to_c_string(&unit.contents)?)],
     )
     .map_err(ParserError::ClangFailed)?;
 
@@ -160,7 +194,7 @@ pub fn parse_header(header: &Path, options: &ParseOptions) -> Result<Module, Par
         .diagnostics()
         .into_iter()
         .filter(|d| d.severity >= clang_sys::CXDiagnostic_Error)
-        .map(|d| user_facing(d, &unit_name))
+        .map(|d| user_facing(d, &unit_name, &unit.labels))
         .collect();
     if !errors.is_empty() {
         return Err(ParserError::ParseFailed {
@@ -168,11 +202,15 @@ pub fn parse_header(header: &Path, options: &ParseOptions) -> Result<Module, Par
         });
     }
 
-    // Header ayrıştırıldıysa çeviri biriminde mutlaka vardır.
-    let target = tu
-        .file(&header_c)
-        .ok_or(ParserError::ClangFailed(clang_sys::CXError_Failure))?;
-    Ok(lower::lower(&tu, target))
+    // Header'lar ayrıştırıldıysa çeviri biriminde mutlaka vardır.
+    let targets = header_names
+        .iter()
+        .map(|name| {
+            tu.file(name)
+                .ok_or(ParserError::ClangFailed(clang_sys::CXError_Failure))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(lower::lower(&tu, targets, &aliases))
 }
 
 /// Tanıyı kullanıcının gördüğü dosyalara göre konumlandırır.
@@ -181,7 +219,11 @@ pub fn parse_header(header: &Path, options: &ParseOptions) -> Result<Module, Par
 /// sonunda fark edilir, dosya sonu da artık sentetik birimdedir) kullanıcıya bir şey söylemez.
 /// Başka bir dosyayı gösteren ilk notu varsa ("to match this '('") tanı oraya taşınır ve notun
 /// metni mesaja eklenir. Yoksa olduğu gibi bırakılır; hiçbir tanı atılmaz.
-fn user_facing(diagnostic: clang::RawDiagnostic, unit_name: &str) -> Diagnostic {
+fn user_facing(
+    diagnostic: clang::RawDiagnostic,
+    unit_name: &str,
+    labels: &[(u32, String)],
+) -> Diagnostic {
     let clang::RawDiagnostic {
         location,
         message,
@@ -189,6 +231,15 @@ fn user_facing(diagnostic: clang::RawDiagnostic, unit_name: &str) -> Diagnostic 
         ..
     } = diagnostic;
     if location.file == unit_name {
+        // `[templates]` girdisinden üretilen satırdaki hata: girdiyi adıyla göster.
+        if let Some((_, label)) = labels.iter().find(|(line, _)| *line == location.line) {
+            return Diagnostic {
+                file: String::new(),
+                line: 0,
+                column: 0,
+                message: format!("{label}: {message}"),
+            };
+        }
         if let Some(note) = notes
             .into_iter()
             .find(|n| !n.location.file.is_empty() && n.location.file != unit_name)
@@ -213,20 +264,64 @@ fn user_facing(diagnostic: clang::RawDiagnostic, unit_name: &str) -> Diagnostic 
 struct SyntheticUnit {
     /// Diskte olmayan dosyanın adı: header'ın yanında, böylece tanılardaki yol anlaşılır olur.
     name: CString,
-    contents: CString,
+    contents: String,
+    /// (satır, girdi) çiftleri: o satırdaki hata kullanıcıya girdinin adıyla gösterilir.
+    labels: Vec<(u32, String)>,
 }
 
-/// `header` (mutlak yol) için `#include "<header>"` içeren çeviri birimi.
+/// Her `[templates]` girdisi için birime bir `using` takma adı ve sınıfı örneklemeye zorlayan
+/// bir `static_assert` ekler (üyelerin bildirimleri örneklenir, tanımları değil).
+///
+/// Yazım birime metin olarak girer; bir tipten başka bir şey yazılamasın diye `;`, `{`, `}`,
+/// `"`, `#` ve satır sonu içeren yazımlar reddedilir.
+fn instantiation_lines(
+    unit: &mut SyntheticUnit,
+    instantiate: &[(String, String)],
+) -> Result<Vec<lower::InstanceAlias>, ParserError> {
+    let mut aliases = Vec::with_capacity(instantiate.len());
+    for (index, (rust_name, spelling)) in instantiate.iter().enumerate() {
+        if spelling.trim().is_empty() || spelling.contains([';', '{', '}', '"', '#', '\n', '\r']) {
+            return Err(ParserError::InvalidArgument(format!(
+                "`[templates]` {rust_name} = {spelling:?}: bir C++ tip yazımı olmalı"
+            )));
+        }
+        let alias = format!("__ferrobridge_inst_{index}");
+        let line = u32::try_from(unit.contents.lines().count() + 1).unwrap_or(u32::MAX);
+        unit.contents.push_str(&format!(
+            "using {alias} = {spelling};\nstatic_assert(sizeof({alias}) > 0, \"\");\n"
+        ));
+        let label = format!("`[templates]` {rust_name} = \"{spelling}\"");
+        unit.labels.push((line, label.clone()));
+        unit.labels.push((line + 1, label));
+        aliases.push(lower::InstanceAlias {
+            rust_name: rust_name.clone(),
+            alias,
+        });
+    }
+    Ok(aliases)
+}
+
+/// `headers` (mutlak yollar) için her biri bir `#include "<header>"` satırı olan çeviri birimi.
+/// Adı ilk header'ın yanında.
 ///
 /// `#include "..."` içinde kaçış dizisi yoktur; `"` ya da satır sonu içeren yollar bu satıra
 /// yazılamaz ve reddedilir.
-fn synthetic_unit(header: &str) -> Result<SyntheticUnit, ParserError> {
-    if header.contains(['"', '\n', '\r']) {
-        return Err(ParserError::InvalidArgument(header.to_owned()));
+fn synthetic_unit<S: AsRef<str>>(headers: &[S]) -> Result<SyntheticUnit, ParserError> {
+    let mut contents = String::new();
+    for header in headers {
+        let header = header.as_ref();
+        if header.contains(['"', '\n', '\r']) {
+            return Err(ParserError::InvalidArgument(header.to_owned()));
+        }
+        contents.push_str(&format!("#include \"{header}\"\n"));
     }
+    let first = headers
+        .first()
+        .ok_or_else(|| ParserError::InvalidArgument("header listesi boş".to_owned()))?;
     Ok(SyntheticUnit {
-        name: to_c_string(&format!("{header}.ferrobridge.cc"))?,
-        contents: to_c_string(&format!("#include \"{header}\"\n"))?,
+        name: to_c_string(&format!("{}.ferrobridge.cc", first.as_ref()))?,
+        contents,
+        labels: Vec::new(),
     })
 }
 
@@ -373,16 +468,27 @@ mod tests {
 
     #[test]
     fn synthetic_unit_includes_the_header_by_absolute_path() {
-        let unit = synthetic_unit("/src/geo.h").unwrap();
+        let unit = synthetic_unit(&["/src/geo.h"]).unwrap();
         assert_eq!(unit.name.to_str().unwrap(), "/src/geo.h.ferrobridge.cc");
-        assert_eq!(unit.contents.to_str().unwrap(), "#include \"/src/geo.h\"\n");
+        assert_eq!(unit.contents, "#include \"/src/geo.h\"\n");
+    }
+
+    #[test]
+    fn synthetic_unit_includes_every_header_in_order() {
+        let unit = synthetic_unit(&["/src/a.h", "/src/b.h"]).unwrap();
+        assert_eq!(unit.name.to_str().unwrap(), "/src/a.h.ferrobridge.cc");
+        assert_eq!(
+            unit.contents,
+            "#include \"/src/a.h\"\n#include \"/src/b.h\"\n"
+        );
+        assert!(synthetic_unit::<&str>(&[]).is_err());
     }
 
     #[test]
     fn header_path_that_cannot_be_included_is_rejected() {
         for path in ["/src/a\"b.h", "/src/a\nb.h"] {
             assert!(matches!(
-                synthetic_unit(path),
+                synthetic_unit(&[path]),
                 Err(ParserError::InvalidArgument(_))
             ));
         }
@@ -412,6 +518,7 @@ mod tests {
         let d = user_facing(
             raw("/src/geo.h.ferrobridge.cc", 1, "expected ')'", vec![note]),
             "/src/geo.h.ferrobridge.cc",
+            &[],
         );
         assert_eq!(
             d.to_string(),
@@ -424,11 +531,13 @@ mod tests {
         let d = user_facing(
             raw("/src/geo.h.ferrobridge.cc", 1, "boom", Vec::new()),
             "/src/geo.h.ferrobridge.cc",
+            &[],
         );
         assert_eq!(d.to_string(), "/src/geo.h.ferrobridge.cc:1:1: boom");
         let d = user_facing(
             raw("/src/geo.h", 7, "bad", Vec::new()),
             "/src/geo.h.ferrobridge.cc",
+            &[],
         );
         assert_eq!(d.line, 7);
     }

@@ -1,5 +1,0 @@
-# `AP_Math/AP_Math.h`. `fill_nanf`'in iki overload'u (`float*`, `double*`) aynı anahtarı
-# paylaşıyor; ikisi de `count` elemanlık diziyi NaN ile dolduruyor (`AP_Math.cpp`).
-
-[functions.fill_nanf.params]
-f = { slice = "count" }

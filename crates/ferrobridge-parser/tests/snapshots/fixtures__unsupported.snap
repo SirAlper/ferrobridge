@@ -3,7 +3,7 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 4,
+  "format_version": 5,
   "items": [
     {
       "kind": "class",
@@ -17,11 +17,20 @@ expression: module
       },
       "constructors": [],
       "methods": [],
-      "unsupported_members": [
+      "unsupported_members": [],
+      "fields": [
         {
-          "construct": "field",
-          "name": "Point::x",
-          "reason": "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.",
+          "name": "x",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          },
+          "public": true,
+          "offset_bits": 0,
           "location": {
             "file": "input.h",
             "line": 4,
@@ -29,9 +38,17 @@ expression: module
           }
         },
         {
-          "construct": "field",
-          "name": "Point::y",
-          "reason": "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.",
+          "name": "y",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          },
+          "public": true,
+          "offset_bits": 32,
           "location": {
             "file": "input.h",
             "line": 5,
@@ -39,6 +56,10 @@ expression: module
           }
         }
       ],
+      "layout": {
+        "size_bytes": 8,
+        "align_bytes": 4
+      },
       "location": {
         "file": "input.h",
         "line": 3,
@@ -78,6 +99,10 @@ expression: module
         }
       ],
       "unsupported_members": [],
+      "layout": {
+        "size_bytes": 1,
+        "align_bytes": 1
+      },
       "location": {
         "file": "input.h",
         "line": 8,

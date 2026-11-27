@@ -126,6 +126,36 @@ pub struct ClassPlan {
     pub constructors: Vec<FunctionPlan>,
     /// Bağlanan metotlar (statikler dahil).
     pub methods: Vec<FunctionPlan>,
+    /// Değer tipiyse Rust'taki `#[repr(C)]` struct'ın düzeni; opak sınıfsa `None`.
+    pub value: Option<ValueLayout>,
+    /// Template örneklemesiyse C++ yazımı (ör. `geo::Vec3<float>`); shim buna Rust adıyla bir
+    /// takma ad (`using`) tanımlar.
+    pub instance_spelling: Option<String>,
+}
+
+/// Değer tipi bir sınıfın Rust'taki düzeni (ADR-0010). C++ tarafı bunu `static_assert` ile
+/// doğrular.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueLayout {
+    /// `sizeof`
+    pub size_bytes: u64,
+    /// `alignof`
+    pub align_bytes: u64,
+    /// Alanlar, C++'taki sırayla.
+    pub fields: Vec<FieldPlan>,
+}
+
+/// Değer tipinin bir alanı.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldPlan {
+    /// Rust'taki adı (anahtar kelimelerden kaçınılmış).
+    pub rust_name: String,
+    /// C++'taki adı.
+    pub cpp_name: String,
+    /// Tipi: sayı, `bool`, `c_char` ya da başka bir değer tipi.
+    pub ty: BridgeType,
+    /// Bayt cinsinden ofset.
+    pub offset_bytes: u64,
 }
 
 /// Bağlanan bir enum.
@@ -257,6 +287,8 @@ pub enum BridgeType {
     F64,
     /// Opak sınıf (yalnızca referans veya `UniquePtr` arkasında kullanılır).
     Class(TypeRef),
+    /// Değer tipi sınıf: Rust'ta `#[repr(C)]` struct, değerle geçer (ADR-0010).
+    Value(TypeRef),
     /// Paylaşılan enum.
     Enum(TypeRef),
     /// `CxxString` / `std::string` (yalnızca referans veya `UniquePtr` arkasında).
@@ -356,6 +388,8 @@ pub struct FunctionPlan {
     pub returns: Returns,
     /// `noexcept` değilse `true`: Rust tarafında `Result<T>` döner.
     pub fallible: bool,
+    /// Operatör metoduysa hangisi (kod üretimi değer tiplerinde `std::ops` impl'i ekler).
+    pub operator: Option<OperatorKind>,
     /// Rust imzasından çıkarılan uzunluk parametreleri (`slice` açıklamaları); shim bunları
     /// slice'ın boyundan doldurur.
     pub lengths: Vec<LengthParam>,
@@ -366,25 +400,141 @@ pub struct FunctionPlan {
 impl FunctionPlan {
     /// Doğrudan cxx ile çağrılamayıp C++ shim'i gerektiriyor mu?
     pub fn needs_shim(&self) -> bool {
-        matches!(
-            self.callee,
-            Callee::Static { .. } | Callee::Constructor { .. }
-        ) || matches!(
-            self.returns,
-            Returns::BoxedClass(_)
-                | Returns::OwnedString
-                | Returns::OwnedVector(_)
-                | Returns::OwnedPointer(_)
-                | Returns::BorrowedPointer { .. }
-        ) || self
-            .params
-            .iter()
-            .any(|p| matches!(p.pass, Pass::AddressOf | Pass::Slice))
+        // cxx operatör adlarını bağlayamaz; shim `fb_self.operator+(v)` diye çağırır.
+        self.operator.is_some()
+            || matches!(
+                self.callee,
+                Callee::Static { .. } | Callee::Constructor { .. }
+            )
+            || matches!(
+                self.returns,
+                Returns::BoxedClass(_)
+                    | Returns::OwnedString
+                    | Returns::OwnedVector(_)
+                    | Returns::OwnedPointer(_)
+                    | Returns::BorrowedPointer { .. }
+            )
+            || self
+                .params
+                .iter()
+                .any(|p| matches!(p.pass, Pass::AddressOf | Pass::Slice))
     }
 
     /// C++ fonksiyonunun parametre sayısı (Rust'a görünmeyen uzunluklar dahil).
     pub fn cpp_arity(&self) -> usize {
         self.params.len() + self.lengths.len()
+    }
+}
+
+/// Bir üye operatör.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperatorKind {
+    /// İkili `+`
+    Add,
+    /// İkili `-`
+    Sub,
+    /// İkili `*`
+    Mul,
+    /// `/`
+    Div,
+    /// `%`
+    Rem,
+    /// Tekli `-`
+    Neg,
+    /// Tekli `+`
+    Pos,
+    /// `!`
+    Not,
+    /// `~`
+    BitNot,
+    /// İkili `^`
+    BitXor,
+    /// İkili `&`
+    BitAnd,
+    /// İkili `|`
+    BitOr,
+    /// `+=`
+    AddAssign,
+    /// `-=`
+    SubAssign,
+    /// `*=`
+    MulAssign,
+    /// `/=`
+    DivAssign,
+    /// `%=`
+    RemAssign,
+    /// `==`
+    Eq,
+    /// `!=`
+    Ne,
+    /// `<`
+    Lt,
+    /// `>`
+    Gt,
+    /// `<=`
+    Le,
+    /// `>=`
+    Ge,
+}
+
+impl OperatorKind {
+    /// C++ operatörü ve parametre sayısından (`this` hariç).
+    pub fn from_cpp(op: &str, arity: usize) -> Option<Self> {
+        Some(match (op, arity) {
+            ("+", 1) => Self::Add,
+            ("-", 1) => Self::Sub,
+            ("*", 1) => Self::Mul,
+            ("/", 1) => Self::Div,
+            ("%", 1) => Self::Rem,
+            ("-", 0) => Self::Neg,
+            ("+", 0) => Self::Pos,
+            ("!", 0) => Self::Not,
+            ("~", 0) => Self::BitNot,
+            ("^", 1) => Self::BitXor,
+            ("&", 1) => Self::BitAnd,
+            ("|", 1) => Self::BitOr,
+            ("+=", 1) => Self::AddAssign,
+            ("-=", 1) => Self::SubAssign,
+            ("*=", 1) => Self::MulAssign,
+            ("/=", 1) => Self::DivAssign,
+            ("%=", 1) => Self::RemAssign,
+            ("==", 1) => Self::Eq,
+            ("!=", 1) => Self::Ne,
+            ("<", 1) => Self::Lt,
+            (">", 1) => Self::Gt,
+            ("<=", 1) => Self::Le,
+            (">=", 1) => Self::Ge,
+            _ => return None,
+        })
+    }
+
+    /// Rust'taki adlı metodun adı (ör. `op_add`); `std::ops` impl'i bunu çağırır.
+    pub fn method_name(self) -> &'static str {
+        match self {
+            Self::Add => "op_add",
+            Self::Sub => "op_sub",
+            Self::Mul => "op_mul",
+            Self::Div => "op_div",
+            Self::Rem => "op_rem",
+            Self::Neg => "op_neg",
+            Self::Pos => "op_pos",
+            Self::Not => "op_not",
+            Self::BitNot => "op_bit_not",
+            Self::BitXor => "op_bit_xor",
+            Self::BitAnd => "op_bit_and",
+            Self::BitOr => "op_bit_or",
+            Self::AddAssign => "op_add_assign",
+            Self::SubAssign => "op_sub_assign",
+            Self::MulAssign => "op_mul_assign",
+            Self::DivAssign => "op_div_assign",
+            Self::RemAssign => "op_rem_assign",
+            Self::Eq => "op_eq",
+            Self::Ne => "op_ne",
+            Self::Lt => "op_lt",
+            Self::Gt => "op_gt",
+            Self::Le => "op_le",
+            Self::Ge => "op_ge",
+        }
     }
 }
 

@@ -64,6 +64,7 @@ fn record(name: &str) -> Type {
     Type::Record {
         name: name.to_owned(),
         namespace: vec!["geo".to_owned()],
+        declared_in: None,
     }
 }
 
@@ -100,6 +101,7 @@ fn method(name: &str, params: Vec<Param>, ret: QualType, is_const: bool) -> Meth
         is_static: false,
         is_virtual: false,
         noexcept: false,
+        operator: None,
         location: loc(),
     }
 }
@@ -114,6 +116,10 @@ fn class(name: &str, constructors: Vec<Constructor>, methods: Vec<Method>) -> It
         constructors,
         methods,
         unsupported_members: Vec::new(),
+        fields: Vec::new(),
+        layout: None,
+        user_copy_or_move: false,
+        instance_of: None,
         location: loc(),
     })
 }
@@ -1470,4 +1476,220 @@ fn constant_names_avoid_collisions() {
         "{:?}",
         plan.skipped
     );
+}
+
+// ---- Header'lar arası tipler (Milestone 6) ----------------------------------------------------
+
+#[test]
+fn a_type_from_a_header_outside_the_bridge_says_which_header_to_add() {
+    let outside = Type::Record {
+        name: "Rotation".to_owned(),
+        namespace: Vec::new(),
+        declared_in: Some("rotations.h".to_owned()),
+    };
+    let plan = check(&module(vec![function(
+        &[],
+        "rotate",
+        vec![param("r", q(lref(konst(outside))))],
+        q(Type::Void),
+    )]));
+    assert!(plan.functions.is_empty());
+    let reason = &plan.skipped[0].reason;
+    assert!(reason.contains("`rotations.h`"), "{reason}");
+    assert!(reason.contains("bridge'e ekleyin"), "{reason}");
+}
+
+// ---- Değer tipleri (Milestone 6) --------------------------------------------------------------
+
+fn field(name: &str, ty: Type, offset_bits: u64, public: bool) -> ferrobridge_ir::Field {
+    ferrobridge_ir::Field {
+        name: name.to_owned(),
+        ty: q(ty),
+        public,
+        offset_bits: Some(offset_bits),
+        location: loc(),
+    }
+}
+
+/// `geo::<name>` sınıfı, verilen alanlarla ve düzenle.
+fn value_class(
+    name: &str,
+    fields: Vec<ferrobridge_ir::Field>,
+    size: u64,
+    methods: Vec<Method>,
+) -> Item {
+    let mut item = class(name, vec![ctor(Vec::new())], methods);
+    if let Item::Class(c) = &mut item {
+        c.fields = fields;
+        c.layout = Some(ferrobridge_ir::Layout {
+            size_bytes: size,
+            align_bytes: 8,
+        });
+    }
+    item
+}
+
+fn pt() -> Item {
+    value_class(
+        "Pt",
+        vec![
+            field("x", f64_ty(), 0, true),
+            field("y", f64_ty(), 64, true),
+        ],
+        16,
+        vec![method(
+            "scale",
+            vec![param("k", q(f64_ty()))],
+            q(Type::Void),
+            false,
+        )],
+    )
+}
+
+fn value_ty(name: &str) -> BridgeType {
+    BridgeType::Value(TypeRef {
+        rust_name: name.to_owned(),
+        cpp_path: format!("::geo::{name}"),
+    })
+}
+
+#[test]
+fn plain_structs_with_public_fields_become_value_types() {
+    let plan = check(&module(vec![
+        pt(),
+        function(
+            &["geo"],
+            "mid",
+            vec![
+                param("a", q(record("Pt"))),
+                param("b", q(lref(konst(record("Pt"))))),
+            ],
+            q(record("Pt")),
+        ),
+    ]));
+    let class = &plan.classes[0];
+    let layout = class.value.as_ref().expect("değer tipi bekleniyordu");
+    assert_eq!(layout.size_bytes, 16);
+    let fields: Vec<(&str, &BridgeType, u64)> = layout
+        .fields
+        .iter()
+        .map(|f| (f.rust_name.as_str(), &f.ty, f.offset_bytes))
+        .collect();
+    assert_eq!(
+        fields,
+        [("x", &BridgeType::F64, 0), ("y", &BridgeType::F64, 8)]
+    );
+    // Constructor değerle döner; alanlar uyarı üretmez.
+    assert_eq!(
+        class.constructors[0].returns,
+        Returns::Value(value_ty("Pt"))
+    );
+    assert!(plan.skipped.is_empty(), "{:?}", plan.skipped);
+    // Değerle parametre ve dönüş.
+    let mid = &plan.functions[0];
+    assert_eq!(mid.params[0].ty, value_ty("Pt"));
+    assert_eq!(mid.params[1].ty, reference(false, value_ty("Pt")));
+    assert_eq!(mid.returns, Returns::Value(value_ty("Pt")));
+}
+
+#[test]
+fn value_types_may_contain_value_types() {
+    let line = value_class(
+        "Line",
+        vec![
+            field("from", record("Pt"), 0, true),
+            field("to", record("Pt"), 128, true),
+        ],
+        32,
+        Vec::new(),
+    );
+    let plan = check(&module(vec![line, pt()]));
+    let line = plan.classes.iter().find(|c| c.cpp_name == "Line").unwrap();
+    let layout = line.value.as_ref().unwrap();
+    assert_eq!(layout.fields[1].ty, value_ty("Pt"));
+    assert_eq!(layout.fields[1].offset_bytes, 16);
+}
+
+#[test]
+fn classes_that_cannot_be_copied_bit_by_bit_stay_opaque() {
+    let private = value_class(
+        "Private",
+        vec![field("x", f64_ty(), 0, false)],
+        8,
+        Vec::new(),
+    );
+    let mut copy = value_class("Copy", vec![field("x", f64_ty(), 0, true)], 8, Vec::new());
+    if let Item::Class(c) = &mut copy {
+        c.user_copy_or_move = true;
+    }
+    let bits = value_class(
+        "Bits",
+        vec![field(
+            "flags",
+            Type::Unsupported {
+                spelling: "int".to_owned(),
+                reason: "bit alanı".to_owned(),
+            },
+            0,
+            true,
+        )],
+        4,
+        Vec::new(),
+    );
+    // `const` alan: Rust'tan yazılırsa C++'ta `const` nesneyi değiştirmek olurdu.
+    let mut frozen = value_class("Frozen", vec![field("x", f64_ty(), 0, true)], 8, Vec::new());
+    if let Item::Class(c) = &mut frozen {
+        c.fields[0].ty.is_const = true;
+    }
+    // Opak bir sınıfı içeren sınıf da opak kalır.
+    let holder = value_class(
+        "Holder",
+        vec![field("p", record("Private"), 0, true)],
+        8,
+        Vec::new(),
+    );
+    let plan = check(&module(vec![private, copy, bits, holder, frozen]));
+    for class in &plan.classes {
+        assert!(class.value.is_none(), "{} opak kalmalıydı", class.cpp_name);
+    }
+    // Opak sınıfların public alanları yine raporlanır.
+    assert!(
+        plan.skipped.iter().any(|s| s.name == "geo::Copy::x"),
+        "{:?}",
+        plan.skipped
+    );
+}
+
+// ---- `[library] exceptions = false` (Milestone 6) --------------------------------------------
+
+#[test]
+fn a_library_without_exceptions_returns_plain_values() {
+    let items = || {
+        vec![
+            function(&[], "add", vec![param("a", q(i32_ty()))], q(i32_ty())),
+            function(
+                &[],
+                "sum",
+                vec![param("p", ptr(konst(u8_ty()))), param("n", q(u8_ty()))],
+                q(i32_ty()),
+            ),
+        ]
+    };
+    let plan = check_with(
+        &module(items()),
+        "[library]\nexceptions = false\n\n[functions.\"sum\".params]\np = { slice = \"n\" }\n",
+    )
+    .unwrap();
+    assert!(!plan.functions[0].fallible, "söz verildi: doğrudan değer");
+    // ferrobridge'in kendi uzunluk kontrolü `Result` olarak kalır.
+    assert!(plan.functions[1].fallible);
+    assert!(
+        plan.assumptions
+            .iter()
+            .any(|a| a.annotation == "exceptions = false" && a.origin == "ferrobridge.toml:2"),
+        "{:?}",
+        plan.assumptions
+    );
+    // Söz yoksa her şey `Result`.
+    assert!(check(&module(items())).functions[0].fallible);
 }

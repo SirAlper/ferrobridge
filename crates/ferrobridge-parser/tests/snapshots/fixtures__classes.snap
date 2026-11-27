@@ -3,7 +3,7 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 4,
+  "format_version": 5,
   "items": [
     {
       "kind": "class",
@@ -19,11 +19,20 @@ expression: module
       },
       "constructors": [],
       "methods": [],
-      "unsupported_members": [
+      "unsupported_members": [],
+      "fields": [
         {
-          "construct": "field",
-          "name": "geo::Point::x",
-          "reason": "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.",
+          "name": "x",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          },
+          "public": true,
+          "offset_bits": 0,
           "location": {
             "file": "input.h",
             "line": 9,
@@ -31,9 +40,17 @@ expression: module
           }
         },
         {
-          "construct": "field",
-          "name": "geo::Point::y",
-          "reason": "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.",
+          "name": "y",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          },
+          "public": true,
+          "offset_bits": 32,
           "location": {
             "file": "input.h",
             "line": 10,
@@ -41,6 +58,10 @@ expression: module
           }
         }
       ],
+      "layout": {
+        "size_bytes": 8,
+        "align_bytes": 4
+      },
       "location": {
         "file": "input.h",
         "line": 8,
@@ -417,6 +438,46 @@ expression: module
           }
         },
         {
+          "name": "operator==",
+          "params": [
+            {
+              "name": "other",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "lvalue_ref",
+                  "referent": {
+                    "const": true,
+                    "type": {
+                      "kind": "record",
+                      "name": "Vehicle",
+                      "namespace": [
+                        "geo"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "bool"
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "operator": "==",
+          "location": {
+            "file": "input.h",
+            "line": 38,
+            "column": 8
+          }
+        },
+        {
           "name": "total_km",
           "params": [],
           "return_type": {
@@ -503,28 +564,114 @@ expression: module
           }
         }
       ],
-      "unsupported_members": [
+      "unsupported_members": [],
+      "fields": [
         {
-          "construct": "operator",
-          "name": "geo::Vehicle::operator==",
-          "reason": "Operatörler v0.2 hedefi.",
-          "location": {
-            "file": "input.h",
-            "line": 38,
-            "column": 8
-          }
-        },
-        {
-          "construct": "field",
-          "name": "geo::Vehicle::public_counter",
-          "reason": "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.",
+          "name": "public_counter",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          },
+          "public": true,
+          "offset_bits": 64,
           "location": {
             "file": "input.h",
             "line": 42,
             "column": 7
           }
+        },
+        {
+          "name": "wheels_",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          },
+          "public": false,
+          "offset_bits": 96,
+          "location": {
+            "file": "input.h",
+            "line": 45,
+            "column": 7
+          }
+        },
+        {
+          "name": "odometer_",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          },
+          "public": false,
+          "offset_bits": 128,
+          "location": {
+            "file": "input.h",
+            "line": 46,
+            "column": 10
+          }
+        },
+        {
+          "name": "position_",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "record",
+              "name": "Point",
+              "namespace": [
+                "geo"
+              ]
+            }
+          },
+          "public": false,
+          "offset_bits": 192,
+          "location": {
+            "file": "input.h",
+            "line": 47,
+            "column": 9
+          }
+        },
+        {
+          "name": "home_",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "record",
+              "name": "Point",
+              "namespace": [
+                "geo"
+              ]
+            }
+          },
+          "public": false,
+          "offset_bits": 256,
+          "location": {
+            "file": "input.h",
+            "line": 48,
+            "column": 9
+          }
         }
       ],
+      "layout": {
+        "size_bytes": 40,
+        "align_bytes": 8
+      },
+      "user_copy_or_move": true,
       "location": {
         "file": "input.h",
         "line": 13,
@@ -568,6 +715,10 @@ expression: module
         }
       ],
       "unsupported_members": [],
+      "layout": {
+        "size_bytes": 8,
+        "align_bytes": 8
+      },
       "location": {
         "file": "input.h",
         "line": 51,
@@ -644,6 +795,30 @@ expression: module
           }
         }
       ],
+      "fields": [
+        {
+          "name": "side_",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          },
+          "public": false,
+          "offset_bits": 64,
+          "location": {
+            "file": "input.h",
+            "line": 63,
+            "column": 10
+          }
+        }
+      ],
+      "layout": {
+        "size_bytes": 16,
+        "align_bytes": 8
+      },
       "location": {
         "file": "input.h",
         "line": 57,

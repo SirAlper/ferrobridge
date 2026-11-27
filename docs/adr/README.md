@@ -12,3 +12,6 @@ Mimari kararların kaydı. Yeni ADR için `template.md` dosyasını kopyalayıp 
 | [0006](0006-ownership-annotations-in-a-separate-toml-file.md) | Sahiplik açıklamaları ayrı bir TOML dosyasında | accepted | 2026-11-27 |
 | [0007](0007-safe-api-layer-over-cxx.md) | cxx katmanının üstünde güvenli API katmanı | accepted | 2026-11-27 |
 | [0008](0008-build-time-generation-for-gpl-demo.md) | Derleme sırasında üretim ve GPL'li demo | accepted | 2026-11-27 |
+| [0009](0009-multi-header-bridges-and-template-instantiation.md) | Çok header'lı bridge'ler ve template örnekleme | accepted | 2026-11-27 |
+| [0010](0010-trivially-copyable-classes-as-rust-value-types.md) | Bit bit kopyalanabilen sınıflar Rust değer tipi olur | accepted | 2026-11-27 |
+| [0011](0011-libraries-without-exceptions.md) | Exception kullanmayan kütüphaneler (`[library] exceptions = false`) | accepted | 2026-11-27 |

@@ -1,0 +1,168 @@
+# ArduPilot `AP_Math` için ferrobridge açıklamaları (commit 437a3301cc).
+#
+# Her söz ArduPilot kaynağı okunarak verildi; ayrıntılar bölümlerin üstünde.
+
+# ArduPilot exception kullanmıyor (firmware `-fno-exceptions` ile derleniyor): fonksiyonlar
+# `Result` yerine doğrudan değer döndürür. Söz bozulursa program sonlanır.
+[library]
+exceptions = false
+
+# Kütüphanenin `.cpp`'lerinde açıkça örneklenen template'ler (`template class Vector3<float>;`).
+[templates]
+Vector2f = "Vector2<float>"
+Vector3f = "Vector3<float>"
+Matrix3f = "Matrix3<float>"
+Quaternion = "QuaternionT<float>"
+Vector2d = "Vector2<double>"
+Vector3d = "Vector3<double>"
+Matrix3d = "Matrix3<double>"
+QuaternionD = "QuaternionT<double>"
+
+# ---- vector/matrix/quaternion ----
+# `to_euler` çıkış parametreleri: yalnızca yazılıyor (`quaternion.cpp`, `matrix3.cpp`),
+# saklanmıyor. `Matrix3::to_euler` pointer'ları null olabilir diye kontrol ediyor; Rust her zaman
+# geçerli bir referans verdiği için `borrowed` ("null değil") güvenli.
+[functions."Quaternion::to_euler".params]
+roll = "borrowed"
+pitch = "borrowed"
+yaw = "borrowed"
+
+[functions."QuaternionD::to_euler".params]
+roll = "borrowed"
+pitch = "borrowed"
+yaw = "borrowed"
+
+[functions."Matrix3f::to_euler".params]
+roll = "borrowed"
+pitch = "borrowed"
+yaw = "borrowed"
+
+[functions."Matrix3d::to_euler".params]
+roll = "borrowed"
+pitch = "borrowed"
+yaw = "borrowed"
+
+# ---- crc ----
+# `AP_Math/crc.h` için sahiplik açıklamaları. Her satır ArduPilot'un `crc.cpp`'si okunarak
+# yazıldı (commit 437a3301cc): pointer, yanındaki uzunluk kadar elemanlık bir diziyi gösteriyor,
+# yalnızca okunuyor ve saklanmıyor.
+#
+# Bilerek açıklanmayanlar:
+# - `crc_crc4(uint16_t* data)`: uzunluk parametresi yok, sabit 8 kelime okunuyor; `slice`
+#   olamaz, `borrowed` ("tek nesne") da yanlış olurdu.
+# - `crc8_dvb_s2_update(..., const void* data, ...)`: `void*`, tipi bilinmiyor.
+
+[functions.crc_crc8.params]
+p = { slice = "len" }
+
+[functions.crc8_generic.params]
+buf = { slice = "buf_len" }
+
+[functions.crc8_dvb_update.params]
+buf = { slice = "buf_len" }
+
+[functions.crc8_maxim.params]
+data = { slice = "length" }
+
+[functions.crc8_sae.params]
+data = { slice = "length" }
+
+[functions.crc8_rds02uf.params]
+data = { slice = "length" }
+
+[functions.crc_xor_of_bytes.params]
+data = { slice = "length" }
+
+[functions.crc_xmodem.params]
+data = { slice = "len" }
+
+[functions.crc_crc32.params]
+buf = { slice = "size" }
+
+[functions.crc32_small.params]
+buf = { slice = "size" }
+
+[functions.crc_crc24.params]
+bytes = { slice = "len" }
+
+# Pointer `const` değil ama dizi yalnızca okunuyor; Rust'ta gereğinden kısıtlayıcı `&mut [u8]`.
+[functions.crc_crc16_ibm.params]
+data_blk_ptr = { slice = "data_blk_size" }
+
+[functions.crc_sum8_with_carry.params]
+p = { slice = "len" }
+
+[functions.crc16_ccitt.params]
+buf = { slice = "len" }
+
+[functions.crc16_ccitt_r.params]
+buf = { slice = "len" }
+
+[functions.crc16_ccitt_GDL90.params]
+buf = { slice = "len" }
+
+[functions.calc_crc_modbus.params]
+buf = { slice = "len" }
+
+[functions.crc_fletcher16.params]
+buffer = { slice = "len" }
+
+# `hash` tek bir giriş-çıkış değeri: `*hash` okunup yazılıyor.
+[functions.hash_fnv_1a.params]
+buf = { slice = "len" }
+hash = "borrowed"
+
+# `num_words`: `uint32_t` eleman sayısı.
+[functions.crc_crc64.params]
+data = { slice = "num_words" }
+
+[functions.crc_sum_of_bytes.params]
+data = { slice = "count" }
+
+[functions.crc_sum_of_bytes_16.params]
+data = { slice = "count" }
+
+# ---- control ----
+# `AP_Math/control.h`: `float&` / `postype_t&` parametreler giriş-çıkış değerleri; fonksiyonlar
+# (`control.cpp`) onları yalnızca çağrı süresince okuyup yazıyor, saklamıyor.
+
+[functions.update_vel_accel.params]
+vel = "borrowed"
+
+[functions.update_pos_vel_accel.params]
+pos = "borrowed"
+vel = "borrowed"
+
+[functions.shape_accel.params]
+accel = "borrowed"
+
+[functions.shape_vel_accel.params]
+accel = "borrowed"
+
+[functions.shape_pos_vel_accel.params]
+accel = "borrowed"
+
+[functions.shape_angle_vel_accel.params]
+angle_accel = "borrowed"
+
+[functions.rc_input_to_roll_pitch_rad.params]
+roll_out_rad = "borrowed"
+pitch_out_rad = "borrowed"
+
+# ---- ap_math ----
+# `AP_Math/AP_Math.h`. `fill_nanf`'in iki overload'u (`float*`, `double*`) aynı anahtarı
+# paylaşıyor; ikisi de `count` elemanlık diziyi NaN ile dolduruyor (`AP_Math.cpp`).
+
+[functions.fill_nanf.params]
+f = { slice = "count" }
+
+# ---- scurve ----
+# `AP_Math/SCurve.h`: `calculate_path`'in `*_out` parametreleri yalnızca çıkış değeri.
+
+[functions."SCurve::calculate_path".params]
+Jm_out = "borrowed"
+tj_out = "borrowed"
+t2_out = "borrowed"
+t4_out = "borrowed"
+t6_out = "borrowed"
+

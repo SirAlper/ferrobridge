@@ -102,7 +102,7 @@ fn type_token(ty: &BridgeType) -> String {
         BridgeType::Int(int) => int.rust_name().to_owned(),
         BridgeType::F32 => "f32".to_owned(),
         BridgeType::F64 => "f64".to_owned(),
-        BridgeType::Class(r) | BridgeType::Enum(r) => r.rust_name.clone(),
+        BridgeType::Class(r) | BridgeType::Enum(r) | BridgeType::Value(r) => r.rust_name.clone(),
         BridgeType::String => "string".to_owned(),
         BridgeType::UniquePtr(inner) => format!("uptr_{}", type_token(inner)),
         BridgeType::Vector(inner) => format!("vec_{}", type_token(inner)),
@@ -202,8 +202,9 @@ pub(crate) fn name_free_scope(plans: &mut [&mut FunctionPlan]) {
 pub(crate) fn name_methods(plans: &mut [&mut FunctionPlan]) {
     let bases: Vec<String> = plans
         .iter()
-        .map(|plan| match &plan.callee {
-            Callee::Method { cpp_name, .. } => cpp_name.clone(),
+        .map(|plan| match (&plan.callee, plan.operator) {
+            (_, Some(op)) => op.method_name().to_owned(),
+            (Callee::Method { cpp_name, .. }, None) => cpp_name.clone(),
             _ => plan.rust_name.clone(),
         })
         .collect();

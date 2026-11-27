@@ -131,6 +131,17 @@ pub struct FunctionAnnotation {
     pub params: BTreeMap<String, Located<ParamAnnotation>>,
 }
 
+/// `[templates]` bölümünün bir girdisi: `Vector3f = "Vector3<float>"`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateEntry {
+    /// Örneklemenin Rust adı.
+    pub rust_name: String,
+    /// C++ yazımı (header'lar include edildikten sonra global kapsamda çözülür).
+    pub spelling: String,
+    /// Girdinin satırı.
+    pub line: usize,
+}
+
 /// `ferrobridge.toml`'dan okunan açıklamaların tamamı.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Annotations {
@@ -138,6 +149,10 @@ pub struct Annotations {
     pub source_name: String,
     /// Tam C++ adı → açıklamalar.
     pub functions: BTreeMap<String, FunctionAnnotation>,
+    /// Örneklenecek sınıf template'leri, dosyadaki sırayla.
+    pub templates: Vec<TemplateEntry>,
+    /// `[library] exceptions = false`: "bu kütüphane exception fırlatmaz" sözü ve satırı.
+    pub no_exceptions: Option<usize>,
 }
 
 /// Açıklama dosyası okunamadı ya da geçersiz.
@@ -168,6 +183,15 @@ pub enum ConfigError {
 struct RawFile {
     #[serde(default)]
     functions: BTreeMap<Spanned<String>, RawFunction>,
+    #[serde(default)]
+    templates: BTreeMap<Spanned<String>, Spanned<String>>,
+    library: Option<RawLibrary>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawLibrary {
+    exceptions: Option<Spanned<bool>>,
 }
 
 #[derive(Deserialize)]
@@ -221,15 +245,66 @@ impl Annotations {
                 },
             );
         }
+        let mut templates = Vec::new();
+        for (name, spelling) in raw.templates {
+            let line = line_of(text, name.span().start);
+            let rust_name = name.into_inner();
+            let mut chars = rust_name.chars();
+            let identifier = chars
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if !identifier {
+                return Err(ConfigError::Invalid {
+                    source_name: source_name.to_owned(),
+                    line,
+                    message: format!(
+                        "`[templates]` anahtarı `{rust_name}` bir Rust tip adı olmalı (ör. `Vector3f`)"
+                    ),
+                });
+            }
+            let spelling = spelling.into_inner();
+            if spelling.trim().is_empty() {
+                return Err(ConfigError::Invalid {
+                    source_name: source_name.to_owned(),
+                    line,
+                    message: format!(
+                        "`[templates]` `{rust_name}` boş olamaz; C++ yazımı verin (ör. \
+                         `\"Vector3<float>\"`)"
+                    ),
+                });
+            }
+            templates.push(TemplateEntry {
+                rust_name,
+                spelling,
+                line,
+            });
+        }
+        templates.sort_by_key(|t| t.line);
+        let no_exceptions = raw
+            .library
+            .and_then(|library| library.exceptions)
+            .filter(|exceptions| !*exceptions.get_ref())
+            .map(|exceptions| line_of(text, exceptions.span().start));
         Ok(Annotations {
             source_name: source_name.to_owned(),
             functions,
+            templates,
+            no_exceptions,
         })
     }
 
     /// Hiç açıklama yok mu?
     pub fn is_empty(&self) -> bool {
-        self.functions.is_empty()
+        self.functions.is_empty() && self.templates.is_empty() && self.no_exceptions.is_none()
+    }
+
+    /// Parser'a verilecek örneklemeler: (Rust adı, C++ yazımı).
+    pub fn instantiations(&self) -> Vec<(String, String)> {
+        self.templates
+            .iter()
+            .map(|t| (t.rust_name.clone(), t.spelling.clone()))
+            .collect()
     }
 }
 
@@ -394,6 +469,47 @@ arg1 = "borrowed"
             assert_eq!(line, 2, "{text}");
             assert!(message.contains(needle), "{text}: {message}");
         }
+    }
+
+    #[test]
+    fn templates_are_read_in_file_order() {
+        let text =
+            "[templates]\nVector3f = \"Vector3<float>\"\nQuaternion = \"QuaternionT<float>\"\n";
+        let annotations = parse(text).unwrap();
+        assert_eq!(
+            annotations.instantiations(),
+            [
+                ("Vector3f".to_owned(), "Vector3<float>".to_owned()),
+                ("Quaternion".to_owned(), "QuaternionT<float>".to_owned()),
+            ]
+        );
+        assert_eq!(annotations.templates[1].line, 3);
+        assert!(!annotations.is_empty());
+    }
+
+    #[test]
+    fn template_names_must_be_rust_type_names() {
+        let (line, message) =
+            invalid_line("[templates]\n\"Vector3<float>\" = \"Vector3<float>\"\n");
+        assert_eq!(line, 2);
+        assert!(message.contains("Rust tip adı"), "{message}");
+        let (line, _) = invalid_line("[templates]\nV = \" \"\n");
+        assert_eq!(line, 2);
+    }
+
+    #[test]
+    fn library_without_exceptions_is_a_promise_with_a_line() {
+        let annotations = parse("# kütüphane\n[library]\nexceptions = false\n").unwrap();
+        assert_eq!(annotations.no_exceptions, Some(3));
+        assert_eq!(
+            parse("[library]\nexceptions = true\n")
+                .unwrap()
+                .no_exceptions,
+            None
+        );
+        let (line, message) = invalid_line("[library]\nexception = false\n");
+        assert_eq!(line, 2);
+        assert!(message.contains("exception"), "{message}");
     }
 
     #[test]

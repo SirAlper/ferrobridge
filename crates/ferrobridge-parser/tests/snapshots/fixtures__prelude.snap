@@ -3,7 +3,7 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 4,
+  "format_version": 5,
   "items": [
     {
       "kind": "function",
@@ -21,7 +21,8 @@ expression: module
                 "type": {
                   "kind": "record",
                   "name": "Vec2",
-                  "namespace": []
+                  "namespace": [],
+                  "declared_in": "prelude.h"
                 }
               }
             }

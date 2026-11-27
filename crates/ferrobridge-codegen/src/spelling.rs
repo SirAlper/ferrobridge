@@ -40,7 +40,7 @@ pub(crate) fn rust_type_with(
         }
         BridgeType::F32 => quote!(f32),
         BridgeType::F64 => quote!(f64),
-        BridgeType::Class(r) | BridgeType::Enum(r) => {
+        BridgeType::Class(r) | BridgeType::Enum(r) | BridgeType::Value(r) => {
             let name = ident(&r.rust_name)?;
             quote!(#name)
         }
@@ -130,7 +130,7 @@ pub(crate) fn cpp_type(ty: &BridgeType) -> String {
         BridgeType::Int(int) => int.cpp_name().to_owned(),
         BridgeType::F32 => "float".to_owned(),
         BridgeType::F64 => "double".to_owned(),
-        BridgeType::Class(r) | BridgeType::Enum(r) => r.cpp_path.clone(),
+        BridgeType::Class(r) | BridgeType::Enum(r) | BridgeType::Value(r) => r.cpp_path.clone(),
         BridgeType::String => "::std::string".to_owned(),
         BridgeType::UniquePtr(inner) => format!("::std::unique_ptr<{}>", cpp_type(inner)),
         BridgeType::Vector(inner) => format!("::std::vector<{}>", cpp_type(inner)),

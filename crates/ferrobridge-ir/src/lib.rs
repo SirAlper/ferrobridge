@@ -8,15 +8,15 @@ mod item;
 mod types;
 
 pub use item::{
-    Class, Constant, ConstantValue, Constructor, Destructor, Enum, EnumVariant, Function, Item,
-    Method, Param, SourceLocation, Unsupported,
+    Class, Constant, ConstantValue, Constructor, Destructor, Enum, EnumVariant, Field, Function,
+    Item, Layout, Method, Param, SourceLocation, TemplateInstance, Unsupported,
 };
 pub use types::{QualType, Type};
 
 use serde::{Deserialize, Serialize};
 
 /// IR'ın JSON biçiminin sürümü. Biçim uyumsuz şekilde değiştiğinde artırılır.
-pub const IR_FORMAT_VERSION: u32 = 4;
+pub const IR_FORMAT_VERSION: u32 = 5;
 
 /// Bir C++ header'ından okunan sembollerin kökü.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +80,7 @@ mod tests {
         let vehicle = Type::Record {
             name: "Vehicle".to_owned(),
             namespace: vec!["geo".to_owned()],
+            declared_in: Some("vehicle.h".to_owned()),
         };
         let module = Module {
             format_version: IR_FORMAT_VERSION,
@@ -119,14 +120,31 @@ mod tests {
                         is_static: false,
                         is_virtual: true,
                         noexcept: false,
+                        operator: None,
                         location: location(5),
                     }],
                     unsupported_members: vec![Unsupported {
-                        construct: "field".to_owned(),
-                        name: "geo::Vehicle::count".to_owned(),
-                        reason: "alan".to_owned(),
+                        construct: "operator".to_owned(),
+                        name: "geo::Vehicle::operator==".to_owned(),
+                        reason: "operatör".to_owned(),
                         location: location(6),
                     }],
+                    fields: vec![Field {
+                        name: "count".to_owned(),
+                        ty: int32(),
+                        public: true,
+                        offset_bits: Some(64),
+                        location: location(7),
+                    }],
+                    layout: Some(Layout {
+                        size_bytes: 16,
+                        align_bytes: 8,
+                    }),
+                    user_copy_or_move: true,
+                    instance_of: Some(TemplateInstance {
+                        template: "Vehicle".to_owned(),
+                        spelling: "geo::Vehicle<int>".to_owned(),
+                    }),
                     location: location(3),
                 }),
                 Item::Enum(Enum {
@@ -164,6 +182,7 @@ mod tests {
                     return_type: plain(Type::Enum {
                         name: "Mode".to_owned(),
                         namespace: vec!["geo".to_owned()],
+                        declared_in: None,
                     }),
                     noexcept: true,
                     location: location(9),

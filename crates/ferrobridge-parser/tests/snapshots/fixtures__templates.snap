@@ -1,0 +1,620 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 5,
+  "items": [
+    {
+      "kind": "unsupported",
+      "construct": "template_instance",
+      "name": "Fixed3",
+      "reason": "Yalnızca tip parametreli sınıf template'leri örneklenebiliyor (`template <typename T>`).",
+      "location": {
+        "file": "input.h.ferrobridge.cc",
+        "line": 6,
+        "column": 7
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "class_template",
+      "name": "geo::Fixed",
+      "reason": "Sınıf template'i: somut bir tiple örneklenmeden bağlanamaz; `ferrobridge.toml`'da `[templates]` ile örnekleyin (ör. `Vector3f = \"Vector3<float>\"`).",
+      "location": {
+        "file": "input.h",
+        "line": 38,
+        "column": 7
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "class_template",
+      "name": "geo::Unused",
+      "reason": "Sınıf template'i: somut bir tiple örneklenmeden bağlanamaz; `ferrobridge.toml`'da `[templates]` ile örnekleyin (ör. `Vector3f = \"Vector3<float>\"`).",
+      "location": {
+        "file": "input.h",
+        "line": 45,
+        "column": 7
+      }
+    },
+    {
+      "kind": "function",
+      "name": "cross",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "a",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "record",
+                  "name": "Vec3f",
+                  "namespace": [
+                    "geo"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "record",
+                  "name": "Vec3f",
+                  "namespace": [
+                    "geo"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "record",
+          "name": "Vec3f",
+          "namespace": [
+            "geo"
+          ]
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 51,
+        "column": 13
+      }
+    },
+    {
+      "kind": "function",
+      "name": "norm",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "v",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "unsupported",
+                  "spelling": "Vec3<double>",
+                  "reason": "`const geo::Vec3<double>` örneklenmemiş bir template; `ferrobridge.toml`'da `[templates]`'e ekleyin."
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "double",
+          "size_bytes": 8
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 52,
+        "column": 8
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Packed",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
+      "constructors": [],
+      "methods": [],
+      "unsupported_members": [],
+      "fields": [
+        {
+          "name": "flags",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "unsupported",
+              "spelling": "int",
+              "reason": "Bit alanları Rust'ta karşılığı olan bir düzene sahip değil."
+            }
+          },
+          "public": true,
+          "offset_bits": 0,
+          "location": {
+            "file": "input.h",
+            "line": 56,
+            "column": 9
+          }
+        },
+        {
+          "name": "count",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "int",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": false
+            }
+          },
+          "public": true,
+          "offset_bits": 32,
+          "location": {
+            "file": "input.h",
+            "line": 57,
+            "column": 9
+          }
+        }
+      ],
+      "layout": {
+        "size_bytes": 8,
+        "align_bytes": 4
+      },
+      "location": {
+        "file": "input.h",
+        "line": 55,
+        "column": 8
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Vec3f",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
+      "constructors": [
+        {
+          "params": [],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 16,
+            "column": 15
+          }
+        },
+        {
+          "params": [
+            {
+              "name": "x0",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "float",
+                  "size_bytes": 4
+                }
+              }
+            },
+            {
+              "name": "y0",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "float",
+                  "size_bytes": 4
+                }
+              }
+            },
+            {
+              "name": "z0",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "float",
+                  "size_bytes": 4
+                }
+              }
+            }
+          ],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 17,
+            "column": 15
+          }
+        }
+      ],
+      "methods": [
+        {
+          "name": "length_squared",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 19,
+            "column": 7
+          }
+        },
+        {
+          "name": "scaled",
+          "params": [
+            {
+              "name": "k",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "float",
+                  "size_bytes": 4
+                }
+              }
+            }
+          ],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "record",
+              "name": "Vec3f",
+              "namespace": [
+                "geo"
+              ]
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 20,
+            "column": 13
+          }
+        },
+        {
+          "name": "negated",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "record",
+              "name": "Vec3f",
+              "namespace": [
+                "geo"
+              ]
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 21,
+            "column": 10
+          }
+        },
+        {
+          "name": "dot",
+          "params": [
+            {
+              "name": "other",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "lvalue_ref",
+                  "referent": {
+                    "const": true,
+                    "type": {
+                      "kind": "record",
+                      "name": "Vec3f",
+                      "namespace": [
+                        "geo"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 22,
+            "column": 7
+          }
+        },
+        {
+          "name": "set_xy",
+          "params": [
+            {
+              "name": "v",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "lvalue_ref",
+                  "referent": {
+                    "const": true,
+                    "type": {
+                      "kind": "record",
+                      "name": "Vec2f",
+                      "namespace": [
+                        "geo"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "void"
+            }
+          },
+          "is_const": false,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 23,
+            "column": 10
+          }
+        }
+      ],
+      "unsupported_members": [
+        {
+          "construct": "method_template",
+          "name": "geo::Vec3<float>::first_as",
+          "reason": "Template'ler MVP kapsamı dışında (v0.2 hedefi).",
+          "location": {
+            "file": "input.h",
+            "line": 26,
+            "column": 29
+          }
+        }
+      ],
+      "fields": [
+        {
+          "name": "x",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          },
+          "public": true,
+          "offset_bits": 0,
+          "location": {
+            "file": "input.h",
+            "line": 14,
+            "column": 7
+          }
+        },
+        {
+          "name": "y",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          },
+          "public": true,
+          "offset_bits": 32,
+          "location": {
+            "file": "input.h",
+            "line": 14,
+            "column": 10
+          }
+        },
+        {
+          "name": "z",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          },
+          "public": true,
+          "offset_bits": 64,
+          "location": {
+            "file": "input.h",
+            "line": 14,
+            "column": 13
+          }
+        }
+      ],
+      "layout": {
+        "size_bytes": 12,
+        "align_bytes": 4
+      },
+      "instance_of": {
+        "template": "Vec3",
+        "spelling": "geo::Vec3<float>"
+      },
+      "location": {
+        "file": "input.h",
+        "line": 12,
+        "column": 7
+      }
+    },
+    {
+      "kind": "class",
+      "name": "Vec2f",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
+      "constructors": [
+        {
+          "params": [
+            {
+              "name": "x0",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "float",
+                  "size_bytes": 4
+                }
+              }
+            },
+            {
+              "name": "y0",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "float",
+                  "size_bytes": 4
+                }
+              }
+            }
+          ],
+          "noexcept": false,
+          "location": {
+            "file": "input.h",
+            "line": 33,
+            "column": 15
+          }
+        }
+      ],
+      "methods": [],
+      "unsupported_members": [],
+      "fields": [
+        {
+          "name": "x",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          },
+          "public": true,
+          "offset_bits": 0,
+          "location": {
+            "file": "input.h",
+            "line": 32,
+            "column": 7
+          }
+        },
+        {
+          "name": "y",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "float",
+              "size_bytes": 4
+            }
+          },
+          "public": true,
+          "offset_bits": 32,
+          "location": {
+            "file": "input.h",
+            "line": 32,
+            "column": 10
+          }
+        }
+      ],
+      "layout": {
+        "size_bytes": 8,
+        "align_bytes": 4
+      },
+      "instance_of": {
+        "template": "Vec2",
+        "spelling": "geo::Vec2<float>"
+      },
+      "location": {
+        "file": "input.h",
+        "line": 30,
+        "column": 7
+      }
+    }
+  ]
+}

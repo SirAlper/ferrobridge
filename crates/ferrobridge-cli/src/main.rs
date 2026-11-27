@@ -28,17 +28,20 @@ enum Command {
         #[command(flatten)]
         parse: ParseArgs,
     },
-    /// Bir C++ header'ından cxx bridge'i (`bridge.rs`) ve C++ shim'ini (`shim.h`, `shim.cc`)
-    /// üretir. Bağlanamayan her öğe nedeniyle birlikte uyarı olarak basılır.
+    /// Bir ya da daha fazla C++ header'ından tek bir cxx bridge'i (`bridge.rs`) ve C++ shim'ini
+    /// (`shim.h`, `shim.cc`) üretir. Bir header'da tanımlı tip diğerlerindeki fonksiyonlarda
+    /// kullanılabilir. Bağlanamayan her öğe nedeniyle birlikte uyarı olarak basılır.
     Generate {
-        /// Okunacak C++ header dosyası.
-        header: PathBuf,
+        /// Okunacak C++ header dosyaları (bridge'in header'ları).
+        #[arg(required = true, num_args = 1..)]
+        headers: Vec<PathBuf>,
         /// Üç dosyanın yazılacağı dizin (yoksa oluşturulur).
         #[arg(long)]
         out_dir: PathBuf,
-        /// Shim'in header'ı `#include` ederken kullanacağı yol. Varsayılan: header'ın dosya adı.
+        /// Shim'in header'ı `#include` ederken kullanacağı yol; header başına bir kez, aynı
+        /// sırayla. Varsayılan: header'ların dosya adları.
         #[arg(long)]
-        include_as: Option<String>,
+        include_as: Vec<String>,
         /// Bridge'in `shim.h`'yi `#include` ederken kullanacağı yol.
         #[arg(long, default_value = "shim.h")]
         shim_include: String,
@@ -58,8 +61,9 @@ enum Command {
     /// Açıklama gerektiren her pointer/referans için yorum satırlı bir `ferrobridge.toml`
     /// taslağı basar. Emin olduğun satırları açıp `generate --config` ile kullan.
     Suggest {
-        /// Okunacak C++ header dosyası.
-        header: PathBuf,
+        /// Okunacak C++ header dosyaları (`generate`'e verilenlerle aynı).
+        #[arg(required = true, num_args = 1..)]
+        headers: Vec<PathBuf>,
         /// Var olan açıklamalar; bunların çözdüğü yerler taslağa girmez.
         #[arg(long)]
         config: Option<PathBuf>,
@@ -91,6 +95,7 @@ impl From<ParseArgs> for ParseOptions {
             std: args.std,
             extra_args: args.clang_args,
             prelude: args.prelude,
+            instantiate: Vec::new(),
         }
     }
 }
@@ -111,7 +116,7 @@ fn main() -> ExitCode {
             parse: args,
         } => parse(&header, &args.into()),
         Command::Generate {
-            header,
+            headers,
             out_dir,
             include_as,
             shim_include,
@@ -132,31 +137,44 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             }
+            let header_includes = if include_as.is_empty() {
+                headers.iter().map(|h| file_name(h)).collect()
+            } else if include_as.len() == headers.len() {
+                include_as
+            } else {
+                eprintln!(
+                    "✗ {} header için {} `--include-as` verildi; her header için bir tane, aynı \
+                     sırayla verin.",
+                    headers.len(),
+                    include_as.len()
+                );
+                return ExitCode::FAILURE;
+            };
             let options = CodegenOptions {
-                header_include: include_as.unwrap_or_else(|| file_name(&header)),
+                header_includes,
                 shim_include,
                 shim_namespace: shim_namespace
-                    .unwrap_or_else(|| format!("ferrobridge::{}", identifier_from(&header))),
+                    .unwrap_or_else(|| format!("ferrobridge::{}", identifier_from(&headers[0]))),
                 prelude: args.prelude.clone(),
             };
-            generate(&header, &out_dir, &options, config.as_deref(), args.into())
+            generate(&headers, &out_dir, &options, config.as_deref(), args.into())
         }
         Command::Suggest {
-            header,
+            headers,
             config,
             parse: args,
-        } => suggest(&header, config.as_deref(), args.into()),
+        } => suggest(&headers, config.as_deref(), args.into()),
     }
 }
 
 /// Header'ı okur, açıklamaları yükler ve analizi çalıştırır. Hata olursa basıp çıkış kodunu
 /// döndürür. Gereksiz açıklama uyarıları burada basılır.
 fn analyze(
-    header: &Path,
+    headers: &[PathBuf],
     config: Option<&Path>,
     options: &ParseOptions,
 ) -> Result<BridgePlan, ExitCode> {
-    let module = ferrobridge_parser::parse_header(header, options).map_err(|e| report(&e))?;
+    // Açıklamalar önce: `[templates]` parser'a örnekleme olarak gider.
     let annotations = match config {
         Some(path) => Annotations::from_file(path).map_err(|error| {
             eprintln!("✗ {error}");
@@ -164,6 +182,9 @@ fn analyze(
         })?,
         None => Annotations::default(),
     };
+    let mut options = options.clone();
+    options.instantiate = annotations.instantiations();
+    let module = ferrobridge_parser::parse_headers(headers, &options).map_err(|e| report(&e))?;
     let plan = ferrobridge_analysis::check(&module, &annotations).map_err(|issues| {
         eprintln!("✗ açıklama dosyası header'la uyuşmuyor:");
         for issue in &issues {
@@ -177,8 +198,8 @@ fn analyze(
     Ok(plan)
 }
 
-fn suggest(header: &Path, config: Option<&Path>, options: ParseOptions) -> ExitCode {
-    let plan = match analyze(header, config, &options) {
+fn suggest(headers: &[PathBuf], config: Option<&Path>, options: ParseOptions) -> ExitCode {
+    let plan = match analyze(headers, config, &options) {
         Ok(plan) => plan,
         Err(code) => return code,
     };
@@ -194,13 +215,13 @@ fn suggest(header: &Path, config: Option<&Path>, options: ParseOptions) -> ExitC
 }
 
 fn generate(
-    header: &Path,
+    headers: &[PathBuf],
     out_dir: &Path,
     options: &CodegenOptions,
     config: Option<&Path>,
     parse_options: ParseOptions,
 ) -> ExitCode {
-    let plan = match analyze(header, config, &parse_options) {
+    let plan = match analyze(headers, config, &parse_options) {
         Ok(plan) => plan,
         Err(code) => return code,
     };
@@ -252,7 +273,11 @@ fn generate(
         println!(
             "  {} yer açıklama bekliyor: `ferrobridge suggest {}`",
             plan.suggestions.len(),
-            header.display()
+            headers
+                .iter()
+                .map(|h| h.display().to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
         );
     }
     println!("  {}", out_dir.join("bridge.rs").display());

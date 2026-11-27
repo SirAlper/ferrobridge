@@ -33,7 +33,7 @@ fn ferrobridge(args: &[&str]) -> Output {
 }
 
 /// E2E crate'inin derlediği fixture'lar (`crates/ferrobridge-e2e/build.rs` ile aynı liste).
-const E2E_FIXTURES: [&str; 7] = [
+const E2E_FIXTURES: [&str; 11] = [
     "classes",
     "enums",
     "strings",
@@ -41,25 +41,43 @@ const E2E_FIXTURES: [&str; 7] = [
     "vectors",
     "slices",
     "inline_and_constants",
+    "multi_header",
+    "value_types",
+    "operators",
+    "no_exceptions",
 ];
+
+/// Fixture dizinindeki bütün `.h` dosyaları (alt dizinler hariç), ad sırasıyla: bridge'in
+/// header'ları. Çoğu fixture'da yalnızca `input.h`.
+fn bridge_headers(name: &str) -> Vec<PathBuf> {
+    let dir = root().join("tests/fixtures").join(name);
+    let mut headers: Vec<PathBuf> = fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.is_file() && path.extension().is_some_and(|ext| ext == "h"))
+        .collect();
+    headers.sort();
+    headers
+}
 
 /// `ferrobridge-e2e` crate'inin kullandığı ayarlarla üretir. Fixture'ın yanında
 /// `ferrobridge.toml` varsa `--config` ile verilir.
 fn generate_like_e2e(name: &str, out: &Path) -> Output {
-    let header = fixture(name);
-    let config = header.with_file_name("ferrobridge.toml");
-    let mut args = vec![
-        "generate".to_owned(),
-        header.to_str().unwrap().to_owned(),
-        "--out-dir".to_owned(),
-        out.to_str().unwrap().to_owned(),
-        "--include-as".to_owned(),
-        format!("{name}/input.h"),
+    let config = fixture(name).with_file_name("ferrobridge.toml");
+    let headers = bridge_headers(name);
+    let mut args = vec!["generate".to_owned()];
+    args.extend(headers.iter().map(|h| h.to_str().unwrap().to_owned()));
+    args.extend(["--out-dir".to_owned(), out.to_str().unwrap().to_owned()]);
+    for header in &headers {
+        let file = header.file_name().unwrap().to_str().unwrap();
+        args.extend(["--include-as".to_owned(), format!("{name}/{file}")]);
+    }
+    args.extend([
         "--shim-include".to_owned(),
         format!("{name}/shim.h"),
         "--shim-namespace".to_owned(),
         format!("ferrobridge::{name}"),
-    ];
+    ]);
     if config.exists() {
         args.push("--config".to_owned());
         args.push(config.to_str().unwrap().to_owned());

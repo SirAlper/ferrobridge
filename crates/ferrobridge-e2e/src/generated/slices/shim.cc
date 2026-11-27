@@ -24,45 +24,45 @@ namespace ferrobridge::slices {
 
 void Buffer_append(::buf::Buffer& fb_self, ::rust::Slice<const ::std::uint8_t> data) {
   if (static_cast<unsigned long long>(data.size()) > static_cast<unsigned long long>(::std::numeric_limits<unsigned int>::max())) {
-    throw ::std::length_error("buf::Buffer::append: `data` uzunluk parametresinin tipine (unsigned int) sığmayacak kadar uzun");
+    throw ::std::length_error("`data` uzunluk parametresinin tipine (unsigned int) sığmayacak kadar uzun");
   }
   fb_self.append(data.data(), static_cast<unsigned int>(data.size()));
 }
 
 ::std::uint8_t crc8(::rust::Slice<const ::std::uint8_t> p) {
   if (static_cast<unsigned long long>(p.size()) > static_cast<unsigned long long>(::std::numeric_limits<unsigned char>::max())) {
-    throw ::std::length_error("buf::crc8: `p` uzunluk parametresinin tipine (unsigned char) sığmayacak kadar uzun");
+    throw ::std::length_error("`p` uzunluk parametresinin tipine (unsigned char) sığmayacak kadar uzun");
   }
   return ::buf::crc8(p.data(), static_cast<unsigned char>(p.size()));
 }
 
 double sum(::rust::Slice<const double> values) {
   if (static_cast<unsigned long long>(values.size()) > static_cast<unsigned long long>(::std::numeric_limits<unsigned long>::max())) {
-    throw ::std::length_error("buf::sum: `values` uzunluk parametresinin tipine (unsigned long) sığmayacak kadar uzun");
+    throw ::std::length_error("`values` uzunluk parametresinin tipine (unsigned long) sığmayacak kadar uzun");
   }
   return ::buf::sum(static_cast<unsigned long>(values.size()), values.data());
 }
 
 void scale(::rust::Slice<float> data, float factor) {
   if (static_cast<unsigned long long>(data.size()) > static_cast<unsigned long long>(::std::numeric_limits<unsigned int>::max())) {
-    throw ::std::length_error("buf::scale: `data` uzunluk parametresinin tipine (unsigned int) sığmayacak kadar uzun");
+    throw ::std::length_error("`data` uzunluk parametresinin tipine (unsigned int) sığmayacak kadar uzun");
   }
   ::buf::scale(data.data(), static_cast<unsigned int>(data.size()), factor);
 }
 
 ::std::int64_t dot(::rust::Slice<const ::std::int32_t> a, ::rust::Slice<const ::std::int32_t> b) {
   if (static_cast<unsigned long long>(a.size()) > static_cast<unsigned long long>(::std::numeric_limits<int>::max())) {
-    throw ::std::length_error("buf::dot: `a` uzunluk parametresinin tipine (int) sığmayacak kadar uzun");
+    throw ::std::length_error("`a` uzunluk parametresinin tipine (int) sığmayacak kadar uzun");
   }
   if (static_cast<unsigned long long>(b.size()) > static_cast<unsigned long long>(::std::numeric_limits<int>::max())) {
-    throw ::std::length_error("buf::dot: `b` uzunluk parametresinin tipine (int) sığmayacak kadar uzun");
+    throw ::std::length_error("`b` uzunluk parametresinin tipine (int) sığmayacak kadar uzun");
   }
   return ::buf::dot(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()));
 }
 
 ::std::uint16_t count_nonzero(::rust::Slice<const ::std::uint8_t> bytes) {
   if (static_cast<unsigned long long>(bytes.size()) > static_cast<unsigned long long>(::std::numeric_limits<unsigned short>::max())) {
-    throw ::std::length_error("buf::count_nonzero: `bytes` uzunluk parametresinin tipine (unsigned short) sığmayacak kadar uzun");
+    throw ::std::length_error("`bytes` uzunluk parametresinin tipine (unsigned short) sığmayacak kadar uzun");
   }
   return ::buf::count_nonzero(bytes.data(), static_cast<unsigned short>(bytes.size()));
 }

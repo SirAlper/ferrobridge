@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 
 use ferrobridge_analysis::{
     BridgePlan, BridgeType, Callee, ClassPlan, ConstantPlan, ConstantValue, EnumPlan, FunctionPlan,
-    Returns, TypeRef,
+    OperatorKind, Returns, TypeRef,
 };
 use proc_macro2::{Literal, TokenStream};
 use quote::quote;
@@ -30,6 +30,7 @@ const WRAPPER_HELPERS: [&str; 3] = ["from_unique_ptr", "into_inner", "pin_mut"];
 pub(crate) fn generate(
     plan: &BridgePlan,
     shims: &[ShimFn<'_>],
+    shim_namespace: &str,
 ) -> Result<TokenStream, CodegenError> {
     let wrapped = wrapped_classes(plan);
     let ctx = Ctx {
@@ -44,7 +45,13 @@ pub(crate) fn generate(
         items.push(safe_enum(enumeration)?);
     }
     for class in &plan.classes {
+        if class.value.is_some() {
+            items.push(value_struct(class, shim_namespace)?);
+        }
         items.push(class_items(&ctx, class)?);
+        if class.value.is_some() {
+            items.push(operator_impls(&ctx, class)?);
+        }
     }
     for function in &plan.functions {
         let item = cpp_item(&function.callee);
@@ -275,6 +282,210 @@ fn safe_enum(enumeration: &EnumPlan) -> Result<TokenStream, CodegenError> {
     })
 }
 
+// ---- Değer tipleri ----------------------------------------------------------------------------
+
+/// Değer tipi sınıf: `#[repr(C)]` struct, cxx için `ExternType` (`Trivial`) ve Rust tarafında
+/// düzen kontrolleri (C++ tarafındakiler `shim.cc`'de). `unsafe impl`'in `// SAFETY:` yorumu
+/// biçimlendirmeden sonra eklenir (`bridge::with_safety_comments`).
+fn value_struct(class: &ClassPlan, shim_namespace: &str) -> Result<TokenStream, CodegenError> {
+    let Some(layout) = &class.value else {
+        return Ok(quote!());
+    };
+    let name = ident(&class.type_ref.rust_name)?;
+    let cpp = class.type_ref.cpp_path.trim_start_matches("::").to_owned();
+    // cxx'in gördüğü C++ adı: örneklemeler shim namespace'indeki takma adla.
+    let type_id = if class.instance_spelling.is_some() {
+        format!("{shim_namespace}::{}", class.type_ref.rust_name)
+    } else {
+        let mut path = class.namespace.clone();
+        path.push(class.cpp_name.clone());
+        path.join("::")
+    };
+    let doc = doc_line(&format!(
+        " C++: `{cpp}`. Değer tipi: alanlar doğrudan okunup yazılır, değerle kopyalanır."
+    ));
+    let mut fields = Vec::with_capacity(layout.fields.len());
+    let mut offsets = Vec::with_capacity(layout.fields.len());
+    for field in &layout.fields {
+        let field_name = ident(&field.rust_name)?;
+        let ty = raw_type(&field.ty)?;
+        let field_doc = doc_line(&format!(" C++: `{}`", field.cpp_name));
+        fields.push(quote!(#field_doc pub #field_name: #ty));
+        let offset = Literal::u64_unsuffixed(field.offset_bytes);
+        offsets.push(quote!(assert!(::core::mem::offset_of!(#name, #field_name) == #offset);));
+    }
+    let size = Literal::u64_unsuffixed(layout.size_bytes);
+    let align = Literal::u64_unsuffixed(layout.align_bytes);
+    let allows = item_allows();
+    Ok(quote! {
+        #doc
+        #allows
+        #[repr(C)]
+        #[derive(Debug, Clone, Copy)]
+        pub struct #name {
+            #(#fields),*
+        }
+
+        #[rustfmt::skip]
+        unsafe impl ::cxx::ExternType for #name {
+            type Id = ::cxx::type_id!(#type_id);
+            type Kind = ::cxx::kind::Trivial;
+        }
+
+        #[rustfmt::skip]
+        const _: () = {
+            assert!(::core::mem::size_of::<#name>() == #size);
+            assert!(::core::mem::align_of::<#name>() == #align);
+            #(#offsets)*
+        };
+    })
+}
+
+/// Değer tipinin operatör metotları için `std::ops` impl'leri. Yalnızca hata dönmeyen
+/// (`Result`'suz) operatörler: trait metotları `Result` döndüremez. Adlı metotlar (`op_add`)
+/// her durumda vardır; impl onları çağırır. Karşılaştırmalar (`<`...) adlı metot kalır:
+/// `PartialOrd`'un anlamı C++'takiyle örtüşmeyebilir.
+fn operator_impls(ctx: &Ctx<'_, '_>, class: &ClassPlan) -> Result<TokenStream, CodegenError> {
+    let this = ident(&class.type_ref.rust_name)?;
+    let mut seen = BTreeSet::new();
+    let mut impls = Vec::new();
+    for method in &class.methods {
+        let Some(kind) = method.operator else {
+            continue;
+        };
+        if method.fallible {
+            continue;
+        }
+        let Callee::Method {
+            receiver_mutable, ..
+        } = &method.callee
+        else {
+            continue;
+        };
+        let item = cpp_item(&method.callee);
+        let output = safe_return(ctx, &method.returns, &item)?;
+        if output.fallible {
+            continue;
+        }
+        let call = ident(&method.rust_name)?;
+        // Sağ taraf: (Rust tipi, adlı metoda geçen ifade).
+        let rhs = match method.params.as_slice() {
+            [] => None,
+            [param] => match &param.ty {
+                BridgeType::Value(r) => {
+                    let ty = ident(&r.rust_name)?;
+                    Some((quote!(#ty), quote!(rhs)))
+                }
+                BridgeType::Ref {
+                    mutable: false,
+                    inner,
+                } => match inner.as_ref() {
+                    BridgeType::Value(r) => {
+                        let ty = ident(&r.rust_name)?;
+                        Some((quote!(#ty), quote!(&rhs)))
+                    }
+                    _ => continue,
+                },
+                ty
+                @ (BridgeType::Int(_) | BridgeType::F32 | BridgeType::F64 | BridgeType::Bool) => {
+                    Some((raw_type(ty)?, quote!(rhs)))
+                }
+                _ => continue,
+            },
+            _ => continue,
+        };
+        let binary = |trait_name: &str, fn_name: &str| -> Option<(String, String)> {
+            Some((trait_name.to_owned(), fn_name.to_owned()))
+        };
+        let (trait_name, fn_name) = match kind {
+            OperatorKind::Add => binary("Add", "add"),
+            OperatorKind::Sub => binary("Sub", "sub"),
+            OperatorKind::Mul => binary("Mul", "mul"),
+            OperatorKind::Div => binary("Div", "div"),
+            OperatorKind::Rem => binary("Rem", "rem"),
+            OperatorKind::BitXor => binary("BitXor", "bitxor"),
+            OperatorKind::BitAnd => binary("BitAnd", "bitand"),
+            OperatorKind::BitOr => binary("BitOr", "bitor"),
+            OperatorKind::Neg => binary("Neg", "neg"),
+            OperatorKind::Not => binary("Not", "not"),
+            OperatorKind::AddAssign => binary("AddAssign", "add_assign"),
+            OperatorKind::SubAssign => binary("SubAssign", "sub_assign"),
+            OperatorKind::MulAssign => binary("MulAssign", "mul_assign"),
+            OperatorKind::DivAssign => binary("DivAssign", "div_assign"),
+            OperatorKind::RemAssign => binary("RemAssign", "rem_assign"),
+            OperatorKind::Eq => binary("PartialEq", "eq"),
+            _ => None,
+        }
+        .unwrap_or_default();
+        if trait_name.is_empty() {
+            continue;
+        }
+        let rhs_key = rhs
+            .as_ref()
+            .map(|(ty, _)| ty.to_string())
+            .unwrap_or_default();
+        if !seen.insert((trait_name.clone(), rhs_key)) {
+            continue;
+        }
+        let trait_ident = ident(&trait_name)?;
+        let fn_ident = ident(&fn_name)?;
+        let assign = trait_name.ends_with("Assign");
+        let tokens = match (kind, &rhs, &output.ty) {
+            // `a == b`: sağ taraf `Self` olmalı.
+            (OperatorKind::Eq, Some((ty, arg)), Some(out)) if this == ty.to_string() => {
+                let arg = if arg.to_string() == "rhs" {
+                    quote!(*other)
+                } else {
+                    quote!(other)
+                };
+                if out.to_string() != "bool" || *receiver_mutable {
+                    continue;
+                }
+                quote! {
+                    #[rustfmt::skip]
+                    impl ::core::cmp::PartialEq for #this {
+                        fn eq(&self, other: &Self) -> bool {
+                            self.#call(#arg)
+                        }
+                    }
+                }
+            }
+            (OperatorKind::Eq, _, _) => continue,
+            (_, Some((ty, arg)), _) if assign && *receiver_mutable => quote! {
+                #[rustfmt::skip]
+                impl ::core::ops::#trait_ident<#ty> for #this {
+                    fn #fn_ident(&mut self, rhs: #ty) {
+                        let _ = self.#call(#arg);
+                    }
+                }
+            },
+            (_, Some((ty, arg)), Some(out)) if !assign && !*receiver_mutable => quote! {
+                #[rustfmt::skip]
+                impl ::core::ops::#trait_ident<#ty> for #this {
+                    type Output = #out;
+                    fn #fn_ident(self, rhs: #ty) -> #out {
+                        self.#call(#arg)
+                    }
+                }
+            },
+            (OperatorKind::Neg | OperatorKind::Not, None, Some(out)) if !*receiver_mutable => {
+                quote! {
+                    #[rustfmt::skip]
+                    impl ::core::ops::#trait_ident for #this {
+                        type Output = #out;
+                        fn #fn_ident(self) -> #out {
+                            self.#call()
+                        }
+                    }
+                }
+            }
+            _ => continue,
+        };
+        impls.push(tokens);
+    }
+    Ok(quote!(#(#impls)*))
+}
+
 // ---- Sınıflar ---------------------------------------------------------------------------------
 
 fn class_items(ctx: &Ctx<'_, '_>, class: &ClassPlan) -> Result<TokenStream, CodegenError> {
@@ -292,7 +503,9 @@ fn class_items(ctx: &Ctx<'_, '_>, class: &ClassPlan) -> Result<TokenStream, Code
                 receiver_mutable, ..
             } => {
                 let name = ident(&method.rust_name)?;
-                let receiver = if *receiver_mutable {
+                let receiver = if *receiver_mutable && class.value.is_some() {
+                    quote!(&mut self)
+                } else if *receiver_mutable {
                     quote!(self: ::core::pin::Pin<&mut Self>)
                 } else {
                     quote!(&self)
@@ -517,6 +730,12 @@ impl Body {
 
         let call = raw_call(ctx, plan, receiver.is_some(), &args)?;
         let conversion = match &plan.callee {
+            // Değer tipinin constructor'ı değer döndürür.
+            Callee::Constructor { .. }
+                if matches!(plan.returns, Returns::Value(BridgeType::Value(_))) =>
+            {
+                safe_return(ctx, &plan.returns, item)?
+            }
             // Constructor shim'i `make_unique` döndürür: null olamaz, sarmalayıcı doğrudan döner.
             Callee::Constructor { class } => {
                 safe_return(ctx, &Returns::BoxedClass(class.clone()), item)?
@@ -815,6 +1034,11 @@ fn raw_type(ty: &BridgeType) -> Result<TokenStream, CodegenError> {
         BridgeType::Class(r) | BridgeType::Enum(r) => {
             let name = ident(&r.rust_name)?;
             quote!(ffi::#name)
+        }
+        // Değer tipi güvenli katmanın kendi struct'ı.
+        BridgeType::Value(r) => {
+            let name = ident(&r.rust_name)?;
+            quote!(#name)
         }
         BridgeType::String => quote!(::cxx::CxxString),
         BridgeType::UniquePtr(inner) => {

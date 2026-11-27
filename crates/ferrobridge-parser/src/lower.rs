@@ -1,7 +1,8 @@
 //! libclang AST'sini IR'a çevirme.
 //!
-//! Yalnızca hedef header'daki bildirimler alınır; onun `#include` ettiği dosyalar ve prelude
-//! alınmaz.
+//! Yalnızca hedef header'lardaki (bridge'in header'ları) bildirimler alınır; onların
+//! `#include` ettiği diğer dosyalar ve prelude alınmaz. Başka bir dosyada bildirilmiş tiplerin
+//! dosya adı IR'a yazılır (`declared_in`), analiz kullanıcıya hangi header'ı ekleyeceğini söyler.
 //! Desteklenmeyen hiçbir yapı sessizce atlanmaz: `Item::Unsupported`,
 //! `Class::unsupported_members` ya da `Type::Unsupported` olarak nedeniyle kaydedilir.
 //!
@@ -16,8 +17,9 @@ use std::path::Path;
 
 use clang_sys as cx;
 use ferrobridge_ir::{
-    Class, Constant, ConstantValue, Constructor, Destructor, Enum, EnumVariant, Function, Item,
-    Method, Module, Param, QualType, SourceLocation, Type, Unsupported,
+    Class, Constant, ConstantValue, Constructor, Destructor, Enum, EnumVariant, Field, Function,
+    Item, Layout, Method, Module, Param, QualType, SourceLocation, TemplateInstance, Type,
+    Unsupported,
 };
 
 use crate::clang::{self, Cursor, Evaluated, File, TranslationUnit};
@@ -29,6 +31,16 @@ const REASON_UNION: &str = "Union'lar henüz desteklenmiyor.";
 const REASON_ANONYMOUS: &str = "İsimsiz sınıf ve enum'lar Rust'tan adlandırılamaz.";
 const REASON_NESTED: &str = "İç içe tipler (sınıf içinde tanımlı sınıf/enum) v0.2 hedefi.";
 const REASON_TEMPLATE: &str = "Template'ler MVP kapsamı dışında (v0.2 hedefi).";
+const REASON_CLASS_TEMPLATE: &str = "Sınıf template'i: somut bir tiple örneklenmeden bağlanamaz; \
+     `ferrobridge.toml`'da `[templates]` ile örnekleyin (ör. `Vector3f = \"Vector3<float>\"`).";
+const REASON_DEPENDENT: &str = "Template parametresine bağlı bu tip henüz desteklenmiyor.";
+const REASON_MEMBER_TEMPLATE_PARAM: &str =
+    "Üye template'inin parametresi; yalnızca sınıfın kendi parametreleri yerine konabiliyor.";
+const REASON_BIT_FIELD: &str = "Bit alanları Rust'ta karşılığı olan bir düzene sahip değil.";
+const REASON_NOT_A_CLASS_TEMPLATE: &str =
+    "`[templates]` girdisi bir sınıf template'i örneklemesi değil.";
+const REASON_NON_TYPE_PARAMS: &str =
+    "Yalnızca tip parametreli sınıf template'leri örneklenebiliyor (`template <typename T>`).";
 const REASON_VARIABLE: &str = "Global ve statik değişkenler henüz desteklenmiyor.";
 const REASON_CONSTANT_TYPE: &str = "Yalnızca sayı ve `bool` tipli sabitler bağlanıyor.";
 const REASON_CONSTANT_CALL: &str = "Sabitin başlatıcısı (ya da dayandığı bir sabitinki) fonksiyon \
@@ -41,8 +53,12 @@ const REASON_CONSTANT_NON_FINITE: &str = "Sabitin değeri sonlu değil (NaN ya d
 const REASON_CONSTANT_RANGE: &str = "Sabitin değeri tipine sığmıyor.";
 const REASON_CONSTANT_PLATFORM: &str = "Sabitin başlatıcısı `sizeof`, `alignof` ya da `offsetof` \
      içeriyor; değeri platforma bağlı, başka bir platformda yanlış olurdu.";
-const REASON_FIELD: &str = "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.";
-const REASON_OPERATOR: &str = "Operatörler v0.2 hedefi.";
+const REASON_OPERATOR: &str = "Bu operatör bağlanmıyor (atama, `new`/`delete`, `->`, `++`/`--`, \
+     `()`, `,` ve tekli `&`/`*`); aritmetik ve karşılaştırma operatörleri bağlanır.";
+const REASON_INDEX_OPERATOR: &str = "`operator[]` bağlanmıyor: C++'ta indeks genelde sınır \
+     denetimi yapılmadan kullanılır; güvenli Rust'tan sınır dışı bir indeks tanımsız davranış \
+     olurdu. Değer tiplerinde alanları (`v.x`) kullanın.";
+const REASON_FREE_OPERATOR: &str = "Serbest (sınıf dışı) operatör fonksiyonları henüz bağlanmıyor.";
 const REASON_CONVERSION: &str = "Dönüşüm operatörleri v0.2 hedefi.";
 const REASON_INHERITANCE: &str =
     "Kalıtım v0.2 hedefi: base sınıfın metotları bu sınıf üzerinden bağlanmıyor.";
@@ -69,33 +85,190 @@ const MAX_INITIALIZER_DEPTH: usize = 64;
 /// sayılır (ihtiyatla reddedilir).
 const MAX_INITIALIZER_NODES: usize = 100_000;
 
-/// Translation unit'te `target` dosyasındaki bildirimleri IR modülüne çevirir.
-pub(crate) fn lower<'tu>(tu: &'tu TranslationUnit<'_>, target: File<'tu>) -> Module {
+/// Bir `[templates]` girdisinin sentetik birimdeki karşılığı.
+pub(crate) struct InstanceAlias {
+    /// Rust adı (ör. `Vector3f`).
+    pub(crate) rust_name: String,
+    /// Sentetik birimdeki `using` takma adı (ör. `__ferrobridge_inst_0`).
+    pub(crate) alias: String,
+}
+
+/// Translation unit'te `targets` dosyalarındaki bildirimleri ve istenen template
+/// örneklemelerini IR modülüne çevirir.
+pub(crate) fn lower<'tu>(
+    tu: &'tu TranslationUnit<'_>,
+    targets: Vec<File<'tu>>,
+    aliases: &[InstanceAlias],
+) -> Module {
     let mut lowering = Lowering {
-        target,
+        types: Types {
+            targets,
+            instances: Vec::new(),
+            env: None,
+        },
         namespace: Vec::new(),
         items: Vec::new(),
         initializers: InitializerCheck::default(),
     };
+    lowering.resolve_instances(tu.cursor(), aliases);
     lowering.visit_children(tu.cursor());
+    lowering.lower_instances();
     Module {
         items: lowering.items,
         ..Module::new()
     }
 }
 
+/// Çözülmüş bir template örneklemesi.
+#[derive(Clone)]
+struct Instance<'tu> {
+    rust_name: String,
+    namespace: Vec<String>,
+    /// Template'in adı (ör. `Vector3`).
+    template_name: String,
+    /// Template'in kalıbı (`ClassTemplate`).
+    template: Cursor<'tu>,
+    /// Somut argümanlar, sırasıyla.
+    args: Vec<clang::Type<'tu>>,
+    /// Örneklemenin kanonik tipi (`Vector3<float>`).
+    ty: clang::Type<'tu>,
+    /// Örneklemenin bildirimi (özelleştirme).
+    declaration: Cursor<'tu>,
+}
+
+/// Bir template kalıbını indirgerken parametrelerin yerine konacak tipler.
+#[derive(Clone)]
+struct Env {
+    /// İndirgenen örnekleme (`Instance` listesindeki yeri).
+    instance: usize,
+}
+
+/// Tip çevirisinin bağlamı.
+#[derive(Clone)]
+pub(crate) struct Types<'tu> {
+    /// Bildirimleri alınacak header'lar (bridge'in header'ları).
+    targets: Vec<File<'tu>>,
+    /// İstenen template örneklemeleri (`[templates]`).
+    instances: Vec<Instance<'tu>>,
+    /// Bir template kalıbı indirgeniyorsa parametrelerin yerine konacak örnekleme.
+    env: Option<Env>,
+}
+
+impl<'tu> Types<'tu> {
+    /// Bu template'in bu argümanlarla istenmiş örneklemesi.
+    fn instance_of(
+        &self,
+        template: Cursor<'_>,
+        args: &[clang::Type<'_>],
+    ) -> Option<&Instance<'tu>> {
+        self.instances.iter().find(|inst| {
+            inst.template.same_as(&template)
+                && inst.args.len() == args.len()
+                && inst
+                    .args
+                    .iter()
+                    .zip(args)
+                    .all(|(a, b)| a.same_as(&b.canonical()))
+        })
+    }
+
+    /// Bu somut tip istenmiş bir örnekleme mi?
+    fn instance_for_type(&self, canonical: clang::Type<'_>) -> Option<&Instance<'tu>> {
+        // Tip yerine bildirim karşılaştırılır: `const Vector3<float>` ile `Vector3<float>`
+        // aynı özelleştirmedir.
+        let declaration = canonical.declaration();
+        self.instances
+            .iter()
+            .find(|inst| inst.declaration.same_as(&declaration))
+    }
+
+    /// Bu template için en az bir örnekleme istendi mi?
+    fn is_instantiated(&self, template: Cursor<'_>) -> bool {
+        self.instances
+            .iter()
+            .any(|inst| inst.template.same_as(&template))
+    }
+    /// Bildirim bridge'in header'larından birinde mi?
+    fn contains(&self, cursor: Cursor<'_>) -> bool {
+        self.targets.iter().any(|file| cursor.is_in_file(*file))
+    }
+
+    /// Bridge'in dışında bildirilmiş bir tipin dosya adı; içindeyse `None`.
+    fn declared_outside(&self, declaration: Cursor<'_>) -> Option<String> {
+        if self.contains(declaration) {
+            return None;
+        }
+        let file = declaration.location().file;
+        let name = Path::new(&file)
+            .file_name()
+            .map_or(file.clone(), |n| n.to_string_lossy().into_owned());
+        (!name.is_empty()).then_some(name)
+    }
+}
+
 struct Lowering<'tu> {
-    /// Bildirimleri alınacak header.
-    target: File<'tu>,
+    types: Types<'tu>,
     namespace: Vec<String>,
     items: Vec<Item>,
     initializers: InitializerCheck<'tu>,
 }
 
 impl<'tu> Lowering<'tu> {
+    /// `[templates]` takma adlarını sentetik birimde bulur ve örneklemeleri çözer. Çözülemeyenler
+    /// nedenleriyle `unsupported` olur.
+    fn resolve_instances(&mut self, root: Cursor<'tu>, aliases: &[InstanceAlias]) {
+        if aliases.is_empty() {
+            return;
+        }
+        let declarations = root.children();
+        for alias in aliases {
+            let Some(decl) = declarations
+                .iter()
+                .find(|c| c.kind() == cx::CXCursor_TypeAliasDecl && c.spelling() == alias.alias)
+            else {
+                continue;
+            };
+            match resolve_instance(*decl, &alias.rust_name) {
+                Ok(instance) => self.types.instances.push(instance),
+                Err(reason) => self.items.push(Item::Unsupported(unsupported(
+                    *decl,
+                    "template_instance",
+                    alias.rust_name.clone(),
+                    reason,
+                ))),
+            }
+        }
+    }
+
+    /// Çözülen örneklemeleri sınıf olarak indirger (kalıptan, parametreler yerine konarak).
+    fn lower_instances(&mut self) {
+        for index in 0..self.types.instances.len() {
+            let instance = self.types.instances[index].clone();
+            let mut types = self.types.clone();
+            types.env = Some(Env { instance: index });
+            let spelling = instance.ty.spelling();
+            let class = build_class(
+                &types,
+                ClassSource {
+                    members: instance.template,
+                    record: instance.declaration,
+                    layout: instance.ty,
+                },
+                instance.rust_name.clone(),
+                instance.namespace.clone(),
+                &spelling,
+                Some(TemplateInstance {
+                    template: instance.template_name.clone(),
+                    spelling: spelling.clone(),
+                }),
+            );
+            self.items.push(Item::Class(class));
+        }
+    }
+
     fn visit_children(&mut self, parent: Cursor<'tu>) {
         for child in parent.children() {
-            if child.is_in_file(self.target) {
+            if self.types.contains(child) {
                 self.visit(child);
             }
         }
@@ -125,7 +298,14 @@ impl<'tu> Lowering<'tu> {
             cx::CXCursor_FunctionTemplate => {
                 self.unsupported(cursor, "function_template", REASON_TEMPLATE);
             }
-            cx::CXCursor_ClassTemplate | cx::CXCursor_ClassTemplatePartialSpecialization => {
+            // İstenen örneklemeleri `lower_instances` indirger; template'in kendisi bağlanmaz.
+            // İleri bildirim (`template <typename T> class Vec2;`): bağlanacak bir şey yok.
+            cx::CXCursor_ClassTemplate if !cursor.is_definition() => {}
+            cx::CXCursor_ClassTemplate if self.types.is_instantiated(cursor) => {}
+            cx::CXCursor_ClassTemplate => {
+                self.unsupported(cursor, "class_template", REASON_CLASS_TEMPLATE);
+            }
+            cx::CXCursor_ClassTemplatePartialSpecialization => {
                 self.unsupported(cursor, "class_template", REASON_TEMPLATE);
             }
             cx::CXCursor_TypeAliasTemplateDecl => {
@@ -154,6 +334,9 @@ impl<'tu> Lowering<'tu> {
         if cursor.is_deleted() {
             return;
         }
+        if cursor.spelling().starts_with("operator") {
+            return self.unsupported(cursor, "operator", REASON_FREE_OPERATOR);
+        }
         // İç bağlantılı (`static`) bir fonksiyon, tanımı header'daysa bağlanabilir: shim ve cxx'in
         // ürettiği C++ dosyası header'ı include ettiği için o çeviri biriminde tanımlıdır.
         // Anonim namespace'teki fonksiyonların bağlantısı C++11'den beri `Internal`; ayrıca
@@ -173,8 +356,8 @@ impl<'tu> Lowering<'tu> {
         self.items.push(Item::Function(Function {
             name: cursor.spelling(),
             namespace: self.namespace.clone(),
-            params: params(cursor),
-            return_type: lower_type(cursor.result_type()),
+            params: params(&self.types, cursor),
+            return_type: lower_type(&self.types, cursor.result_type()),
             noexcept: is_noexcept(cursor.exception_spec()),
             location: location(cursor),
         }));
@@ -183,7 +366,7 @@ impl<'tu> Lowering<'tu> {
     /// `const`/`constexpr` sayı ya da `bool` tipli değişkenler, değerleri derleme anında kesin
     /// olarak biliniyorsa sabit olur; diğer değişkenler desteklenmiyor.
     fn variable(&mut self, cursor: Cursor<'tu>) {
-        let lowered = lower_type(cursor.ty());
+        let lowered = lower_type(&self.types, cursor.ty());
         if !lowered.is_const {
             return self.unsupported(cursor, "variable", REASON_VARIABLE);
         }
@@ -224,21 +407,18 @@ impl<'tu> Lowering<'tu> {
         }
         let name = cursor.spelling();
         let qualified = self.qualified(&name);
-        let lifetime = record_lifetime(cursor, 0);
-        let mut class = Class {
+        let class = build_class(
+            &self.types,
+            ClassSource {
+                members: cursor,
+                record: cursor,
+                layout: cursor.ty(),
+            },
             name,
-            namespace: self.namespace.clone(),
-            is_abstract: cursor.is_abstract_record(),
-            is_polymorphic: lifetime.polymorphic,
-            destructor: lifetime.destructor(),
-            constructors: Vec::new(),
-            methods: Vec::new(),
-            unsupported_members: Vec::new(),
-            location: location(cursor),
-        };
-        for member in cursor.children() {
-            class_member(&mut class, &qualified, member);
-        }
+            self.namespace.clone(),
+            &qualified,
+            None,
+        );
         self.items.push(Item::Class(class));
     }
 
@@ -246,7 +426,7 @@ impl<'tu> Lowering<'tu> {
         if cursor.is_anonymous() {
             return self.unsupported(cursor, "enum", REASON_ANONYMOUS);
         }
-        let underlying = lower_type(cursor.enum_integer_type()).ty;
+        let underlying = lower_type(&self.types, cursor.enum_integer_type()).ty;
         let unsigned = matches!(underlying, Type::Integer { signed: false, .. });
         let mut variants = Vec::new();
         for constant in cursor.children() {
@@ -389,6 +569,215 @@ fn constant_value(ty: &Type, evaluated: Evaluated) -> Result<ConstantValue, &'st
     }
 }
 
+/// Bir sınıfın bilgilerinin nereden okunacağı.
+struct ClassSource<'tu> {
+    /// Üyeleri gezilecek cursor: sınıfın kendisi ya da template kalıbı.
+    members: Cursor<'tu>,
+    /// Sınıfın (ya da örneklemenin) bildirimi: soyutluk buradan.
+    record: Cursor<'tu>,
+    /// Düzeni (boyut, alan ofsetleri) okunacak somut tip.
+    layout: clang::Type<'tu>,
+}
+
+/// Bir sınıfı ya da template örneklemesini IR'a çevirir.
+fn build_class<'tu>(
+    types: &Types<'tu>,
+    source: ClassSource<'tu>,
+    name: String,
+    namespace: Vec<String>,
+    qualified: &str,
+    instance_of: Option<TemplateInstance>,
+) -> Class {
+    let lifetime = record_lifetime(source.members, 0);
+    let layout = match (source.layout.size_of(), source.layout.align_of()) {
+        (Some(size_bytes), Some(align_bytes)) => Some(Layout {
+            size_bytes,
+            align_bytes,
+        }),
+        _ => None,
+    };
+    let mut class = Class {
+        name,
+        namespace,
+        is_abstract: source.record.is_abstract_record(),
+        is_polymorphic: lifetime.polymorphic,
+        destructor: lifetime.destructor(),
+        constructors: Vec::new(),
+        methods: Vec::new(),
+        unsupported_members: Vec::new(),
+        fields: Vec::new(),
+        layout,
+        user_copy_or_move: false,
+        instance_of,
+        location: location(source.members),
+    };
+    for member in source.members.children() {
+        class_member(types, &mut class, qualified, member, source.layout);
+    }
+    class
+}
+
+/// `using __ferrobridge_inst_N = Tmpl<args>;` takma adından örneklemeyi çözer.
+fn resolve_instance<'tu>(
+    alias: Cursor<'tu>,
+    rust_name: &str,
+) -> Result<Instance<'tu>, &'static str> {
+    let ty = alias.typedef_underlying().canonical();
+    let declaration = ty.declaration();
+    let template = definition_of(declaration.specialized_template());
+    if template.is_null() || template.kind() != cx::CXCursor_ClassTemplate {
+        return Err(REASON_NOT_A_CLASS_TEMPLATE);
+    }
+    let params: Vec<cx::CXCursorKind> = template
+        .children()
+        .iter()
+        .map(Cursor::kind)
+        .filter(|kind| {
+            matches!(
+                *kind,
+                cx::CXCursor_TemplateTypeParameter
+                    | cx::CXCursor_NonTypeTemplateParameter
+                    | cx::CXCursor_TemplateTemplateParameter
+            )
+        })
+        .collect();
+    let args = ty.template_args();
+    let only_types = params
+        .iter()
+        .all(|kind| *kind == cx::CXCursor_TemplateTypeParameter);
+    if !only_types
+        || args.len() != params.len()
+        || args.iter().any(|a| a.kind() == cx::CXType_Invalid)
+    {
+        return Err(REASON_NON_TYPE_PARAMS);
+    }
+    let Some((namespace, template_name)) = scope_path(template) else {
+        return Err(REASON_NESTED);
+    };
+    Ok(Instance {
+        rust_name: rust_name.to_owned(),
+        namespace,
+        template_name,
+        template,
+        args: args.iter().map(clang::Type::canonical).collect(),
+        ty,
+        declaration,
+    })
+}
+
+/// Template kalıbında, parametreye bağlı bir tipi örneklemenin somut tipine çevirir. Bağımlı
+/// değilse `None` (normal yoldan çevrilir).
+fn substitute(types: &Types<'_>, env: &Env, ty: clang::Type<'_>) -> Option<QualType> {
+    let canonical = ty.canonical();
+    if canonical.kind() != cx::CXType_Unexposed {
+        return None;
+    }
+    let instance = &types.instances[env.instance];
+    let is_const = ty.is_const();
+    let lowered = match template_param(&canonical) {
+        Some((0, index)) => match instance.args.get(index) {
+            Some(arg) => {
+                let mut plain = types.clone();
+                plain.env = None;
+                lower_type(&plain, *arg).ty
+            }
+            None => unsupported_type(ty, REASON_DEPENDENT),
+        },
+        Some(_) => unsupported_type(ty, REASON_MEMBER_TEMPLATE_PARAM),
+        None => dependent_record(types, instance, ty),
+    };
+    Some(QualType {
+        is_const,
+        ty: lowered,
+    })
+}
+
+/// Bildirimin tanımı; ileri bildirimlerin (`template <typename T> class Vec2;`) gövdesi yok.
+fn definition_of(cursor: Cursor<'_>) -> Cursor<'_> {
+    let definition = cursor.definition();
+    if definition.is_null() {
+        cursor
+    } else {
+        definition
+    }
+}
+
+/// `type-parameter-<derinlik>-<sıra>`: libclang'ın template parametrelerinin kanonik yazımı
+/// (parametrenin bildirimine tipten ulaşılamıyor).
+fn template_param(canonical: &clang::Type<'_>) -> Option<(u32, usize)> {
+    let spelling = unqualified_spelling(*canonical);
+    let rest = spelling.strip_prefix("type-parameter-")?;
+    let (depth, index) = rest.split_once('-')?;
+    Some((depth.parse().ok()?, index.parse().ok()?))
+}
+
+/// Kalıptaki `Vector3<T>`, `const Vector2<T>&` gibi bağımlı bir template başvurusu: argümanlar
+/// yerine konup istenmiş bir örneklemeyle eşleşiyorsa o sınıf; yoksa nedeniyle desteklenmiyor.
+fn dependent_record(types: &Types<'_>, current: &Instance<'_>, ty: clang::Type<'_>) -> Type {
+    let declaration = {
+        let named = ty.declaration();
+        if named.is_null() {
+            ty.canonical().declaration()
+        } else {
+            named
+        }
+    };
+    let args = ty.template_args();
+    // Sınıfın içinde yalnızca adıyla (`Vector3`) yazılan kendisi: libclang bildirimi
+    // template'in kalıp sınıfı olarak veriyor; template'le aynı ad ve aynı konum.
+    let is_current = declaration.same_as(&current.template)
+        || declaration.same_as(&current.declaration)
+        || (matches!(
+            declaration.kind(),
+            cx::CXCursor_ClassDecl | cx::CXCursor_StructDecl
+        ) && declaration.spelling() == current.template.spelling()
+            && declaration.location() == current.template.location());
+    if args.is_empty() && is_current {
+        return Type::Record {
+            name: current.rust_name.clone(),
+            namespace: current.namespace.clone(),
+            declared_in: None,
+        };
+    }
+    let declaration = definition_of(declaration);
+    if declaration.kind() != cx::CXCursor_ClassTemplate || args.is_empty() {
+        return unsupported_type(ty, REASON_DEPENDENT);
+    }
+    let mut concrete = Vec::with_capacity(args.len());
+    for arg in args {
+        let canonical = arg.canonical();
+        match template_param(&canonical) {
+            Some((0, index)) => match current.args.get(index) {
+                Some(found) => concrete.push(*found),
+                None => return unsupported_type(ty, REASON_DEPENDENT),
+            },
+            Some(_) => return unsupported_type(ty, REASON_MEMBER_TEMPLATE_PARAM),
+            None if canonical.kind() == cx::CXType_Unexposed => {
+                return unsupported_type(ty, REASON_DEPENDENT);
+            }
+            None => concrete.push(canonical),
+        }
+    }
+    match types.instance_of(declaration, &concrete) {
+        Some(instance) => Type::Record {
+            name: instance.rust_name.clone(),
+            namespace: instance.namespace.clone(),
+            declared_in: None,
+        },
+        None => {
+            let spelled: Vec<String> = concrete.iter().map(|t| t.spelling()).collect();
+            Type::Unsupported {
+                spelling: unqualified_spelling(ty),
+                reason: format!(
+                    "`{}<{}>` örneklenmemiş; `ferrobridge.toml`'da `[templates]`'e ekleyin.",
+                    declaration.spelling(),
+                    spelled.join(", ")
+                ),
+            }
+        }
+    }
+}
+
 /// Bir sınıfın silinmesiyle ilgili bilgiler (taban sınıflardan gelenler dahil).
 struct RecordLifetime {
     /// Kendisi ya da bir tabanı sanal fonksiyon bildiriyor.
@@ -487,8 +876,54 @@ fn record_lifetime(record: Cursor<'_>, depth: usize) -> RecordLifetime {
 }
 
 /// Bir sınıf üyesini sınıfa ekler. Yalnızca public üyeler dikkate alınır.
-fn class_member(class: &mut Class, class_name: &str, member: Cursor<'_>) {
+fn class_member(
+    types: &Types<'_>,
+    class: &mut Class,
+    class_name: &str,
+    member: Cursor<'_>,
+    layout: clang::Type<'_>,
+) {
     let kind = member.kind();
+    // Değer tipi kararı (bit bit kopyalanabilir mi?) için, erişimi ne olursa olsun.
+    let user_defined = |m: &Cursor<'_>| !m.is_defaulted();
+    match kind {
+        cx::CXCursor_FieldDecl => {
+            let name = member.spelling();
+            let ty = if member.is_bit_field() {
+                QualType {
+                    is_const: false,
+                    ty: unsupported_type(member.ty(), REASON_BIT_FIELD),
+                }
+            } else {
+                lower_type(types, member.ty())
+            };
+            let offset_bits = std::ffi::CString::new(name.clone())
+                .ok()
+                .and_then(|c| layout.offset_of(&c));
+            class.fields.push(Field {
+                name,
+                ty,
+                public: member.access() == cx::CX_CXXPublic,
+                offset_bits,
+                location: location(member),
+            });
+            return;
+        }
+        cx::CXCursor_Constructor
+            if member.is_copy_or_move_constructor() && user_defined(&member) =>
+        {
+            class.user_copy_or_move = true;
+        }
+        cx::CXCursor_CXXMethod if member.is_copy_or_move_assignment() && user_defined(&member) => {
+            class.user_copy_or_move = true;
+        }
+        cx::CXCursor_Destructor if user_defined(&member) => class.user_copy_or_move = true,
+        // Template kalıbının parametreleri üye değil.
+        cx::CXCursor_TemplateTypeParameter
+        | cx::CXCursor_NonTypeTemplateParameter
+        | cx::CXCursor_TemplateTemplateParameter => return,
+        _ => {}
+    }
     // Kalıtımın erişimi (public/private base) değil, varlığı önemli: bildirilir.
     if kind == cx::CXCursor_CXXBaseSpecifier {
         let name = format!("{class_name} : {}", member.spelling());
@@ -504,29 +939,46 @@ fn class_member(class: &mut Class, class_name: &str, member: Cursor<'_>) {
     match kind {
         cx::CXCursor_Constructor if !member.is_deleted() => {
             class.constructors.push(Constructor {
-                params: params(member),
+                params: params(types, member),
                 noexcept: is_noexcept(member.exception_spec()),
                 location: location(member),
             });
         }
         cx::CXCursor_CXXMethod if !member.is_deleted() => {
-            if member.spelling().starts_with("operator") {
-                class.unsupported_members.push(unsupported(
-                    member,
-                    "operator",
-                    member_name,
-                    REASON_OPERATOR,
-                ));
-                return;
+            let operator = member
+                .spelling()
+                .strip_prefix("operator")
+                .map(|op| op.trim().to_owned());
+            if let Some(op) = &operator {
+                let arity = member.arguments().len();
+                if op == "[]" {
+                    class.unsupported_members.push(unsupported(
+                        member,
+                        "operator",
+                        member_name,
+                        REASON_INDEX_OPERATOR,
+                    ));
+                    return;
+                }
+                if !bindable_operator(op, arity) {
+                    class.unsupported_members.push(unsupported(
+                        member,
+                        "operator",
+                        member_name,
+                        REASON_OPERATOR,
+                    ));
+                    return;
+                }
             }
             class.methods.push(Method {
                 name: member.spelling(),
-                params: params(member),
-                return_type: lower_type(member.result_type()),
+                params: params(types, member),
+                return_type: lower_type(types, member.result_type()),
                 is_const: member.is_const_method(),
                 is_static: member.is_static_method(),
                 is_virtual: member.is_virtual_method(),
                 noexcept: is_noexcept(member.exception_spec()),
+                operator,
                 location: location(member),
             });
         }
@@ -536,11 +988,6 @@ fn class_member(class: &mut Class, class_name: &str, member: Cursor<'_>) {
             member_name,
             REASON_CONVERSION,
         )),
-        cx::CXCursor_FieldDecl => {
-            class
-                .unsupported_members
-                .push(unsupported(member, "field", member_name, REASON_FIELD))
-        }
         cx::CXCursor_VarDecl => class.unsupported_members.push(unsupported(
             member,
             "static_variable",
@@ -593,7 +1040,7 @@ fn unsupported(cursor: Cursor<'_>, construct: &str, name: String, reason: &str) 
     }
 }
 
-fn params(cursor: Cursor<'_>) -> Vec<Param> {
+fn params(types: &Types<'_>, cursor: Cursor<'_>) -> Vec<Param> {
     cursor
         .arguments()
         .into_iter()
@@ -601,10 +1048,39 @@ fn params(cursor: Cursor<'_>) -> Vec<Param> {
             let name = arg.spelling();
             Param {
                 name: (!name.is_empty()).then_some(name),
-                ty: lower_type(arg.ty()),
+                ty: lower_type(types, arg.ty()),
             }
         })
         .collect()
+}
+
+/// Bağlanabilecek bir üye operatör mü? (`arity`: `this` hariç parametre sayısı)
+fn bindable_operator(op: &str, arity: usize) -> bool {
+    match arity {
+        0 => matches!(op, "-" | "+" | "!" | "~"),
+        1 => matches!(
+            op,
+            "+" | "-"
+                | "*"
+                | "/"
+                | "%"
+                | "^"
+                | "&"
+                | "|"
+                | "+="
+                | "-="
+                | "*="
+                | "/="
+                | "%="
+                | "=="
+                | "!="
+                | "<"
+                | ">"
+                | "<="
+                | ">="
+        ),
+        _ => false,
+    }
 }
 
 /// `noexcept`, `noexcept(true)` ve `throw()` exception fırlatmama garantisi verir.
@@ -626,7 +1102,12 @@ fn location(cursor: Cursor<'_>) -> SourceLocation {
     SourceLocation { file, line, column }
 }
 
-fn lower_type(ty: clang::Type<'_>) -> QualType {
+fn lower_type(types: &Types<'_>, ty: clang::Type<'_>) -> QualType {
+    if let Some(env) = &types.env {
+        if let Some(substituted) = substitute(types, env, ty) {
+            return substituted;
+        }
+    }
     let is_const = ty.is_const();
     let canonical = ty.canonical();
     let kind = canonical.kind();
@@ -649,17 +1130,21 @@ fn lower_type(ty: clang::Type<'_>) -> QualType {
             size_bytes: canonical.size_of().unwrap_or(0),
         },
         cx::CXType_Pointer => Type::Pointer {
-            pointee: Box::new(lower_type(pointee_of(ty, canonical))),
+            pointee: Box::new(lower_type(types, pointee_of(ty, canonical))),
         },
         cx::CXType_LValueReference => Type::LValueRef {
-            referent: Box::new(lower_type(pointee_of(ty, canonical))),
+            referent: Box::new(lower_type(types, pointee_of(ty, canonical))),
         },
         cx::CXType_RValueReference => Type::RValueRef {
-            referent: Box::new(lower_type(pointee_of(ty, canonical))),
+            referent: Box::new(lower_type(types, pointee_of(ty, canonical))),
         },
-        cx::CXType_Record => lower_record(ty, canonical),
+        cx::CXType_Record => lower_record(types, ty, canonical),
         cx::CXType_Enum => match scope_path(canonical.declaration()) {
-            Some((namespace, name)) => Type::Enum { name, namespace },
+            Some((namespace, name)) => Type::Enum {
+                name,
+                namespace,
+                declared_in: types.declared_outside(canonical.declaration()),
+            },
             None => unsupported_type(ty, REASON_NESTED),
         },
         _ => unsupported_type(ty, REASON_UNKNOWN_TYPE),
@@ -674,7 +1159,7 @@ fn lower_type(ty: clang::Type<'_>) -> QualType {
 ///
 /// Tanıma ad metniyle değil, bildirimin namespace zinciri ve template argümanlarıyla yapılır;
 /// libc++'ın `std::__1` gibi inline namespace'leri yok sayılır.
-fn lower_record(ty: clang::Type<'_>, canonical: clang::Type<'_>) -> Type {
+fn lower_record(types: &Types<'_>, ty: clang::Type<'_>, canonical: clang::Type<'_>) -> Type {
     let declaration = canonical.declaration();
     if declaration.kind() == cx::CXCursor_UnionDecl {
         return unsupported_type(ty, REASON_UNION);
@@ -692,7 +1177,7 @@ fn lower_record(ty: clang::Type<'_>, canonical: clang::Type<'_>) -> Type {
             ("vector", [element, allocator]) if namespace.len() == 1 => {
                 if is_std_decl(allocator.canonical().declaration(), "allocator") {
                     Type::Vector {
-                        element: Box::new(lower_type(*element)),
+                        element: Box::new(lower_type(types, *element)),
                     }
                 } else {
                     unsupported_type(ty, REASON_CUSTOM_ALLOCATOR)
@@ -702,7 +1187,7 @@ fn lower_record(ty: clang::Type<'_>, canonical: clang::Type<'_>) -> Type {
                 let deleter = deleter.canonical().declaration();
                 if deleter.spelling() == "default_delete" {
                     Type::UniquePtr {
-                        pointee: Box::new(lower_type(*pointee)),
+                        pointee: Box::new(lower_type(types, *pointee)),
                     }
                 } else {
                     unsupported_type(ty, REASON_CUSTOM_DELETER)
@@ -712,9 +1197,27 @@ fn lower_record(ty: clang::Type<'_>, canonical: clang::Type<'_>) -> Type {
         };
     }
     if !args.is_empty() {
-        return unsupported_type(ty, REASON_TEMPLATE);
+        return match types.instance_for_type(canonical) {
+            Some(instance) => Type::Record {
+                name: instance.rust_name.clone(),
+                namespace: instance.namespace.clone(),
+                declared_in: None,
+            },
+            None => Type::Unsupported {
+                spelling: unqualified_spelling(ty),
+                reason: format!(
+                    "`{}` örneklenmemiş bir template; `ferrobridge.toml`'da `[templates]`'e \
+                     ekleyin.",
+                    canonical.spelling()
+                ),
+            },
+        };
     }
-    Type::Record { name, namespace }
+    Type::Record {
+        name,
+        namespace,
+        declared_in: types.declared_outside(declaration),
+    }
 }
 
 /// Bildirim doğrudan `std` namespace'inde (inline namespace'ler hariç) ve bu adda mı?

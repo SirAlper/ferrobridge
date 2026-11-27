@@ -2,7 +2,7 @@
 
 C++ header'larından **güvenli ve idiomatik** Rust binding'leri üreten araç. cxx üzerine kuruludur, sahiplik bilgisini bir açıklama dosyasından (`ferrobridge.toml`) alır ve Bazel gerektirmez.
 
-> Durum: erken geliştirme (Milestone 5 / v0.1 öncesi). Henüz yayınlanmış bir sürüm yok. Gerçek dünya demosu: ArduPilot `AP_Math` ([`demo/ap_math/`](demo/ap_math/README.md)).
+> Durum: erken geliştirme (Milestone 6 / v0.1 öncesi). Henüz yayınlanmış bir sürüm yok. Gerçek dünya demosu: ArduPilot `AP_Math` ([`demo/ap_math/`](demo/ap_math/README.md)).
 
 ## Gereksinimler
 
@@ -63,6 +63,8 @@ fn main() {
 }
 ```
 
+Bir bridge birden fazla header'dan üretilebilir: `ferrobridge generate a.h b.h ...` (header başına bir `--include-as`). Bir header'da tanımlı tip diğerlerinin fonksiyonlarında kullanılabilir. Bridge'e eklenmemiş bir header'daki tip atlanır, mesaj hangi header'ı ekleyeceğinizi söyler (ADR-0009).
+
 Header kendi başına derlenmiyorsa (başka bir header'dan önce include edilmesi gerekiyorsa) `--prelude <header>` verin; hem libclang hem shim onu önce include eder.
 
 Üretilmiş dosyaları commit'leyemiyorsanız (ör. kütüphanenin lisansı yüzünden), `ferrobridge-build`'in `generate` özelliği header'ı derleme sırasında okuyup bridge'i `OUT_DIR`'e üretir. Bu mod her derlemede libclang ister (ADR-0008):
@@ -101,6 +103,9 @@ fn main() -> ferrobridge::Result<()> {
 | C++ | Güvenli API |
 |---|---|
 | Constructor, değerle dönen sınıf | Sahip olan sarmalayıcı `T` (düşünce C++ destructor'ı çalışır) |
+| Bütün alanları public, bit bit kopyalanabilen sınıf (`struct Pt { double x, y; }`) | Değer tipi: `#[repr(C)]` Rust struct'ı, alanlar doğrudan, değerle geçer, metotlar `&self`/`&mut self`. Düzen C++'ta `static_assert` ile doğrulanır (ADR-0010) |
+| Üye operatörler (`+ - * / %`, `+=`..., `==`, tekli `-`) | Değer tiplerinde `std::ops` trait'leri (hata dönmüyorsa), her durumda adlı metotlar (`op_add`). `operator[]` bağlanmaz: sınır denetimi yok |
+| Sınıf template'i (`[templates]` ile örneklenmiş) | Örneklemesi (`Vector3f`), diğer sınıflar gibi; değer tipi de olabilir |
 | `owned` pointer, `std::unique_ptr<T>` dönüşü | `Option<T>` |
 | Metotlar | `&self` / `&mut self`; ödünç nesnelerde (`&ffi::T`, `Pin<&mut ffi::T>`) aynı metotlar |
 | `const std::string&` / `std::string` dönüşü | `&str` / `String` (geçersiz UTF-8 → `Err`) |
@@ -143,6 +148,15 @@ out = "borrowed"
 # `p`, `len` parametresi kadar elemanlık bir dizi; yalnızca çağrı süresince kullanılıyor.
 [functions."crc_crc8".params]
 p = { slice = "len" }
+
+# Sınıf template'lerini somut tiplerle örnekle (kütüphanenin gerçekten örneklediği tipler).
+[templates]
+Vector3f = "Vector3<float>"
+
+# Kütüphane exception fırlatmıyor (ör. `-fno-exceptions`): fonksiyonlar `Result` yerine
+# doğrudan değer döndürür. Söz bozulursa program sonlanır, tanımsız davranış olmaz (ADR-0011).
+[library]
+exceptions = false
 ```
 
 ```bash
@@ -163,6 +177,8 @@ Boş bir Rust slice'ı C++'a null olmayan (ama okunmaması gereken) bir pointer 
 Tanımı header'da olan `static` / `static inline` fonksiyonlar bridge'in kendi çeviri biriminde derlenir. Gövdelerinde `static` yerel değişken varsa Rust'tan yapılan çağrılar, C++ kütüphanesinin kendi kopyasından ayrı bir duruma bakar (tanımsız davranış değil, ama durum paylaşılmaz).
 
 Anahtar tam C++ adıdır (constructor için `ns::Sınıf::Sınıf`; isimsiz parametreler `arg0`, `arg1`...) ve aynı adlı **bütün overload'lara** uygulanır. Bu durumda bir uyarı basılır.
+
+> ⚠️ ferrobridge, C++ fonksiyonlarının ön koşullarını bilemez: ön koşulu bozulunca tanımsız davranışa giren bir C++ fonksiyonu, güvenli Rust'tan çağrılınca da girer. Bu, bütün bağlama araçlarının sınırı. ferrobridge pointer ve uzunlukları slice yapar, null dönüşleri `Err` yapar, denetimsiz `operator[]`'yi bağlamaz.
 
 > ⚠️ Her açıklama, C++ kütüphanesi hakkında verdiğiniz bir **sözdür**, tıpkı Rust'taki `unsafe` bloğu gibi. Söz yanlışsa (ör. `owned` dediğiniz nesne `new` ile ayrılmamışsa) üretilen kod tanımsız davranışa yol açabilir. Kullanılan her söz, üretilen dosyaların başında "Açıklamaya dayanan varsayımlar" olarak listelenir. ferrobridge ucuz olan kontrolleri yine de yapar. Ödünç dönüş null gelirse referans yerine `Err` döner. Destructor'ı public olmayan sınıflar için `UniquePtr` üretilmez. Polimorfik bir sınıfın destructor'ı sanal değilse `owned` reddedilir.
 

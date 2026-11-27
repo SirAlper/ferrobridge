@@ -59,8 +59,8 @@ const BUILD_RS: &str = r#"fn main() {
         .include_dir("cpp")
         .file("cpp/geo.cc")
         .generate(
-            ferrobridge_build::Generate::new("cpp/geo.h", "geo")
-                .include_as("geo.h")
+            ferrobridge_build::Generate::new("geo")
+                .header_as("cpp/geo.h", "geo.h")
                 .prelude("units.h")
                 .config("ferrobridge.toml"),
         );

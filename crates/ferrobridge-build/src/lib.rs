@@ -261,38 +261,47 @@ mod generate {
 
     use crate::{Build, Error, rerun_if_changed, valid_name, write_if_changed};
 
-    /// `build.rs` içinde üretilecek bir bridge: hangi header, hangi adla, hangi açıklamalarla.
+    /// `build.rs` içinde üretilecek bir bridge: hangi header'lardan, hangi adla, hangi
+    /// açıklamalarla. Bir header'da tanımlı tip, aynı bridge'in diğer header'larındaki
+    /// fonksiyonlarda kullanılabilir.
     #[derive(Debug, Clone)]
     pub struct Generate {
-        header: PathBuf,
+        /// (header, shim'deki `#include` yolu; `None` ise dosya adı)
+        headers: Vec<(PathBuf, Option<String>)>,
         name: String,
-        include_as: Option<String>,
         config: Option<PathBuf>,
         prelude: Vec<String>,
         clang_args: Vec<String>,
     }
 
     impl Generate {
-        /// `header`'ı `name` adıyla üretir. Ad; çıktı dizini (`$OUT_DIR/ferrobridge/<ad>/`),
-        /// shim namespace'i (`ferrobridge::<ad>`) ve `ferrobridge::include_bridge!("<ad>")`
-        /// için kullanılır.
-        pub fn new(header: impl AsRef<Path>, name: &str) -> Self {
+        /// `name` adlı bir bridge. Ad; çıktı dizini (`$OUT_DIR/ferrobridge/<ad>/`), shim
+        /// namespace'i (`ferrobridge::<ad>`) ve `ferrobridge::include_bridge!("<ad>")` için
+        /// kullanılır. Header'lar [`Generate::header`] / [`Generate::header_as`] ile eklenir.
+        pub fn new(name: &str) -> Self {
             Self {
-                header: header.as_ref().to_path_buf(),
+                headers: Vec::new(),
                 name: name.to_owned(),
-                include_as: None,
                 config: None,
                 prelude: Vec::new(),
                 clang_args: Vec::new(),
             }
         }
 
-        /// Shim'in header'ı `#include` ederken kullanacağı yol (ör. `"AP_Math/crc.h"`);
-        /// [`Build::include_dir`] köklerinden çözülmeli. Verilmezse header'ın dosya adı
-        /// kullanılır ve header'ın dizini include yollarına eklenir.
+        /// Bridge'e bir header ekler. Shim onu dosya adıyla include eder; header'ın dizini
+        /// include yollarına eklenir.
         #[must_use]
-        pub fn include_as(mut self, path: &str) -> Self {
-            self.include_as = Some(path.to_owned());
+        pub fn header(mut self, path: impl AsRef<Path>) -> Self {
+            self.headers.push((path.as_ref().to_path_buf(), None));
+            self
+        }
+
+        /// Bridge'e bir header ekler; shim onu `include` yoluyla (ör. `"AP_Math/crc.h"`)
+        /// include eder. Yol [`Build::include_dir`] köklerinden çözülmeli.
+        #[must_use]
+        pub fn header_as(mut self, path: impl AsRef<Path>, include: &str) -> Self {
+            self.headers
+                .push((path.as_ref().to_path_buf(), Some(include.to_owned())));
             self
         }
 
@@ -331,16 +340,28 @@ mod generate {
         if !valid_name(&bridge.name) {
             return Err(Error::InvalidName(bridge.name.clone()));
         }
-        let header_text = bridge.header.display().to_string();
+        let header_text = bridge
+            .headers
+            .iter()
+            .map(|(path, _)| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         let fail = |message: String| Error::Generate {
             header: header_text.clone(),
             message,
         };
-        rerun_if_changed(&bridge.header);
+        if bridge.headers.is_empty() {
+            return Err(fail(format!(
+                "`{}` bridge'ine hiç header eklenmedi (`Generate::header`)",
+                bridge.name
+            )));
+        }
+        let paths: Vec<&Path> = bridge.headers.iter().map(|(p, _)| p.as_path()).collect();
+        for path in &paths {
+            rerun_if_changed(path);
+        }
 
-        let module =
-            ferrobridge_parser::parse_header(&bridge.header, &parse_options(build, bridge))
-                .map_err(|error| fail(describe_parser_error(&error)))?;
+        // Açıklamalar önce: `[templates]` parser'a örnekleme olarak gider.
         let annotations = match &bridge.config {
             Some(path) => {
                 rerun_if_changed(path);
@@ -348,29 +369,36 @@ mod generate {
             }
             None => Annotations::default(),
         };
+        let mut options = parse_options(build, bridge);
+        options.instantiate = annotations.instantiations();
+        let module = ferrobridge_parser::parse_headers(&paths, &options)
+            .map_err(|error| fail(describe_parser_error(&error)))?;
         let plan = ferrobridge_analysis::check(&module, &annotations).map_err(|issues| {
             let lines: Vec<String> = issues.iter().map(|i| format!("  {i}")).collect();
             fail(format!(
-                "`ferrobridge.toml` header'la uyuşmuyor:\n{}",
+                "`ferrobridge.toml` header'larla uyuşmuyor:\n{}",
                 lines.join("\n")
             ))
         })?;
 
         let mut include_dirs = Vec::new();
-        let header_include = match &bridge.include_as {
-            Some(path) => path.clone(),
-            None => {
-                if let Some(parent) = bridge.header.parent() {
-                    include_dirs.push(parent.to_path_buf());
+        let mut header_includes = Vec::with_capacity(bridge.headers.len());
+        for (path, include) in &bridge.headers {
+            header_includes.push(match include {
+                Some(include) => include.clone(),
+                None => {
+                    if let Some(parent) = path.parent() {
+                        include_dirs.push(parent.to_path_buf());
+                    }
+                    path.file_name().map_or_else(
+                        || path.display().to_string(),
+                        |n| n.to_string_lossy().into_owned(),
+                    )
                 }
-                bridge
-                    .header
-                    .file_name()
-                    .map_or_else(|| header_text.clone(), |n| n.to_string_lossy().into_owned())
-            }
-        };
+            });
+        }
         let options = CodegenOptions {
-            header_include,
+            header_includes,
             shim_include: format!("{}/shim.h", bridge.name),
             shim_namespace: format!("ferrobridge::{}", bridge.name),
             prelude: bridge.prelude.clone(),
@@ -386,7 +414,11 @@ mod generate {
         for warning in &plan.annotation_warnings {
             println!("cargo:warning=ferrobridge: {warning}");
         }
-        summary(&plan, &header_text, &dir.join("bridge.rs"));
+        let label = match bridge.headers.as_slice() {
+            [(path, _)] => path.display().to_string(),
+            many => format!("`{}` ({} header)", bridge.name, many.len()),
+        };
+        summary(&plan, &label, &dir.join("bridge.rs"));
         Ok(Generated { dir, include_dirs })
     }
 
@@ -407,6 +439,7 @@ mod generate {
             std: build.cpp_std().to_owned(),
             extra_args,
             prelude: bridge.prelude.clone(),
+            instantiate: Vec::new(),
         }
     }
 
@@ -496,7 +529,8 @@ mod tests {
             .define("NDEBUG", None)
             .std("c++20")
             .flag("-w");
-        let bridge = Generate::new("libraries/AP_Math/crc.h", "crc")
+        let bridge = Generate::new("crc")
+            .header_as("libraries/AP_Math/crc.h", "AP_Math/crc.h")
             .prelude("AP_Math/AP_Math.h")
             .clang_arg("-Wno-everything");
         let options = generate::parse_options(&build, &bridge);

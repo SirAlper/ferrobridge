@@ -5,7 +5,7 @@
 //   - geo::flags (input.h:28): parametre `bits`: `std::vector<bool>` C++'ta bit paketli özel bir tip; cxx desteklemiyor.
 //   - geo::nested (input.h:29): parametre `grid`: `std::vector` elemanı yalnızca sabit genişlikli tamsayı, `float`/`double`, `std::string` ya da bu header'daki bir sınıf olabilir.
 //   - geo::by_value (input.h:30): parametre `values`: `std::vector`'ü değerle almak henüz desteklenmiyor (`const std::vector<T>&` kullanın).
-//   - geo::Arena (input.h:33): Template'ler MVP kapsamı dışında (v0.2 hedefi).
+//   - geo::Arena (input.h:33): Sınıf template'i: somut bir tiple örneklenmeden bağlanamaz; `ferrobridge.toml`'da `[templates]` ile örnekleyin (ör. `Vector3f = "Vector3<float>"`).
 //   - geo::custom (input.h:38): parametre `values`: `std::vector<int, Arena<int>>`: Özel allocator'lı `std::vector` desteklenmiyor.
 
 #pragma once

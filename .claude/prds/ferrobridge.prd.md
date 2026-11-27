@@ -64,11 +64,11 @@ Elinde büyük C++ kod tabanı olan ve yeni kodu Rust'ta yazmak isteyen ekiplerd
 | 3 | Sahiplik açıklamaları | Kullanıcı belirsiz pointer'lar için açıklama yazar; araç belirsiz durumda kod üretmek yerine soru sorar | complete | `.claude/plans/m3-sahiplik-aciklamalari.plan.md` |
 | 4 | Güvenli API | Kullanıcı hiç `unsafe` yazmadan C++ nesnesi oluşturup kullanabilir; exception'lar `Result` olarak gelir | complete | `.claude/plans/m4-guvenli-api.plan.md` |
 | 5 | Derleme hattı ve demo iskeleti | `ferrobridge-build` ile `build.rs` entegrasyonu; `AP_Math`'in template olmayan API'sinin ≥ %85'i (toplamda ≥ %30) gerçek bir ArduPilot checkout'una karşı Rust'tan kullanılabilir | complete | `.claude/plans/m5-derleme-hatti-ve-demo.plan.md` |
-| 6 | Template'ler ve alanlar | `AP_Math` API'sinin ≥ %80'i Rust'tan kullanılabilir (`Vector3f`, `Matrix3f`, `Quaternion` dahil; template örnekleme bu milestone'da ADR ile MVP'ye alınır) | pending | — |
+| 6 | Header'lar arası tipler, template'ler ve alanlar | `AP_Math` API'sinin ≥ %80'i Rust'tan kullanılabilir (`Vector3f`, `Matrix3f`, `Quaternion` dahil). Bir header'da tanımlı tip, başka header'lardaki fonksiyonlarda da kullanılabilir (ör. `vector2.h`'taki `Vector2f`, `control.h`'ta). Template örnekleme bu milestone'da ADR ile MVP'ye alınır | complete | `.claude/plans/m6-sablonlar-ve-deger-tipleri.plan.md` |
 | 7 | v0.1 yayını | Araç crates.io'da; README, örnekler ve demo herkese açık | pending | — |
 
 ## Open Questions
-- [ ] Exception'ı kapalı derlenen kodlar (`-fno-exceptions`, ArduPilot gibi gömülü projelerde yaygın): "exception → `Result`" eşlemesi nasıl davranacak?
+- [x] Exception'ı kapalı derlenen kodlar (`-fno-exceptions`): `ferrobridge.toml`'da `[library] exceptions = false` sözü; fonksiyonlar doğrudan değer döndürür, söz bozulursa program `std::terminate` ile sonlanır (UB değil). ferrobridge'in kendi kontrolleri `Result` kalır. Karar: 27.11.2026, ADR-0011.
 - [x] Sahiplik açıklamalarının yeri: **ayrı `ferrobridge.toml` dosyası** (üçüncü taraf header'lar düzenlenemez); header içinde C++ attribute'u v0.2'de ek kaynak olabilir. Karar: 27.11.2026, ADR-0006.
 - [x] Minimum libclang sürümü: **16** (`= delete` tespiti için gereken fonksiyon 16 ile geldi; CI 21–23'ü test edecek). Karar: 27.11.2026, Milestone 2 planı.
 - [ ] Proje adı kesinleşecek mi? (crates.io'da müsaitlik kontrolü)

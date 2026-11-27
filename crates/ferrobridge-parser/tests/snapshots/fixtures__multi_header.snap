@@ -1,0 +1,327 @@
+---
+source: crates/ferrobridge-parser/tests/fixtures.rs
+expression: module
+---
+{
+  "format_version": 5,
+  "items": [
+    {
+      "kind": "class",
+      "name": "Point",
+      "namespace": [
+        "geo"
+      ],
+      "is_abstract": false,
+      "is_polymorphic": false,
+      "destructor": {
+        "kind": "public",
+        "is_virtual": false
+      },
+      "constructors": [
+        {
+          "params": [
+            {
+              "name": "x",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "double",
+                  "size_bytes": 8
+                }
+              }
+            },
+            {
+              "name": "y",
+              "type": {
+                "const": false,
+                "type": {
+                  "kind": "float",
+                  "spelling": "double",
+                  "size_bytes": 8
+                }
+              }
+            }
+          ],
+          "noexcept": false,
+          "location": {
+            "file": "geometry.h",
+            "line": 8,
+            "column": 5
+          }
+        }
+      ],
+      "methods": [
+        {
+          "name": "x",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "geometry.h",
+            "line": 9,
+            "column": 12
+          }
+        },
+        {
+          "name": "y",
+          "params": [],
+          "return_type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          },
+          "is_const": true,
+          "is_static": false,
+          "is_virtual": false,
+          "noexcept": false,
+          "location": {
+            "file": "geometry.h",
+            "line": 10,
+            "column": 12
+          }
+        }
+      ],
+      "unsupported_members": [],
+      "fields": [
+        {
+          "name": "x_",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          },
+          "public": false,
+          "offset_bits": 0,
+          "location": {
+            "file": "geometry.h",
+            "line": 13,
+            "column": 12
+          }
+        },
+        {
+          "name": "y_",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "float",
+              "spelling": "double",
+              "size_bytes": 8
+            }
+          },
+          "public": false,
+          "offset_bits": 64,
+          "location": {
+            "file": "geometry.h",
+            "line": 14,
+            "column": 12
+          }
+        }
+      ],
+      "layout": {
+        "size_bytes": 16,
+        "align_bytes": 8
+      },
+      "location": {
+        "file": "geometry.h",
+        "line": 6,
+        "column": 7
+      }
+    },
+    {
+      "kind": "enum",
+      "name": "Axis",
+      "namespace": [
+        "geo"
+      ],
+      "scoped": true,
+      "underlying": {
+        "kind": "integer",
+        "spelling": "int",
+        "builtin": "int",
+        "size_bytes": 4,
+        "signed": true,
+        "fixed_width": false
+      },
+      "variants": [
+        {
+          "name": "X",
+          "value": 0
+        },
+        {
+          "name": "Y",
+          "value": 1
+        }
+      ],
+      "location": {
+        "file": "geometry.h",
+        "line": 17,
+        "column": 12
+      }
+    },
+    {
+      "kind": "function",
+      "name": "distance",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "a",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "record",
+                  "name": "Point",
+                  "namespace": [
+                    "geo"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "record",
+                  "name": "Point",
+                  "namespace": [
+                    "geo"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "double",
+          "size_bytes": 8
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 9,
+        "column": 8
+      }
+    },
+    {
+      "kind": "function",
+      "name": "dominant",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "p",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "record",
+                  "name": "Point",
+                  "namespace": [
+                    "geo"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "enum",
+          "name": "Axis",
+          "namespace": [
+            "geo"
+          ]
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 10,
+        "column": 6
+      }
+    },
+    {
+      "kind": "function",
+      "name": "in_meters",
+      "namespace": [
+        "geo"
+      ],
+      "params": [
+        {
+          "name": "m",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "lvalue_ref",
+              "referent": {
+                "const": true,
+                "type": {
+                  "kind": "record",
+                  "name": "Meters",
+                  "namespace": [
+                    "units"
+                  ],
+                  "declared_in": "units.h"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "return_type": {
+        "const": false,
+        "type": {
+          "kind": "float",
+          "spelling": "double",
+          "size_bytes": 8
+        }
+      },
+      "noexcept": false,
+      "location": {
+        "file": "input.h",
+        "line": 11,
+        "column": 8
+      }
+    }
+  ]
+}

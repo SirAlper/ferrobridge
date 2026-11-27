@@ -16,6 +16,8 @@ const REASON_POINTER_RETURN: &str = "Dönen ham pointer'ın sahibi header'dan an
      `ferrobridge.toml`'da açıklanmalı (`ferrobridge suggest` taslak basar).";
 const REASON_MUT_PRIMITIVE_REF: &str = "Const olmayan primitif referans (ör. `double&`) \
      saklanabilir; `ferrobridge.toml`'da `borrowed` olarak açıklanmalı.";
+const REASON_VALUE_CONTAINER: &str = "Değer tipleri henüz `std::vector` ya da `std::unique_ptr` \
+     içinde bağlanmıyor.";
 const REASON_CLASS_BY_VALUE: &str = "Sınıfı değerle almak kopyalama/taşıma gerektiriyor; henüz \
      desteklenmiyor (`const T&` kullanın).";
 const REASON_STRING_BY_VALUE: &str =
@@ -72,6 +74,9 @@ const PORTABLE_BUILTINS: [&str; 6] = [
     "unsigned int",
 ];
 
+/// Bir sınıfın ya da enum'un anahtarı: (namespace yolu, ad).
+pub(crate) type TypeKey = (Vec<String>, String);
+
 /// Bridge'de adı geçebilecek bir sınıf.
 #[derive(Clone)]
 pub(crate) struct KnownClass {
@@ -79,6 +84,19 @@ pub(crate) struct KnownClass {
     pub(crate) is_abstract: bool,
     pub(crate) is_polymorphic: bool,
     pub(crate) destructor: Destructor,
+    /// Değer tipi mi (Rust'ta `#[repr(C)]` struct)?
+    pub(crate) value: bool,
+}
+
+impl KnownClass {
+    /// Bridge'deki tipi: değer tipiyse `Value`, değilse opak `Class`.
+    pub(crate) fn bridge_type(&self) -> BridgeType {
+        if self.value {
+            BridgeType::Value(self.type_ref.clone())
+        } else {
+            BridgeType::Class(self.type_ref.clone())
+        }
+    }
 }
 
 /// Bridge'de adı geçebilecek sınıf ve enum'lar: (namespace, ad) → bilgi.
@@ -151,7 +169,18 @@ pub(crate) fn param_type(
     };
     match &qt.ty {
         Type::Void => Err(REASON_VOID_PARAM.into()),
-        Type::Record { .. } => Err(REASON_CLASS_BY_VALUE.into()),
+        Type::Record {
+            name,
+            namespace,
+            declared_in,
+        } => {
+            let class = class(namespace, name, declared_in.as_deref(), known)?;
+            if class.value {
+                Ok(direct(class.bridge_type()))
+            } else {
+                Err(REASON_CLASS_BY_VALUE.into())
+            }
+        }
         Type::String => Err(REASON_STRING_BY_VALUE.into()),
         Type::Vector { .. } => Err(REASON_VECTOR_BY_VALUE.into()),
         Type::UniquePtr { pointee } => Ok(direct(BridgeType::UniquePtr(Box::new(unique_inner(
@@ -205,8 +234,15 @@ pub(crate) fn return_type(
     };
     match &qt.ty {
         Type::Void => Ok(plain(Returns::Unit)),
-        Type::Record { name, namespace } => {
-            let class = class(namespace, name, known)?;
+        Type::Record {
+            name,
+            namespace,
+            declared_in,
+        } => {
+            let class = class(namespace, name, declared_in.as_deref(), known)?;
+            if class.value {
+                return Ok(plain(Returns::Value(class.bridge_type())));
+            }
             if class.is_abstract {
                 return Err(REASON_ABSTRACT_BY_VALUE.into());
             }
@@ -304,8 +340,16 @@ fn pointer_return(
             }
             match &inner {
                 BridgeType::Class(_) => {
-                    if let Type::Record { name, namespace } = &pointee.ty {
-                        deletable(&class(namespace, name, known)?, true)?;
+                    if let Type::Record {
+                        name,
+                        namespace,
+                        declared_in,
+                    } = &pointee.ty
+                    {
+                        deletable(
+                            &class(namespace, name, declared_in.as_deref(), known)?,
+                            true,
+                        )?;
                     }
                 }
                 BridgeType::String | BridgeType::Vector(_) => {}
@@ -328,6 +372,33 @@ fn pointer_return(
                 applied: true,
             })
         }
+    }
+}
+
+/// Değer tipi bir alanın Rust tipi: sayı, `bool`, `c_char` ya da değer tipi olarak işaretlenmiş
+/// bir sınıf (`value_classes`). Uymuyorsa `None`.
+pub(crate) fn value_field_type(
+    ty: &Type,
+    known: &Known,
+    is_value: &dyn Fn(&TypeKey) -> bool,
+) -> Option<BridgeType> {
+    match ty {
+        Type::Bool | Type::Integer { .. } | Type::Float { .. } => match non_ref(ty, known).ok()? {
+            t @ (BridgeType::Bool
+            | BridgeType::Char
+            | BridgeType::Int(_)
+            | BridgeType::F32
+            | BridgeType::F64) => Some(t),
+            _ => None,
+        },
+        Type::Record {
+            name, namespace, ..
+        } => {
+            let key = (namespace.clone(), name.clone());
+            let class = known.classes.get(&key)?;
+            is_value(&key).then(|| BridgeType::Value(class.type_ref.clone()))
+        }
+        _ => None,
     }
 }
 
@@ -407,9 +478,11 @@ fn mutable_ref(inner: BridgeType) -> BridgeType {
 /// Bir pointer'ın gösterebileceği (açıklamayla referansa çevrilebilecek) tipler.
 fn pointee_type(pointee: &QualType, known: &Known) -> Result<BridgeType, Rejection> {
     match &pointee.ty {
-        Type::Record { name, namespace } => {
-            Ok(BridgeType::Class(class(namespace, name, known)?.type_ref))
-        }
+        Type::Record {
+            name,
+            namespace,
+            declared_in,
+        } => Ok(class(namespace, name, declared_in.as_deref(), known)?.bridge_type()),
         Type::String => Ok(BridgeType::String),
         Type::Vector { element } => Ok(BridgeType::Vector(Box::new(vector_element(
             element, known,
@@ -458,12 +531,16 @@ fn non_ref(ty: &Type, known: &Known) -> Result<BridgeType, String> {
             8 => Ok(BridgeType::F64),
             _ => Err(REASON_FLOAT_SIZE.to_owned()),
         },
-        Type::Enum { name, namespace } => known
+        Type::Enum {
+            name,
+            namespace,
+            declared_in,
+        } => known
             .enums
             .get(&(namespace.clone(), name.clone()))
             .cloned()
             .map(BridgeType::Enum)
-            .ok_or_else(|| not_defined(namespace, name)),
+            .ok_or_else(|| not_defined(namespace, name, declared_in.as_deref())),
         Type::Pointer { .. } => Err(REASON_POINTER_PARAM.to_owned()),
         Type::RValueRef { .. } => Err(REASON_RVALUE.to_owned()),
         Type::Unsupported { spelling, reason } => Err(format!("`{spelling}`: {reason}")),
@@ -480,9 +557,11 @@ fn non_ref(ty: &Type, known: &Known) -> Result<BridgeType, String> {
 fn ref_type(referent: &QualType, known: &Known) -> Result<BridgeType, Rejection> {
     let mutable = !referent.is_const;
     let inner = match &referent.ty {
-        Type::Record { name, namespace } => {
-            BridgeType::Class(class(namespace, name, known)?.type_ref)
-        }
+        Type::Record {
+            name,
+            namespace,
+            declared_in,
+        } => class(namespace, name, declared_in.as_deref(), known)?.bridge_type(),
         Type::String => BridgeType::String,
         Type::Vector { element } => BridgeType::Vector(Box::new(vector_element(element, known)?)),
         Type::Bool | Type::Integer { .. } | Type::Float { .. } | Type::Enum { .. } => {
@@ -515,8 +594,15 @@ fn vector_element(element: &QualType, known: &Known) -> Result<BridgeType, Strin
             _ => Err(REASON_VECTOR_ELEMENT.to_owned()),
         },
         Type::String => Ok(BridgeType::String),
-        Type::Record { name, namespace } => {
-            let class = class(namespace, name, known)?;
+        Type::Record {
+            name,
+            namespace,
+            declared_in,
+        } => {
+            let class = class(namespace, name, declared_in.as_deref(), known)?;
+            if class.value {
+                return Err(REASON_VALUE_CONTAINER.to_owned());
+            }
             // `std::vector<T>`'nin kendi destructor'ı elemanları siler.
             deletable(&class, false)?;
             Ok(BridgeType::Class(class.type_ref))
@@ -528,8 +614,15 @@ fn vector_element(element: &QualType, known: &Known) -> Result<BridgeType, Strin
 
 fn unique_inner(pointee: &QualType, known: &Known) -> Result<BridgeType, String> {
     match &pointee.ty {
-        Type::Record { name, namespace } => {
-            let class = class(namespace, name, known)?;
+        Type::Record {
+            name,
+            namespace,
+            declared_in,
+        } => {
+            let class = class(namespace, name, declared_in.as_deref(), known)?;
+            if class.value {
+                return Err(REASON_VALUE_CONTAINER.to_owned());
+            }
             deletable(&class, false)?;
             Ok(BridgeType::Class(class.type_ref))
         }
@@ -567,21 +660,33 @@ pub(crate) fn deletable(class: &KnownClass, through_base_pointer: bool) -> Resul
     }
 }
 
-fn class(namespace: &[String], name: &str, known: &Known) -> Result<KnownClass, String> {
+fn class(
+    namespace: &[String],
+    name: &str,
+    declared_in: Option<&str>,
+    known: &Known,
+) -> Result<KnownClass, String> {
     known
         .classes
         .get(&(namespace.to_vec(), name.to_owned()))
         .cloned()
-        .ok_or_else(|| not_defined(namespace, name))
+        .ok_or_else(|| not_defined(namespace, name, declared_in))
 }
 
-fn not_defined(namespace: &[String], name: &str) -> String {
+/// Bilinmeyen bir tip: bridge'in dışındaki bir header'daysa hangisi olduğu ve ne yapılacağı.
+fn not_defined(namespace: &[String], name: &str, declared_in: Option<&str>) -> String {
     let mut path = namespace.to_vec();
     path.push(name.to_owned());
-    format!(
-        "`{}` bu header'da tanımlı değil; başka header'lardaki tipler henüz bağlanamıyor.",
-        path.join("::")
-    )
+    let path = path.join("::");
+    match declared_in {
+        Some(header) => format!(
+            "`{path}` `{header}`'de bildirilmiş ve bu header bridge'e dahil değil; header'ı da \
+             bridge'e ekleyin (`ferrobridge generate a.h {header} ...`)."
+        ),
+        None => {
+            format!("`{path}` bridge'in header'larında bağlanabilir bir tip olarak tanımlı değil.")
+        }
+    }
 }
 
 /// Enum'un altta yatan tipi için tamsayı tipi.
@@ -609,7 +714,12 @@ pub(crate) fn spell(qt: &QualType) -> String {
         }
         Type::LValueRef { referent } => return format!("{}&", spell(referent)),
         Type::RValueRef { referent } => return format!("{}&&", spell(referent)),
-        Type::Record { name, namespace } | Type::Enum { name, namespace } => {
+        Type::Record {
+            name, namespace, ..
+        }
+        | Type::Enum {
+            name, namespace, ..
+        } => {
             let mut path = namespace.clone();
             path.push(name.clone());
             path.join("::")

@@ -25,11 +25,12 @@ use ferrobridge_ir::{
 
 pub use config::{
     Annotations, ConfigError, FunctionAnnotation, Located, ParamAnnotation, ReturnAnnotation,
+    TemplateEntry,
 };
 pub use plan::{
     AnnotationIssue, Assumption, BridgePlan, BridgeType, Callee, ClassPlan, ConstantPlan,
-    ConstantValue, EnumPlan, FunctionPlan, IntType, LengthParam, ParamPlan, Pass, Returns, Skipped,
-    Suggestion, SuggestionTarget, TypeRef,
+    ConstantValue, EnumPlan, FieldPlan, FunctionPlan, IntType, LengthParam, OperatorKind,
+    ParamPlan, Pass, Returns, Skipped, Suggestion, SuggestionTarget, TypeRef, ValueLayout,
 };
 pub use suggest::render_suggestions;
 
@@ -40,6 +41,8 @@ const NOTE_NO_CONSTRUCTOR: &str = "Açıkça bildirilmiş public constructor yok
      başka fonksiyonların döndürdüğü nesnelerle kullanılabilir.";
 const REASON_ANONYMOUS_NAMESPACE: &str =
     "Anonim namespace'teki tipler header dışından kullanılamaz.";
+const REASON_OPERATOR_KIND: &str = "Bu operatörün Rust karşılığı tanımlı değil.";
+const REASON_FIELD: &str = "Alanlara doğrudan erişim v0.2 hedefi; erişim metotları kullanın.";
 const REASON_ANONYMOUS_CONSTANT: &str =
     "Anonim namespace'teki sabitlerin Rust'tan yazılabilecek bir adı yok.";
 
@@ -52,6 +55,10 @@ const PROMISE_BORROWED_RETURN: &str = "pointer nesnenin sahip olduğu bir şeyi 
      nesne yaşadıkça geçerli; silinmez (null gelirse `Err` döner)";
 const PROMISE_BORROWED_REF_RETURN: &str =
     "referans nesnenin sahip olduğu bir şeyi gösteriyor ve nesne yaşadıkça geçerli";
+const PROMISE_NO_EXCEPTIONS: &str = "kütüphanenin hiçbir fonksiyonu exception fırlatmıyor; \
+     fonksiyonlar `Result` yerine doğrudan değer döndürür. Söz bozulursa program `std::terminate` \
+     ile sonlanır (tanımsız davranış değil). ferrobridge'in kendi kontrolleri (slice uzunluğu, \
+     null dönüş) `Result` olarak kalır";
 const REASON_INVALID_SLICE: &str =
     "`ferrobridge.toml`'daki `slice` açıklaması bu imzaya uymuyor (hatalara bakın).";
 
@@ -103,6 +110,15 @@ pub fn check(
         }
     }
 
+    if let Some(line) = annotations.no_exceptions {
+        checker.plan.assumptions.push(Assumption {
+            name: "(kütüphane)".to_owned(),
+            subject: "exception'lar".to_owned(),
+            annotation: "exceptions = false".to_owned(),
+            promise: PROMISE_NO_EXCEPTIONS.to_owned(),
+            origin: checker.origin(line),
+        });
+    }
     let mut errors = checker.unmatched_annotations();
     errors.append(&mut checker.slice_errors);
     if !errors.is_empty() {
@@ -188,15 +204,37 @@ impl Checker<'_> {
         let mut constructors = Vec::new();
         let mut methods = Vec::new();
 
-        for unsupported in &class.unsupported_members {
-            self.plan.skipped.push(skipped(
-                &unsupported.name,
-                &unsupported.reason,
-                &unsupported.location,
-            ));
-        }
+        // Opak sınıfların public alanlarına Rust'tan erişilemiyor. Atlanan üyeler kaynaktaki
+        // sırayla listelenir.
+        let value = if known_class.value {
+            value_layout(class, &self.known)
+        } else {
+            None
+        };
+        let mut members: Vec<Skipped> = class
+            .fields
+            .iter()
+            .filter(|f| f.public && value.is_none())
+            .map(|field| {
+                skipped(
+                    &format!("{class_name}::{}", field.name),
+                    REASON_FIELD,
+                    &field.location,
+                )
+            })
+            .chain(
+                class
+                    .unsupported_members
+                    .iter()
+                    .map(|u| skipped(&u.name, &u.reason, &u.location)),
+            )
+            .collect();
+        members.sort_by_key(|m| (m.location.line, m.location.column));
+        self.plan.skipped.extend(members);
 
-        let factory_blocker = if class.is_abstract {
+        let factory_blocker = if value.is_some() {
+            None
+        } else if class.is_abstract {
             Some(REASON_ABSTRACT.to_owned())
         } else {
             rules::deletable(&known_class, false).err()
@@ -211,7 +249,8 @@ impl Checker<'_> {
                 ));
             }
         } else {
-            if class.constructors.is_empty() {
+            // Değer tipi alanlarından kurulabilir; not gereksiz.
+            if class.constructors.is_empty() && value.is_none() {
                 self.plan
                     .notes
                     .push(skipped(&class_name, NOTE_NO_CONSTRUCTOR, &class.location));
@@ -229,10 +268,15 @@ impl Checker<'_> {
                     noexcept: constructor.noexcept,
                     location: &constructor.location,
                 }) {
-                    // Constructor shim'i nesneyi `std::unique_ptr` içinde döndürür.
-                    bound.returns = Returns::Value(BridgeType::UniquePtr(Box::new(
-                        BridgeType::Class(type_ref.clone()),
-                    )));
+                    // Constructor shim'i nesneyi `std::unique_ptr` içinde döndürür; değer tipini
+                    // değerle.
+                    bound.returns = if value.is_some() {
+                        Returns::Value(BridgeType::Value(type_ref.clone()))
+                    } else {
+                        Returns::Value(BridgeType::UniquePtr(Box::new(BridgeType::Class(
+                            type_ref.clone(),
+                        ))))
+                    };
                     constructors.push(bound);
                 }
             }
@@ -240,6 +284,20 @@ impl Checker<'_> {
 
         for method in &class.methods {
             let name = format!("{class_name}::{}", method.name);
+            let operator = match &method.operator {
+                Some(op) => match OperatorKind::from_cpp(op, method.params.len()) {
+                    Some(kind) if !method.is_static => Some(kind),
+                    _ => {
+                        self.plan.skipped.push(skipped(
+                            &name,
+                            REASON_OPERATOR_KIND,
+                            &method.location,
+                        ));
+                        continue;
+                    }
+                },
+                None => None,
+            };
             let (callee, receiver_mutable) = if method.is_static {
                 (
                     Callee::Static {
@@ -268,7 +326,7 @@ impl Checker<'_> {
                 noexcept: method.noexcept,
                 location: &method.location,
             }) {
-                methods.push(bound);
+                methods.push(FunctionPlan { operator, ..bound });
             }
         }
 
@@ -278,6 +336,8 @@ impl Checker<'_> {
             namespace: class.namespace.clone(),
             constructors,
             methods,
+            value,
+            instance_spelling: class.instance_of.as_ref().map(|i| i.spelling.clone()),
         })
     }
 
@@ -537,7 +597,11 @@ impl Checker<'_> {
             params: bound_params,
             returns,
             // Uzunluk kontrolü (slice C++ uzunluk tipine sığmıyorsa) exception fırlatır.
-            fallible: !noexcept || always_fallible || !lengths.is_empty(),
+            // `[library] exceptions = false`: kütüphane fırlatmaz, söz bozulursa `terminate`.
+            fallible: !(noexcept || self.annotations.no_exceptions.is_some())
+                || always_fallible
+                || !lengths.is_empty(),
+            operator: None,
             lengths,
             location: location.clone(),
         })
@@ -781,9 +845,17 @@ fn known_types(module: &Module, plan: &mut BridgePlan) -> Known {
     let rust_names = naming::type_names(&keys);
     let mut known = Known::default();
     for ((key, entry), rust_name) in entries.into_iter().zip(rust_names) {
+        // Template örneklemesinin C++ adı yazımıdır (`::geo::Vec3<float>`), Rust adı değil.
+        let cpp = match &entry {
+            Entry::Class(Class {
+                instance_of: Some(instance),
+                ..
+            }) => format!("::{}", instance.spelling),
+            _ => cpp_path(&key.0, &key.1),
+        };
         let type_ref = TypeRef {
             rust_name,
-            cpp_path: cpp_path(&key.0, &key.1),
+            cpp_path: cpp,
         };
         match entry {
             Entry::Class(class) => {
@@ -794,6 +866,7 @@ fn known_types(module: &Module, plan: &mut BridgePlan) -> Known {
                         is_abstract: class.is_abstract,
                         is_polymorphic: class.is_polymorphic,
                         destructor: class.destructor,
+                        value: false,
                     },
                 );
             }
@@ -809,7 +882,105 @@ fn known_types(module: &Module, plan: &mut BridgePlan) -> Known {
             }
         }
     }
+    mark_value_types(module, &mut known);
     known
+}
+
+/// Değer tipi olabilecek sınıfları işaretler (ADR-0010). Bir sınıf değer tipidir, eğer:
+/// polimorfik değilse, taban sınıfı yoksa, kullanıcı kopyalama/taşıma/destructor bildirmemişse,
+/// düzeni biliniyorsa ve bütün alanları public olup sayı, `bool`, `c_char` ya da başka bir
+/// değer tipiyse (`const` alan olmadan). Alan tipleri birbirine bağlı olduğundan (`Matrix3f` içinde `Vector3f`) küme
+/// değişmeyene kadar elenir. Son sözü C++ derleyicisi söyler: shim düzeni `static_assert` ile
+/// doğrular.
+fn mark_value_types(module: &Module, known: &mut Known) {
+    let classes: Vec<&Class> = module
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Class(class) => Some(class),
+            _ => None,
+        })
+        .filter(|class| {
+            known
+                .classes
+                .contains_key(&(class.namespace.clone(), class.name.clone()))
+        })
+        .collect();
+    let mut values: BTreeSet<(Vec<String>, String)> = classes
+        .iter()
+        .filter(|class| value_shape(class))
+        .map(|class| (class.namespace.clone(), class.name.clone()))
+        .collect();
+    loop {
+        let rejected: Vec<(Vec<String>, String)> = classes
+            .iter()
+            .map(|class| (class.namespace.clone(), class.name.clone()))
+            .filter(|key| values.contains(key))
+            .filter(|key| {
+                let class = classes
+                    .iter()
+                    .find(|c| c.namespace == key.0 && c.name == key.1);
+                class.is_some_and(|class| {
+                    class.fields.iter().any(|field| {
+                        rules::value_field_type(&field.ty.ty, known, &|k| values.contains(k))
+                            .is_none()
+                    })
+                })
+            })
+            .collect();
+        if rejected.is_empty() {
+            break;
+        }
+        for key in rejected {
+            values.remove(&key);
+        }
+    }
+    for key in values {
+        if let Some(class) = known.classes.get_mut(&key) {
+            class.value = true;
+        }
+    }
+}
+
+/// Alan tiplerinden bağımsız değer tipi koşulları.
+fn value_shape(class: &Class) -> bool {
+    !class.is_polymorphic
+        && !class.is_abstract
+        && !class.user_copy_or_move
+        && class.destructor == ferrobridge_ir::Destructor::Public { is_virtual: false }
+        && class.layout.is_some()
+        && !class.fields.is_empty()
+        && class
+            .fields
+            .iter()
+            // `const` alan: Rust'tan yazılırsa C++'ta `const` nesneyi değiştirmek olurdu.
+            .all(|f| f.public && !f.ty.is_const && f.offset_bits.is_some_and(|bits| bits % 8 == 0))
+        && !class
+            .unsupported_members
+            .iter()
+            .any(|m| m.construct == "base_class")
+}
+
+/// Değer tipinin Rust düzeni.
+fn value_layout(class: &Class, known: &Known) -> Option<ValueLayout> {
+    let layout = class.layout?;
+    let mut fields = Vec::with_capacity(class.fields.len());
+    for field in &class.fields {
+        let ty = rules::value_field_type(&field.ty.ty, known, &|key| {
+            known.classes.get(key).is_some_and(|c| c.value)
+        })?;
+        fields.push(FieldPlan {
+            rust_name: naming::escape(&field.name),
+            cpp_name: field.name.clone(),
+            ty,
+            offset_bytes: field.offset_bits? / 8,
+        });
+    }
+    Some(ValueLayout {
+        size_bytes: layout.size_bytes,
+        align_bytes: layout.align_bytes,
+        fields,
+    })
 }
 
 fn enum_bindable(enumeration: &Enum) -> Result<IntType, String> {

@@ -3,7 +3,7 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 4,
+  "format_version": 5,
   "items": [
     {
       "kind": "class",
@@ -70,6 +70,33 @@ expression: module
         }
       ],
       "unsupported_members": [],
+      "fields": [
+        {
+          "name": "value_",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "integer",
+              "spelling": "std::int32_t",
+              "builtin": "int",
+              "size_bytes": 4,
+              "signed": true,
+              "fixed_width": true
+            }
+          },
+          "public": false,
+          "offset_bits": 0,
+          "location": {
+            "file": "input.h",
+            "line": 16,
+            "column": 16
+          }
+        }
+      ],
+      "layout": {
+        "size_bytes": 4,
+        "align_bytes": 4
+      },
       "location": {
         "file": "input.h",
         "line": 10,
@@ -497,7 +524,7 @@ expression: module
       "kind": "unsupported",
       "construct": "class_template",
       "name": "geo::Arena",
-      "reason": "Template'ler MVP kapsamı dışında (v0.2 hedefi).",
+      "reason": "Sınıf template'i: somut bir tiple örneklenmeden bağlanamaz; `ferrobridge.toml`'da `[templates]` ile örnekleyin (ör. `Vector3f = \"Vector3<float>\"`).",
       "location": {
         "file": "input.h",
         "line": 33,

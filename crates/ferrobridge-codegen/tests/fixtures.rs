@@ -17,18 +17,22 @@ fn generated(name: &str) -> GeneratedFiles {
         .join("../../tests/fixtures")
         .join(name)
         .join("input.h");
-    let module = parse_header(&header, &ParseOptions::default()).unwrap();
     let config = header.with_file_name("ferrobridge.toml");
     let annotations = if config.exists() {
         ferrobridge_analysis::Annotations::from_file(&config).unwrap()
     } else {
         ferrobridge_analysis::Annotations::default()
     };
+    let options = ParseOptions {
+        instantiate: annotations.instantiations(),
+        ..ParseOptions::default()
+    };
+    let module = parse_header(&header, &options).unwrap();
     let plan = ferrobridge_analysis::check(&module, &annotations).unwrap();
     generate(
         &plan,
         &CodegenOptions {
-            header_include: format!("{name}/input.h"),
+            header_includes: vec![format!("{name}/input.h")],
             shim_include: format!("{name}/shim.h"),
             shim_namespace: format!("ferrobridge::{name}"),
             prelude: Vec::new(),
@@ -75,6 +79,21 @@ fn slices() {
 }
 
 #[test]
+fn operators() {
+    snapshot("operators");
+}
+
+#[test]
+fn no_exceptions() {
+    snapshot("no_exceptions");
+}
+
+#[test]
+fn value_types() {
+    snapshot("value_types");
+}
+
+#[test]
 fn inline_and_constants() {
     snapshot("inline_and_constants");
 }
@@ -92,6 +111,9 @@ fn generated_bridge_is_valid_rust() {
         "namespaces",
         "slices",
         "inline_and_constants",
+        "value_types",
+        "operators",
+        "no_exceptions",
     ] {
         let files = generated(name);
         if let Err(error) = syn::parse_file(&files.bridge_rs) {
@@ -143,7 +165,7 @@ fn shim_includes_the_prelude_before_the_header() {
     let files = generate(
         &plan,
         &CodegenOptions {
-            header_include: "prelude/input.h".to_owned(),
+            header_includes: vec!["prelude/input.h".to_owned()],
             shim_include: "prelude/shim.h".to_owned(),
             shim_namespace: "ferrobridge::prelude".to_owned(),
             prelude: vec!["prelude/prelude.h".to_owned()],

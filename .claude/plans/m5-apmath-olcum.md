@@ -52,6 +52,12 @@ Atlananların nedenleri (template sınıflar hariç):
 | + Sabitler (`const`) | +9 | 345 | %81 |
 | + Operatörler (`Add`, `Mul`, `Index`...) | +69 | 414 | %98 |
 
+> **Düzeltme (27.11.2026, M5 sonrası):** Bu tablo, header'lar arası tiplerin çalıştığını sessizce varsayıyor. ferrobridge her header'ı ayrı bağlıyor; başka bir header'da tanımlı tipi kullanan fonksiyon atlanıyor (ör. `AP_Math.h`'taki `rotation_equal(Rotation, Rotation)`).
+> - "Sınıf template örnekleme" satırındaki +186'nın yaklaşık 159'u template sınıfların kendi üyeleri. 27'si ise `Vector2f/3f`'yi başka header'lardan kullanan fonksiyonlar: `control.h`, `location.h`, `SCurve.h`, `SplineCurve.h`, `AP_Math.h`.
+> - Bu 27 fonksiyon template örneklemeyle tek başına açılmaz; header'lar arası tipler de gerekir.
+> - Header'lar arası tipler olmadan o satır kabaca %74 yerine ~%68 olur.
+> - Bu yüzden header'lar arası tipler M6'nın kapsamına alındı.
+
 ## Bulgular (araçta düzeltilmesi gerekenler)
 1. **Kendini dolaylı olarak include eden header okunamıyor.** `matrixN.h`, `vectorN.h` ve `rotations.h`, `AP_Math.h` üzerinden kendilerini yeniden include ediyor. ferrobridge header'ı libclang'a "ana dosya" olarak veriyor; ana dosyada `#pragma once` koruma yapmıyor ve sınıf iki kez tanımlanıyor (`redefinition of 'VectorN'`). Çözüm: `#include "<header>"` içeren sentetik bir çeviri birimi parse edip yalnızca o header'daki bildirimleri almak.
 2. **Kendi başına derlenmeyen header'lar** (`SCurve.h` `Vector3f`'i include etmeden kullanıyor, `rotations.h` `uint8_t`'yi). Bugün `-- -include ...` ile aşılabiliyor; bunun belgelenmesi ya da `ferrobridge.toml`'da bir `prelude` ayarı gerekiyor.
@@ -97,3 +103,31 @@ Template olmayan API'de kalan 15 öğe:
 - **Tanınmayan bildirimler:** `AP_PARAMDEFV` makrosu ve template özelleştirmeleri.
 
 Kaynakları okurken çıkan bulgu: `crc8_dvb_update`, adına rağmen DVB-S2'nin polinomunu (0xD5) değil 0x07'yi kullanıyor; yani CRC-8/SMBUS. Demo testi bunu `crc8_dvb_s2` ile karşılaştırarak gösteriyor.
+
+## M6 sonrası (2026-11-27)
+
+Yöntem aynı: ArduPilot `437a3301cc`, bütün `AP_Math/*.h` tek bridge'de, `--prelude AP_Math/AP_Math.h`, demonun `ferrobridge.toml`'u. Bağlanan öğe = fonksiyon/metot/constructor + sabit + enum.
+
+**Kaba tahmin yerine gerçek sayım.** Template sınıf üyeleri artık gerçekten bağlanıyor ya da gerekçeyle atlanıyor, bu yüzden M5'teki ~228'lik kaba tahminin yerini gerçek sayılar aldı. Üyeler template başına **bir kez** sayılıyor: `double` örneklemelerinin üyeleri (181 bağlanan, 10 atlanan) çıkarıldı. Örneklenmemiş üç template'in (`VectorN`, `MatrixN`, `PolyFit`) üyeleri için M5'in kaba sayısı (25) kullanıldı.
+
+| | Bağlanan | Payda | Kapsam |
+|---|---|---|---|
+| M4 (ölçüm) | 86 | ~424 | %20 |
+| M5 | 131 | ~424 | %31 |
+| M6, yalnızca `float` örneklemeleri | 321 | 412 | %78 |
+| **M6, demonun yapılandırması** (`float` + `double`) | **337** | **412** | **%81,8** |
+| ↳ değer tiplerinin 12 public alanı da sayılırsa (M5'in tahmini alanları içeriyordu) | 349 | 424 | %82 |
+
+**Neden `double` örneklemeleri gerekiyor?** SITL'de `postype_t` `double`. Bu yüzden `SCurve`, `SplineCurve`, `location.h` ve `control.h`'taki fonksiyonların bir kısmı `Vector3p` (`Vector3<double>`) alıyor; bunlar ancak `double` örneklemeleriyle açılıyor. Paydanın iki yapılandırmada da 412 çıkması, sayımın tutarlı olduğunu gösteriyor.
+
+Kalan 53 öğe:
+- **Fonksiyon template'leri:** ~23 (`wrap_180<T>`, `is_zero<T>`, `constrain_value<T>`, `sq`, `MIN`/`MAX`...).
+- **Bilinçli olarak bağlanmayanlar:**
+  - `operator[]`, sınır denetimsiz
+  - `operator()`, `operator=`
+  - `crc_crc4`
+  - `void*` alan fonksiyon
+  - libm çağrılı 4 sabit
+- **Diziler:** `float[5]`, `T[4]`.
+- **Polygon fonksiyonları:** ham pointer + uzunluk, ama `Vector2<T>` template'li.
+- **Diğer:** `long`, tanınmayan bildirimler (`AP_PARAMDEFV`, template özelleştirmeleri).

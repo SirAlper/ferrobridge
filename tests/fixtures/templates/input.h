@@ -1,0 +1,60 @@
+// Sınıf template'leri: `[templates]` ile somut tiplere örneklenir (ArduPilot'taki `Vector3<T>`
+// gibi). Üyeler kalıptan okunur, `T` örneklemenin argümanıyla yer değiştirir.
+#pragma once
+
+#include <cstdint>
+
+namespace geo {
+
+template <typename T> class Vec2;
+
+template <typename T>
+class Vec3 {
+public:
+    T x, y, z;
+
+    constexpr Vec3() : x(0), y(0), z(0) {}
+    constexpr Vec3(T x0, T y0, T z0) : x(x0), y(y0), z(z0) {}
+
+    T length_squared() const { return x * x + y * y + z * z; }
+    Vec3<T> scaled(T k) const { return Vec3<T>(x * k, y * k, z * k); }
+    Vec3 negated() const { return Vec3(-x, -y, -z); }
+    T dot(const Vec3<T>& other) const { return x * other.x + y * other.y + z * other.z; }
+    void set_xy(const Vec2<T>& v) { x = v.x; y = v.y; }
+
+    // Üye template'i: kendi parametresi yerine konamaz.
+    template <typename U> U first_as() const { return U(x); }
+};
+
+template <typename T>
+class Vec2 {
+public:
+    T x, y;
+    constexpr Vec2(T x0, T y0) : x(x0), y(y0) {}
+};
+
+// Tip olmayan parametre: örneklenemez.
+template <typename T, int N>
+class Fixed {
+public:
+    T values[N];
+};
+
+// Örneklenmedi: `[templates]` ile örneklenebileceği söylenir.
+template <typename T>
+class Unused {
+public:
+    T value;
+};
+
+// Template'in dışında somut kullanımlar.
+Vec3<float> cross(const Vec3<float>& a, const Vec3<float>& b);
+double norm(const Vec3<double>& v);
+
+// Bit alanı: alanın tipi desteklenmiyor olarak kaydedilir.
+struct Packed {
+    int flags : 3;
+    int count;
+};
+
+}  // namespace geo

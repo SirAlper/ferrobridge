@@ -1,0 +1,6 @@
+# Kütüphane exception fırlatmıyor: fonksiyonlar `Result` yerine doğrudan değer döndürür.
+[library]
+exceptions = false
+
+[functions."calc::total".params]
+bytes = { slice = "len" }

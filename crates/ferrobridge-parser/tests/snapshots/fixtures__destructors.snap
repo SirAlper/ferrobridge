@@ -3,7 +3,7 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 4,
+  "format_version": 5,
   "items": [
     {
       "kind": "class",
@@ -30,6 +30,10 @@ expression: module
       ],
       "methods": [],
       "unsupported_members": [],
+      "layout": {
+        "size_bytes": 1,
+        "align_bytes": 1
+      },
       "location": {
         "file": "input.h",
         "line": 6,
@@ -76,6 +80,11 @@ expression: module
         }
       ],
       "unsupported_members": [],
+      "layout": {
+        "size_bytes": 8,
+        "align_bytes": 8
+      },
+      "user_copy_or_move": true,
       "location": {
         "file": "input.h",
         "line": 12,
@@ -119,6 +128,11 @@ expression: module
         }
       ],
       "unsupported_members": [],
+      "layout": {
+        "size_bytes": 8,
+        "align_bytes": 8
+      },
+      "user_copy_or_move": true,
       "location": {
         "file": "input.h",
         "line": 19,
@@ -195,6 +209,10 @@ expression: module
           }
         }
       ],
+      "layout": {
+        "size_bytes": 8,
+        "align_bytes": 8
+      },
       "location": {
         "file": "input.h",
         "line": 26,
@@ -226,6 +244,10 @@ expression: module
       ],
       "methods": [],
       "unsupported_members": [],
+      "layout": {
+        "size_bytes": 8,
+        "align_bytes": 8
+      },
       "location": {
         "file": "input.h",
         "line": 33,
@@ -256,6 +278,11 @@ expression: module
       ],
       "methods": [],
       "unsupported_members": [],
+      "layout": {
+        "size_bytes": 1,
+        "align_bytes": 1
+      },
+      "user_copy_or_move": true,
       "location": {
         "file": "input.h",
         "line": 42,
@@ -286,6 +313,11 @@ expression: module
       ],
       "methods": [],
       "unsupported_members": [],
+      "layout": {
+        "size_bytes": 1,
+        "align_bytes": 1
+      },
+      "user_copy_or_move": true,
       "location": {
         "file": "input.h",
         "line": 50,

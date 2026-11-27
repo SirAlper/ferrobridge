@@ -3,6 +3,8 @@
 use ferrobridge_analysis::{
     BridgePlan, Callee, ClassPlan, EnumPlan, FunctionPlan, ParamPlan, TypeRef,
 };
+use std::collections::BTreeSet;
+
 use proc_macro2::{Literal, TokenStream};
 use quote::quote;
 
@@ -30,8 +32,13 @@ pub(crate) fn generate(
             .get(&enumeration.namespace)
             .push(extern_type(&enumeration.type_ref, &enumeration.cpp_name)?);
     }
+    let shim_namespace_path: Vec<String> = options
+        .shim_namespace
+        .split("::")
+        .map(str::to_owned)
+        .collect();
     for class in &plan.classes {
-        add_class(&mut blocks, class)?;
+        add_class(&mut blocks, class, &shim_namespace_path)?;
     }
     for function in plan.functions.iter().filter(|f| !f.needs_shim()) {
         let Callee::Free {
@@ -47,12 +54,25 @@ pub(crate) fn generate(
 
     let shim_namespace = &options.shim_namespace;
     let shim_include = &options.shim_include;
+    let value_classes: BTreeSet<String> = plan
+        .classes
+        .iter()
+        .filter(|c| c.value.is_some())
+        .map(|c| c.type_ref.rust_name.clone())
+        .collect();
     let shim_decls = shims
         .iter()
-        .map(|shim| function_decl(&shim.name, None, shim_receiver(shim.plan), shim.plan))
+        .map(|shim| {
+            function_decl(
+                &shim.name,
+                None,
+                shim_receiver(shim.plan, &value_classes),
+                shim.plan,
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let namespace_blocks = blocks.into_tokens();
-    let safe_layer = crate::safe::generate(plan, shims)?;
+    let safe_layer = crate::safe::generate(plan, shims, &options.shim_namespace)?;
 
     // `#[rustfmt::skip]`: dosya commit'lenir (ADR-0004); `cargo fmt` onu prettyplease'ten farklı
     // biçimlendirip üreticinin çıktısıyla uyumsuz hale getirmesin.
@@ -76,12 +96,59 @@ pub(crate) fn generate(
     };
     let file: syn::File =
         syn::parse2(module).map_err(|error| CodegenError::Internal(error.to_string()))?;
-    Ok(prettyplease::unparse(&file))
+    Ok(with_safety_comments(&with_type_aliases(
+        &prettyplease::unparse(&file),
+    )))
 }
 
-fn add_class(blocks: &mut NamespaceBlocks, class: &ClassPlan) -> Result<(), CodegenError> {
-    let block = blocks.get(&class.namespace);
-    block.push(extern_type(&class.type_ref, &class.cpp_name)?);
+/// `prettyplease` yorumları atar; değer tiplerinin `unsafe impl ExternType`'ının gerekçesini
+/// (5. kural) biçimlendirmeden sonra, impl'in özniteliklerinin üstüne ekler.
+fn with_safety_comments(code: &str) -> String {
+    const SAFETY: &str = "// SAFETY: Rust struct'ı `#[repr(C)]` ve alanları C++ sınıfıyla aynı \
+sırada ve tipte; `shim.cc` C++ tipinin bit bit kopyalanabildiğini (`is_trivially_copyable`), \
+standart düzende olduğunu ve boyutunu, hizalamasını, her alanın ofsetini `static_assert` ile, \
+Rust tarafı da `size_of`/`offset_of!` ile doğruluyor. Bu yüzden cxx'in `Trivial` türü (değerle \
+taşıma, `&mut` ile değiştirme) güvenli.";
+    let lines: Vec<&str> = code.lines().collect();
+    let mut out = String::with_capacity(code.len());
+    for (index, line) in lines.iter().enumerate() {
+        let starts_impl = lines[index..]
+            .iter()
+            .take_while(|l| l.trim_start().starts_with("#["))
+            .count();
+        let target = lines.get(index + starts_impl);
+        let opens_attributes = index == 0 || !lines[index - 1].trim_start().starts_with("#[");
+        if opens_attributes
+            && target.is_some_and(|l| l.trim_start().starts_with("unsafe impl ::cxx::ExternType"))
+        {
+            let indent = &line[..line.len() - line.trim_start().len()];
+            out.push_str(indent);
+            out.push_str(SAFETY);
+            out.push('\n');
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+fn add_class(
+    blocks: &mut NamespaceBlocks,
+    class: &ClassPlan,
+    shim_namespace: &[String],
+) -> Result<(), CodegenError> {
+    // Template örneklemesinin C++'ta adı yok: shim namespace'inde Rust adıyla bir takma adı var.
+    let (namespace, cpp_name) = if class.instance_spelling.is_some() {
+        (shim_namespace.to_vec(), class.type_ref.rust_name.as_str())
+    } else {
+        (class.namespace.clone(), class.cpp_name.as_str())
+    };
+    let block = blocks.get(&namespace);
+    block.push(if class.value.is_some() {
+        value_type(&class.type_ref, cpp_name)?
+    } else {
+        extern_type(&class.type_ref, cpp_name)?
+    });
     for method in class.methods.iter().filter(|m| !m.needs_shim()) {
         let Callee::Method {
             class: owner,
@@ -95,6 +162,7 @@ fn add_class(blocks: &mut NamespaceBlocks, class: &ClassPlan) -> Result<(), Code
             name: "self",
             class: owner,
             mutable: *receiver_mutable,
+            value: class.value.is_some(),
         };
         // Ham metot `raw_<ad>` olur: asıl ad, aynı tipe yazılan güvenli metoda kalır.
         block.push(function_decl(
@@ -144,6 +212,51 @@ fn shared_enum(enumeration: &EnumPlan) -> Result<TokenStream, CodegenError> {
     })
 }
 
+/// Değer tipi: Rust'taki `#[repr(C)]` struct'a takma ad; cxx onu `ExternType` ile tanır.
+fn value_type(type_ref: &TypeRef, cpp_name: &str) -> Result<TokenStream, CodegenError> {
+    let name = ident(&type_ref.rust_name)?;
+    let rename = cxx_name_attr(&type_ref.rust_name, cpp_name);
+    // `prettyplease` `extern` bloğundaki `type X = super::X;`'i yazdıramıyor: işaretli bir
+    // `type X;` üretilir, biçimlendirmeden sonra takma ada çevrilir (`with_type_aliases`).
+    Ok(quote! {
+        #[doc = #ALIAS_MARKER]
+        #rename
+        type #name;
+    })
+}
+
+/// [`value_type`]'ın işaretleyicisi; üretilen dosyada kalmaz.
+const ALIAS_MARKER: &str = "__ferrobridge_value_type__";
+
+/// İşaretli `type X;` satırlarını `type X = super::X;` yapar ve işaretleyiciyi siler.
+fn with_type_aliases(code: &str) -> String {
+    // `prettyplease` `#[doc = "..."]`'yı `///` yorumu olarak yazar.
+    let markers = [
+        format!("#[doc = \"{ALIAS_MARKER}\"]"),
+        format!("///{ALIAS_MARKER}"),
+        format!("/// {ALIAS_MARKER}"),
+    ];
+    let mut out = String::with_capacity(code.len());
+    let mut pending = false;
+    for line in code.lines() {
+        let trimmed = line.trim_start();
+        if markers.iter().any(|m| m == trimmed) {
+            pending = true;
+            continue;
+        }
+        if pending && trimmed.starts_with("type ") && trimmed.ends_with(';') {
+            let name = trimmed["type ".len()..trimmed.len() - 1].trim();
+            let indent = &line[..line.len() - trimmed.len()];
+            out.push_str(&format!("{indent}type {name} = super::{name};\n"));
+            pending = false;
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
 fn extern_type(type_ref: &TypeRef, cpp_name: &str) -> Result<TokenStream, CodegenError> {
     let name = ident(&type_ref.rust_name)?;
     let rename = cxx_name_attr(&type_ref.rust_name, cpp_name);
@@ -158,9 +271,14 @@ struct Receiver<'a> {
     name: &'static str,
     class: &'a TypeRef,
     mutable: bool,
+    /// Değer tipi mi (değiştirilebilir alıcı `Pin` değil düz `&mut`)?
+    value: bool,
 }
 
-fn shim_receiver(plan: &FunctionPlan) -> Option<Receiver<'_>> {
+fn shim_receiver<'p>(
+    plan: &'p FunctionPlan,
+    value_classes: &BTreeSet<String>,
+) -> Option<Receiver<'p>> {
     match &plan.callee {
         Callee::Method {
             class,
@@ -170,6 +288,7 @@ fn shim_receiver(plan: &FunctionPlan) -> Option<Receiver<'_>> {
             name: SHIM_SELF,
             class,
             mutable: *receiver_mutable,
+            value: value_classes.contains(&class.rust_name),
         }),
         _ => None,
     }
@@ -199,7 +318,9 @@ fn function_decl(
             quote!(#name)
         };
         let class = ident(&receiver.class.rust_name)?;
-        inputs.push(if receiver.mutable {
+        inputs.push(if receiver.mutable && receiver.value {
+            quote!(#self_name: &#lifetime mut #class)
+        } else if receiver.mutable {
             quote!(#self_name: Pin<&#lifetime mut #class>)
         } else {
             quote!(#self_name: &#lifetime #class)

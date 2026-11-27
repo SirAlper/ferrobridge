@@ -56,10 +56,57 @@ pub struct Class {
     pub constructors: Vec<Constructor>,
     /// Public metotlar (statik olanlar dahil).
     pub methods: Vec<Method>,
-    /// Bu sürümde desteklenmeyen public üyeler (alanlar, operatörler, iç içe tipler...).
+    /// Bu sürümde desteklenmeyen public üyeler (operatörler, iç içe tipler...).
     pub unsupported_members: Vec<Unsupported>,
+    /// Statik olmayan veri üyeleri (erişimi ne olursa olsun), bildirim sırasıyla.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<Field>,
+    /// Bellek düzeni; libclang hesaplayamadıysa (ör. eksik tip) `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<Layout>,
+    /// Kullanıcı kopyalama/taşıma constructor'ı, atama operatörü ya da destructor bildirmiş mi
+    /// (`= default` olanlar hariç)? Böyle bir sınıf bit bit kopyalanamayabilir.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub user_copy_or_move: bool,
+    /// Bir template örneklemesiyse (`[templates]`) hangisi; `name` o zaman Rust adıdır.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_of: Option<TemplateInstance>,
     /// Tanımın kaynaktaki yeri.
     pub location: SourceLocation,
+}
+
+/// Bir sınıfın statik olmayan veri üyesi.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Field {
+    /// Alanın adı.
+    pub name: String,
+    /// Tipi; bit alanları ve diziler `Type::Unsupported`.
+    #[serde(rename = "type")]
+    pub ty: QualType,
+    /// Public mi?
+    pub public: bool,
+    /// Sınıfın başından itibaren bit cinsinden ofset; hesaplanamadıysa `None`.
+    pub offset_bits: Option<u64>,
+    /// Bildirimin kaynaktaki yeri.
+    pub location: SourceLocation,
+}
+
+/// Bir tipin bellek düzeni.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Layout {
+    /// `sizeof`
+    pub size_bytes: u64,
+    /// `alignof`
+    pub align_bytes: u64,
+}
+
+/// Bir sınıf template'inin örneklemesi.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TemplateInstance {
+    /// Template'in adı (ör. `Vector3`).
+    pub template: String,
+    /// Örneklemenin tam C++ yazımı, namespace'iyle (ör. `Vector3<float>`, `geo::Box<int>`).
+    pub spelling: String,
 }
 
 /// Bir sınıfın destructor'ı. Rust'ta `UniquePtr<T>` düşünce `delete` çalıştığından, sahipliği
@@ -106,6 +153,10 @@ pub struct Method {
     pub is_virtual: bool,
     /// Exception fırlatmama garantisi var mı?
     pub noexcept: bool,
+    /// Operatör metoduysa operatörün kendisi (`"+"`, `"+="`, `"=="`...); `name` o zaman
+    /// `operator+` gibidir.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator: Option<String>,
     /// Bildirimin kaynaktaki yeri.
     pub location: SourceLocation,
 }

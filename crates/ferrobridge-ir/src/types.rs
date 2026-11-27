@@ -67,6 +67,10 @@ pub enum Type {
         name: String,
         /// Dıştan içe namespace yolu.
         namespace: Vec<String>,
+        /// Okunan header'ların dışında bildirildiyse bildirildiği dosyanın adı (ör.
+        /// `rotations.h`); bridge'in header'larından birindeyse `None`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        declared_in: Option<String>,
     },
     /// Bir enum (ör. `geo::Mode`).
     Enum {
@@ -74,6 +78,10 @@ pub enum Type {
         name: String,
         /// Dıştan içe namespace yolu.
         namespace: Vec<String>,
+        /// Okunan header'ların dışında bildirildiyse bildirildiği dosyanın adı (ör.
+        /// `rotations.h`); bridge'in header'larından birindeyse `None`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        declared_in: Option<String>,
     },
     /// `std::string`
     String,

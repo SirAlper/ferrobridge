@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use ferrobridge_parser::{ParseOptions, ParserError, parse_header};
+use ferrobridge_parser::{ParseOptions, ParserError, parse_header, parse_headers};
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -99,6 +99,68 @@ fn header_without_its_prelude_fails_to_parse() {
 #[test]
 fn inline_functions_and_constants() {
     snapshot("inline_and_constants");
+}
+
+#[test]
+fn one_bridge_reads_several_headers_and_knows_where_outside_types_live() {
+    let dir = fixture("multi_header").parent().unwrap().to_path_buf();
+    let module = parse_headers(
+        &[dir.join("geometry.h"), dir.join("input.h")],
+        &ParseOptions::default(),
+    )
+    .unwrap();
+    insta::assert_json_snapshot!("multi_header", module);
+}
+
+fn instantiate(entries: &[(&str, &str)]) -> ParseOptions {
+    ParseOptions {
+        instantiate: entries
+            .iter()
+            .map(|(rust, cpp)| ((*rust).to_owned(), (*cpp).to_owned()))
+            .collect(),
+        ..ParseOptions::default()
+    }
+}
+
+#[test]
+fn class_templates_are_instantiated_from_their_pattern() {
+    let options = instantiate(&[
+        ("Vec3f", "geo::Vec3<float>"),
+        ("Vec2f", "geo::Vec2<float>"),
+        ("Fixed3", "geo::Fixed<float, 3>"),
+    ]);
+    let module = parse_header(&fixture("templates"), &options).unwrap();
+    insta::assert_json_snapshot!("templates", module);
+}
+
+#[test]
+fn an_instantiation_that_does_not_compile_names_its_entry() {
+    let error = parse_header(
+        &fixture("templates"),
+        &instantiate(&[("Nope", "geo::Missing<int>")]),
+    )
+    .unwrap_err();
+    let ParserError::ParseFailed { diagnostics } = &error else {
+        panic!("ParseFailed bekleniyordu: {error:?}");
+    };
+    let first = diagnostics[0].to_string();
+    assert!(
+        first.starts_with("`[templates]` Nope = \"geo::Missing<int>\": "),
+        "{first}"
+    );
+}
+
+#[test]
+fn an_instantiation_spelling_cannot_inject_code() {
+    let error = parse_header(
+        &fixture("templates"),
+        &instantiate(&[("X", "int; void evil()")]),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error, ParserError::InvalidArgument(_)),
+        "{error:?}"
+    );
 }
 
 #[test]

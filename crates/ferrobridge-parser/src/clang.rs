@@ -454,6 +454,54 @@ impl<'tu> Cursor<'tu> {
         unsafe { cx::clang_isCursorDefinition(self.raw) != 0 }
     }
 
+    /// Bir template örneklemesinin (ya da özelleştirmesinin) template'i; değilse null cursor.
+    pub(crate) fn specialized_template(&self) -> Cursor<'tu> {
+        // SAFETY: `self.raw` geçerli; template'ten gelmiyorsa null cursor döner.
+        Cursor::new(unsafe { cx::clang_getSpecializedCursorTemplate(self.raw) })
+    }
+
+    /// Bildirimin tanımı (çeviri biriminde varsa); yoksa null cursor.
+    pub(crate) fn definition(&self) -> Cursor<'tu> {
+        // SAFETY: `self.raw` geçerli; tanım yoksa null cursor döner.
+        Cursor::new(unsafe { cx::clang_getCursorDefinition(self.raw) })
+    }
+
+    /// Null cursor mu?
+    pub(crate) fn is_null(&self) -> bool {
+        // SAFETY: herhangi bir cursor için geçerli.
+        unsafe { cx::clang_Cursor_isNull(self.raw) != 0 }
+    }
+
+    /// Bit alanı mı (`int x : 3`)?
+    pub(crate) fn is_bit_field(&self) -> bool {
+        // SAFETY: `self.raw` geçerli; alan değilse 0 döner.
+        unsafe { cx::clang_Cursor_isBitField(self.raw) != 0 }
+    }
+
+    /// Kopyalama ya da taşıma constructor'ı mı?
+    pub(crate) fn is_copy_or_move_constructor(&self) -> bool {
+        // SAFETY: `self.raw` geçerli; constructor değilse 0 döner.
+        unsafe {
+            cx::clang_CXXConstructor_isCopyConstructor(self.raw) != 0
+                || cx::clang_CXXConstructor_isMoveConstructor(self.raw) != 0
+        }
+    }
+
+    /// Kopyalama ya da taşıma atama operatörü mü?
+    pub(crate) fn is_copy_or_move_assignment(&self) -> bool {
+        // SAFETY: `self.raw` geçerli; metot değilse 0 döner.
+        unsafe {
+            cx::clang_CXXMethod_isCopyAssignmentOperator(self.raw) != 0
+                || cx::clang_CXXMethod_isMoveAssignmentOperator(self.raw) != 0
+        }
+    }
+
+    /// `= default` ile bildirilmiş mi?
+    pub(crate) fn is_defaulted(&self) -> bool {
+        // SAFETY: `self.raw` geçerli; metot değilse 0 döner.
+        unsafe { cx::clang_CXXMethod_isDefaulted(self.raw) != 0 }
+    }
+
     /// İsimsiz bir namespace, struct veya enum mu?
     pub(crate) fn is_anonymous(&self) -> bool {
         // SAFETY: `self.raw` geçerli.
@@ -567,6 +615,25 @@ impl<'tu> Type<'tu> {
     pub(crate) fn size_of(&self) -> Option<u64> {
         // SAFETY: `self.raw` geçerli; hata durumunda negatif değer döner.
         u64::try_from(unsafe { cx::clang_Type_getSizeOf(self.raw) }).ok()
+    }
+
+    /// Bayt cinsinden hizalama; libclang hesaplayamazsa `None`.
+    pub(crate) fn align_of(&self) -> Option<u64> {
+        // SAFETY: `self.raw` geçerli; hata durumunda negatif değer döner.
+        u64::try_from(unsafe { cx::clang_Type_getAlignOf(self.raw) }).ok()
+    }
+
+    /// `field` adlı alanın ofseti (bit); yoksa ya da hesaplanamazsa `None`.
+    pub(crate) fn offset_of(&self, field: &CStr) -> Option<u64> {
+        // SAFETY: `self.raw` geçerli; `field` NUL ile biten bir C string'i. Hata durumunda
+        // negatif değer döner.
+        u64::try_from(unsafe { cx::clang_Type_getOffsetOf(self.raw, field.as_ptr()) }).ok()
+    }
+
+    /// İki tip aynı mı?
+    pub(crate) fn same_as(&self, other: &Type<'_>) -> bool {
+        // SAFETY: iki tip de geçerli.
+        unsafe { cx::clang_equalTypes(self.raw, other.raw) != 0 }
     }
 
     /// `std::int32_t` gibi nitelenmiş adların sardığı tip.

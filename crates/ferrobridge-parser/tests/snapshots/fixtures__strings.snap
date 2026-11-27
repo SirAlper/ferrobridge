@@ -3,7 +3,7 @@ source: crates/ferrobridge-parser/tests/fixtures.rs
 expression: module
 ---
 {
-  "format_version": 4,
+  "format_version": 5,
   "items": [
     {
       "kind": "function",
@@ -289,6 +289,28 @@ expression: module
         }
       ],
       "unsupported_members": [],
+      "fields": [
+        {
+          "name": "text_",
+          "type": {
+            "const": false,
+            "type": {
+              "kind": "string"
+            }
+          },
+          "public": false,
+          "offset_bits": 0,
+          "location": {
+            "file": "input.h",
+            "line": 25,
+            "column": 15
+          }
+        }
+      ],
+      "layout": {
+        "size_bytes": 24,
+        "align_bytes": 8
+      },
       "location": {
         "file": "input.h",
         "line": 17,

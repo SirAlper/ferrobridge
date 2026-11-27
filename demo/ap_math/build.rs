@@ -5,18 +5,6 @@
 
 use std::path::{Path, PathBuf};
 
-/// (header, bridge adı)
-const HEADERS: [(&str, &str); 8] = [
-    ("AP_Math.h", "ap_math"),
-    ("control.h", "control"),
-    ("crc.h", "crc"),
-    ("location.h", "location"),
-    ("SCurve.h", "scurve"),
-    ("SplineCurve.h", "spline_curve"),
-    ("rotations.h", "rotations"),
-    ("definitions.h", "definitions"),
-];
-
 /// waf'ın SITL derlemesinde tanımladıkları (ölçüm ve M5 Task 0).
 const DEFINES: [(&str, &str); 6] = [
     ("CONFIG_HAL_BOARD", "HAL_BOARD_SITL"),
@@ -46,18 +34,21 @@ fn main() {
     for (name, value) in DEFINES {
         build.define(name, Some(value));
     }
-    for (header, name) in HEADERS {
-        let mut bridge = ferrobridge_build::Generate::new(libraries.join("AP_Math").join(header), name)
-            .include_as(&format!("AP_Math/{header}"))
-            // Bazı header'lar kendi başına derlenmiyor (`SCurve.h` `Vector3f`'i, `rotations.h`
-            // `uint8_t`'yi include etmiyor); ArduPilot'ta hep `AP_Math.h`'dan sonra gelirler.
-            .prelude("AP_Math/AP_Math.h");
-        let config = Path::new("annotations").join(format!("{name}.toml"));
-        if config.is_file() {
-            bridge = bridge.config(config);
-        }
-        build.generate(bridge);
+    // Bütün `AP_Math` header'ları tek bir bridge: bir header'daki tip (`Vector3f`, `Rotation`)
+    // diğerlerinin fonksiyonlarında kullanılabilir.
+    let mut bridge = ferrobridge_build::Generate::new("ap_math")
+        // Bazı header'lar kendi başına derlenmiyor (`SCurve.h` `Vector3f`'i, `rotations.h`
+        // `uint8_t`'yi include etmiyor); ArduPilot'ta hep `AP_Math.h`'dan sonra gelirler.
+        .prelude("AP_Math/AP_Math.h")
+        .config("ferrobridge.toml");
+    for header in headers(&libraries.join("AP_Math")) {
+        let include = format!(
+            "AP_Math/{}",
+            header.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()
+        );
+        bridge = bridge.header_as(&header, &include);
     }
+    build.generate(bridge);
     if let Err(error) = build.compile("ap_math") {
         panic!("{error}");
     }
@@ -81,14 +72,23 @@ fn ardupilot_libraries() -> PathBuf {
     libraries
 }
 
+/// `AP_Math`'in bütün header'ları, ad sırasıyla.
+fn headers(dir: &Path) -> Vec<PathBuf> {
+    files_with_extension(dir, "h")
+}
+
 /// `AP_Math`'in bütün `.cpp` dosyaları, ad sırasıyla (derleme tekrarlanabilir olsun).
 fn cpp_sources(dir: &Path) -> Vec<PathBuf> {
-    let mut sources: Vec<PathBuf> = std::fs::read_dir(dir)
+    files_with_extension(dir, "cpp")
+}
+
+fn files_with_extension(dir: &Path, extension: &str) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
         .filter_map(Result::ok)
         .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "cpp"))
+        .filter(|path| path.extension().is_some_and(|ext| ext == extension))
         .collect();
-    sources.sort();
-    sources
+    files.sort();
+    files
 }

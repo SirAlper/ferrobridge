@@ -34,3 +34,20 @@ pub mod slices;
 /// `tests/fixtures/inline_and_constants`: `static inline` fonksiyonlar ve sabitler.
 #[path = "generated/inline_and_constants/bridge.rs"]
 pub mod inline_and_constants;
+
+/// `tests/fixtures/multi_header`: iki header'lı tek bridge; `geometry.h`'taki tipler
+/// `input.h`'taki fonksiyonlarda.
+#[path = "generated/multi_header/bridge.rs"]
+pub mod multi_header;
+
+/// `tests/fixtures/value_types`: Rust'ta `#[repr(C)]` struct olan değer tipleri.
+#[path = "generated/value_types/bridge.rs"]
+pub mod value_types;
+
+/// `tests/fixtures/operators`: `std::ops` impl'leri ve adlı operatör metotları.
+#[path = "generated/operators/bridge.rs"]
+pub mod operators;
+
+/// `tests/fixtures/no_exceptions`: `[library] exceptions = false`.
+#[path = "generated/no_exceptions/bridge.rs"]
+pub mod no_exceptions;

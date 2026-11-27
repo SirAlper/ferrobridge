@@ -2,7 +2,9 @@
 
 use std::fmt::Write as _;
 
-use ferrobridge_analysis::{BridgeType, Callee, ConstantPlan, ConstantValue, Pass, Returns};
+use ferrobridge_analysis::{
+    BridgeType, Callee, ClassPlan, ConstantPlan, ConstantValue, Pass, Returns,
+};
 
 use crate::bridge::SHIM_SELF;
 use crate::spelling::{cpp_return, cpp_type};
@@ -29,13 +31,21 @@ static void trycatch(Try &&func, Fail &&fail) noexcept try {
 #endif  // FERROBRIDGE_TRYCATCH_DEFINED
 "#;
 
-pub(crate) fn header(options: &CodegenOptions, shims: &[ShimFn<'_>]) -> String {
+pub(crate) fn header(
+    options: &CodegenOptions,
+    shims: &[ShimFn<'_>],
+    classes: &[ClassPlan],
+) -> String {
     let mut out = String::new();
     out.push_str("#pragma once\n\n");
     out.push_str(
         "#include <cstdint>\n#include <exception>\n#include <memory>\n#include <stdexcept>\n\
          #include <string>\n#include <vector>\n\n",
     );
+    if classes.iter().any(|c| c.value.is_some()) {
+        // Değer tiplerinin düzen doğrulaması için (`shim.cc`).
+        out.push_str("#include <cstddef>\n#include <type_traits>\n\n");
+    }
     if shims.iter().any(|shim| !shim.plan.lengths.is_empty()) {
         // `rust::Slice` ve uzunluk kontrolü için.
         out.push_str("#include <limits>\n\n#include \"rust/cxx.h\"\n\n");
@@ -43,9 +53,23 @@ pub(crate) fn header(options: &CodegenOptions, shims: &[ShimFn<'_>]) -> String {
     for prelude in &options.prelude {
         let _ = writeln!(out, "#include \"{prelude}\"  // prelude");
     }
-    let _ = writeln!(out, "#include \"{}\"\n", options.header_include);
+    for header in &options.header_includes {
+        let _ = writeln!(out, "#include \"{header}\"");
+    }
+    out.push('\n');
     out.push_str(TRYCATCH);
     let _ = writeln!(out, "\nnamespace {} {{\n", options.shim_namespace);
+    // Template örneklemelerinin cxx'in kullanabileceği bir adı olsun.
+    let mut aliases = false;
+    for class in classes {
+        if let Some(spelling) = &class.instance_spelling {
+            let _ = writeln!(out, "using {} = ::{spelling};", class.type_ref.rust_name);
+            aliases = true;
+        }
+    }
+    if aliases {
+        out.push('\n');
+    }
     for shim in shims {
         let _ = writeln!(out, "{};", signature(shim));
     }
@@ -60,10 +84,12 @@ pub(crate) fn source(
     options: &CodegenOptions,
     shims: &[ShimFn<'_>],
     constants: &[ConstantPlan],
+    classes: &[ClassPlan],
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#include \"{}\"\n", options.shim_include);
     out.push_str(&constant_checks(constants));
+    out.push_str(&layout_checks(classes, &options.shim_namespace));
     let _ = writeln!(out, "namespace {} {{\n", options.shim_namespace);
     for shim in shims {
         let _ = writeln!(
@@ -101,6 +127,63 @@ fn constant_checks(constants: &[ConstantPlan]) -> String {
             "static_assert(::{path} == {value}, \"ferrobridge: `{path}` üretildiği değerden \
              farklı; bridge'i yeniden üretin\");"
         );
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out
+}
+
+/// Değer tiplerinin Rust'taki `#[repr(C)]` düzeni C++'takiyle aynı mı? Analiz yanılırsa sessiz
+/// UB yerine derleme hatası (ADR-0010).
+///
+/// Örneklemelerde shim'deki takma ad kullanılır: `offsetof` bir makro ve `Pair<int, float>`
+/// gibi bir yazımdaki virgül argümanları böler.
+fn layout_checks(classes: &[ClassPlan], shim_namespace: &str) -> String {
+    let mut out = String::new();
+    for class in classes {
+        let Some(layout) = &class.value else {
+            continue;
+        };
+        let alias = format!("::{shim_namespace}::{}", class.type_ref.rust_name);
+        let ty = if class.instance_spelling.is_some() {
+            &alias
+        } else {
+            &class.type_ref.cpp_path
+        };
+        let name = class.type_ref.cpp_path.trim_start_matches("::");
+        let message = |what: &str| {
+            format!("\"ferrobridge: `{name}` {what}; Rust'ta değer tipi olarak bağlanamaz\"")
+        };
+        let _ = writeln!(
+            out,
+            "static_assert(::std::is_trivially_copyable<{ty}>::value, {});",
+            message("bit bit kopyalanabilir değil")
+        );
+        let _ = writeln!(
+            out,
+            "static_assert(::std::is_standard_layout<{ty}>::value, {});",
+            message("standart düzende değil")
+        );
+        let _ = writeln!(
+            out,
+            "static_assert(sizeof({ty}) == {} && alignof({ty}) == {}, {});",
+            layout.size_bytes,
+            layout.align_bytes,
+            message("üretildiğinden farklı boyutta; bridge'i yeniden üretin")
+        );
+        for field in &layout.fields {
+            let _ = writeln!(
+                out,
+                "static_assert(offsetof({ty}, {}) == {}, {});",
+                field.cpp_name,
+                field.offset_bytes,
+                message(&format!(
+                    "`{}` alanı üretildiğinden farklı yerde",
+                    field.cpp_name
+                ))
+            );
+        }
     }
     if !out.is_empty() {
         out.push('\n');
@@ -183,10 +266,10 @@ fn length_checks(shim: &ShimFn<'_>) -> Vec<String> {
              static_cast<unsigned long long>(::std::numeric_limits<{}>::max())) {{",
             length.cpp_type
         ));
+        // Öğenin adını `ferrobridge::Error` zaten ekliyor.
         lines.push(format!(
-            "  throw ::std::length_error(\"{}: `{slice}` uzunluk parametresinin tipine ({}) \
+            "  throw ::std::length_error(\"`{slice}` uzunluk parametresinin tipine ({}) \
              sığmayacak kadar uzun\");",
-            callee_name(&plan.callee),
             length.cpp_type
         ));
         lines.push("}".to_owned());
@@ -199,6 +282,12 @@ fn call_lines(shim: &ShimFn<'_>) -> Vec<String> {
     let plan = shim.plan;
     let args = arguments(shim);
     let call = match &plan.callee {
+        // Değer tipinin constructor'ı nesneyi değerle döndürür.
+        Callee::Constructor { class }
+            if matches!(plan.returns, Returns::Value(BridgeType::Value(_))) =>
+        {
+            return vec![format!("return {}({args});", class.cpp_path)];
+        }
         Callee::Constructor { class } => {
             return vec![format!(
                 "return ::std::make_unique<{}>({args});",

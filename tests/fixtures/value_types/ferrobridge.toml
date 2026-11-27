@@ -1,0 +1,3 @@
+[templates]
+Vec3f = "geo::V3<float>"
+PairIF = "geo::Pair<int, float>"

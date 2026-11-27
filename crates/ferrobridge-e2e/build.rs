@@ -2,7 +2,7 @@
 //!
 //! `ferrobridge-build`'in commit'li dosya modunu kullanır (README'deki örnekle aynı yol).
 
-const FIXTURES: [&str; 7] = [
+const FIXTURES: [&str; 11] = [
     "classes",
     "enums",
     "strings",
@@ -10,6 +10,10 @@ const FIXTURES: [&str; 7] = [
     "vectors",
     "slices",
     "inline_and_constants",
+    "multi_header",
+    "value_types",
+    "operators",
+    "no_exceptions",
 ];
 
 fn main() {
