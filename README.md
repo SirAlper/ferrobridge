@@ -44,6 +44,8 @@ brew install llvm
 export LIBCLANG_PATH="$(brew --prefix llvm)/lib"
 ```
 
+On macOS, use a current Homebrew LLVM: the libc++ headers of a recent Xcode SDK need a recent clang, and an old libclang (e.g. 16) cannot read `<string>` or `<vector>` there. The minimum of 16 applies where the standard library headers allow it (e.g. libstdc++ on Linux).
+
 On Linux, install your distribution's libclang package (e.g. `libclang-18-dev` on Ubuntu 24.04) and set `LIBCLANG_PATH` if it is not found (e.g. `/usr/lib/llvm-18/lib`).
 
 ## Installation

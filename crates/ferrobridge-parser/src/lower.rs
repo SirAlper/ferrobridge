@@ -286,7 +286,7 @@ impl<'tu> Lowering<'tu> {
                 self.visit_children(cursor);
                 self.namespace.pop();
             }
-            cx::CXCursor_LinkageSpec => self.visit_children(cursor),
+            _ if is_linkage_spec(cursor) => self.visit_children(cursor),
             cx::CXCursor_FunctionDecl => self.function(cursor),
             cx::CXCursor_StructDecl | cx::CXCursor_ClassDecl if cursor.is_definition() => {
                 self.class(cursor);
@@ -1226,6 +1226,20 @@ fn is_std_decl(declaration: Cursor<'_>, expected: &str) -> bool {
         .is_some_and(|(namespace, name)| namespace == ["std"] && name == expected)
 }
 
+/// An `extern "C" { ... }` / `extern "C++" { ... }` block. libclang before 17 reports it as an
+/// `UnexposedDecl`; it is recognized there by its first two tokens, so other unexposed declarations
+/// (and `extern template ...` instantiations) are not mistaken for it.
+fn is_linkage_spec(cursor: Cursor<'_>) -> bool {
+    match cursor.kind() {
+        cx::CXCursor_LinkageSpec => true,
+        cx::CXCursor_UnexposedDecl => matches!(
+            cursor.leading_tokens(2).as_slice(),
+            [keyword, language] if keyword == "extern" && language.starts_with('"')
+        ),
+        _ => false,
+    }
+}
+
 /// A declaration's namespace path and name. Inline namespaces are skipped. `None` if it is defined
 /// inside a class or function, or if it is unnamed.
 fn scope_path(declaration: Cursor<'_>) -> Option<(Vec<String>, String)> {
@@ -1251,7 +1265,7 @@ fn scope_path(declaration: Cursor<'_>) -> Option<(Vec<String>, String)> {
                     });
                 }
             }
-            cx::CXCursor_LinkageSpec => {}
+            _ if is_linkage_spec(parent) => {}
             _ => return None,
         }
         parent = parent.semantic_parent();
