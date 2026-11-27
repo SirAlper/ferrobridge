@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: libclang (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-18-dev clang-18
+          echo "LIBCLANG_PATH=/usr/lib/llvm-18/lib" >> "$GITHUB_ENV"
+      - name: libclang (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+      - run: cargo run -p ferrobridge-cli -- doctor
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo doc --workspace --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  # ArduPilot `AP_Math` demosu (GPL; ADR-0008): ArduPilot dışarıdan, sabit bir commit'te ve
+  # seyrek klonlanır (demo/ap_math/README.md'deki 28 kütüphane).
+  demo:
+    name: demo (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    env:
+      ARDUPILOT_COMMIT: 437a3301cc335742e5807e6f10e1b819e0a5afa9
+      ARDUPILOT_DIR: ${{ github.workspace }}/ardupilot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: demo/ap_math
+      - name: libclang (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-18-dev clang-18
+          echo "LIBCLANG_PATH=/usr/lib/llvm-18/lib" >> "$GITHUB_ENV"
+      - name: libclang (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+      - name: ArduPilot (seyrek klon)
+        run: |
+          git init -q ardupilot
+          cd ardupilot
+          git remote add origin https://github.com/ArduPilot/ardupilot.git
+          git sparse-checkout set \
+            libraries/AC_Fence libraries/AP_Arming libraries/AP_BoardConfig libraries/AP_CANManager \
+            libraries/AP_Common libraries/AP_CustomRotations libraries/AP_Filesystem libraries/AP_HAL \
+            libraries/AP_HAL_SITL libraries/AP_InertialSensor libraries/AP_InternalError libraries/AP_Logger \
+            libraries/AP_MSP libraries/AP_Math libraries/AP_Mission libraries/AP_Mount libraries/AP_Networking \
+            libraries/AP_Param libraries/AP_ROMFS libraries/AP_Rally libraries/AP_RangeFinder libraries/AP_Relay \
+            libraries/AP_Scripting libraries/AP_SerialManager libraries/AP_Terrain libraries/AP_Vehicle \
+            libraries/GCS_MAVLink libraries/StorageManager
+          git fetch -q --depth 1 --filter=blob:none origin "$ARDUPILOT_COMMIT"
+          git checkout -q FETCH_HEAD
+      - run: cargo test --manifest-path demo/ap_math/Cargo.toml
+      - run: cargo run --manifest-path demo/ap_math/Cargo.toml --example tour

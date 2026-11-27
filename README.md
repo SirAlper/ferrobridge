@@ -4,6 +4,35 @@ C++ header'larından **güvenli ve idiomatik** Rust binding'leri üreten araç. 
 
 > Durum: erken geliştirme (Milestone 6 / v0.1 öncesi). Henüz yayınlanmış bir sürüm yok. Gerçek dünya demosu: ArduPilot `AP_Math` ([`demo/ap_math/`](demo/ap_math/README.md)).
 
+## Demo: ArduPilot `AP_Math`
+
+ArduPilot'un matematik kütüphanesi Rust'tan, elle bridge ya da `unsafe` yazmadan kullanılıyor. Bridge'i `build.rs` derleme sırasında üretiyor; elle yazılan tek şey 59 satırlık bir `ferrobridge.toml` ([`demo/ap_math/`](demo/ap_math/README.md)):
+
+```rust
+use ferrobridge_demo_ap_math::{self as ap, Quaternion, Rotation, Vector3f};
+
+let a = Vector3f { x: 1.0, y: 2.0, z: 2.0 };              // C++ `Vector3<float>`, gerçek Rust struct'ı
+let b = a + Vector3f { x: 0.0, y: 1.0, z: 0.0 } * 2.0;    // C++ operatörleri, `std::ops` ile
+let mut q = Quaternion::new_noargs();
+q.from_euler_f32_f32_f32(0.0, 0.0, std::f32::consts::FRAC_PI_2);
+let nose = q * Vector3f { x: 1.0, y: 0.0, z: 0.0 };       // quaternion × vektör
+let mut accel = Vector3f { x: 0.0, y: 0.0, z: -9.80665 };
+accel.rotate(Rotation::ROTATION_ROLL_180);                // başka header'daki enum
+let crc = !ap::crc_crc32(!0, b"123456789")?;              // `const uint8_t*` + uzunluk → `&[u8]`
+```
+
+```text
+$ ARDUPILOT_DIR=~/ardupilot cargo run --manifest-path demo/ap_math/Cargo.toml --example tour
+2) Yönelim: Euler açılarından quaternion, vektör döndürme
+   burun (gövde) Vector3f { x: 1.000, y: 0.000, z: 0.000 } → (yer) Vector3f { x: 0.000, y: 1.000, z: 0.000 }
+   geri: roll 0.0°, pitch 0.0°, yaw 90.0°
+5) CRC: `&[u8]` girer, uzunluk taşarsa `Err` (sessiz kırpma yok)
+   CRC-32("123456789") = 0xcbf43926
+   crc_crc8(300 bayt) → Err: crc_crc8: `p` uzunluk parametresinin tipine (unsigned char) sığmayacak kadar uzun
+```
+
+`AP_Math` API'sinin yaklaşık %82'si bağlanıyor. Bağlanmayanlar (fonksiyon template'leri, sınır denetimsiz `operator[]`...) nedenleriyle listeleniyor.
+
 ## Gereksinimler
 
 - Rust (edition 2024, en az 1.85)

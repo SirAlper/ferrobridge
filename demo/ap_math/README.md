@@ -51,9 +51,9 @@ git -C ~/ardupilot sparse-checkout set \
 ```
 
 **Doğrulandığı ortam:**
-- Tam checkout, ArduPilot `437a3301cc`.
-- macOS (arm64), Homebrew LLVM 23.
-- Seyrek klonla parse ölçümde denendi; derleme denenmedi. Linux'ta denenmedi.
+- ArduPilot `437a3301cc`, macOS (arm64), Homebrew LLVM 23.
+- Tam checkout'la ve yukarıdaki 28 kütüphanelik seyrek klonla.
+- CI (`.github/workflows/ci.yml`) aynı seyrek klonla Linux ve macOS'ta derleyip testleri ve turu çalıştırır.
 
 ## Elle cxx ile karşılaştırma
 
