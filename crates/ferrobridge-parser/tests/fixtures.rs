@@ -17,9 +17,57 @@ fn fixture(name: &str) -> PathBuf {
         .join("input.h")
 }
 
+/// Platforma bağlı ayrıntılar snapshot'a girmez: sabit genişlikli tamsayıların temel adı
+/// (`uint64_t` glibc'de `unsigned long`, macOS'ta `unsigned long long`) ve standart kütüphane
+/// tipi içeren sınıfların düzeni (`std::string` libstdc++'ta 32, libc++'ta 24 bayt). Üretilen
+/// kod ikisine de bakmaz: analiz sabit genişlikte boyutu ve işareti kullanır, böyle sınıflar
+/// opak kalır.
+fn portable(module: &ferrobridge_ir::Module) -> serde_json::Value {
+    fn walk(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                if map.get("kind").and_then(|k| k.as_str()) == Some("integer")
+                    && map.get("fixed_width") == Some(&serde_json::Value::Bool(true))
+                {
+                    map.insert("builtin".to_owned(), "(platforma bağlı)".into());
+                }
+                let has_std_field =
+                    map.get("fields")
+                        .and_then(|f| f.as_array())
+                        .is_some_and(|fields| {
+                            fields.iter().any(|f| {
+                                let text = f.to_string();
+                                ["\"string\"", "\"vector\"", "\"unique_ptr\""]
+                                    .iter()
+                                    .any(|kind| text.contains(&format!("\"kind\":{kind}")))
+                            })
+                        });
+                if has_std_field {
+                    map.insert("layout".to_owned(), "(platforma bağlı)".into());
+                    if let Some(serde_json::Value::Array(fields)) = map.get_mut("fields") {
+                        for field in fields {
+                            if let serde_json::Value::Object(f) = field {
+                                f.insert("offset_bits".to_owned(), "(platforma bağlı)".into());
+                            }
+                        }
+                    }
+                }
+                for child in map.values_mut() {
+                    walk(child);
+                }
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(walk),
+            _ => {}
+        }
+    }
+    let mut value = serde_json::to_value(module).unwrap();
+    walk(&mut value);
+    value
+}
+
 fn snapshot(name: &str) {
     let module = parse_header(&fixture(name), &ParseOptions::default()).unwrap();
-    insta::assert_json_snapshot!(name, module);
+    insta::assert_json_snapshot!(name, portable(&module));
 }
 
 #[test]
@@ -81,7 +129,7 @@ fn prelude_is_included_before_the_header_but_not_lowered() {
         ..ParseOptions::default()
     };
     let module = parse_header(&fixture("prelude"), &options).unwrap();
-    insta::assert_json_snapshot!("prelude", module);
+    insta::assert_json_snapshot!("prelude", portable(&module));
 }
 
 #[test]
@@ -109,7 +157,7 @@ fn one_bridge_reads_several_headers_and_knows_where_outside_types_live() {
         &ParseOptions::default(),
     )
     .unwrap();
-    insta::assert_json_snapshot!("multi_header", module);
+    insta::assert_json_snapshot!("multi_header", portable(&module));
 }
 
 fn instantiate(entries: &[(&str, &str)]) -> ParseOptions {
@@ -130,7 +178,7 @@ fn class_templates_are_instantiated_from_their_pattern() {
         ("Fixed3", "geo::Fixed<float, 3>"),
     ]);
     let module = parse_header(&fixture("templates"), &options).unwrap();
-    insta::assert_json_snapshot!("templates", module);
+    insta::assert_json_snapshot!("templates", portable(&module));
 }
 
 #[test]

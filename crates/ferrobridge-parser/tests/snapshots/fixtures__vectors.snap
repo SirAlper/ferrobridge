@@ -1,6 +1,6 @@
 ---
 source: crates/ferrobridge-parser/tests/fixtures.rs
-expression: module
+expression: portable(&module)
 ---
 {
   "format_version": 5,
@@ -27,7 +27,7 @@ expression: module
                 "type": {
                   "kind": "integer",
                   "spelling": "std::int32_t",
-                  "builtin": "int",
+                  "builtin": "(platforma bağlı)",
                   "size_bytes": 4,
                   "signed": true,
                   "fixed_width": true
@@ -52,7 +52,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "std::int32_t",
-              "builtin": "int",
+              "builtin": "(platforma bağlı)",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -78,7 +78,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "std::int32_t",
-              "builtin": "int",
+              "builtin": "(platforma bağlı)",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -142,7 +142,7 @@ expression: module
         "type": {
           "kind": "integer",
           "spelling": "std::int32_t",
-          "builtin": "int",
+          "builtin": "(platforma bağlı)",
           "size_bytes": 4,
           "signed": true,
           "fixed_width": true
@@ -275,7 +275,7 @@ expression: module
         "type": {
           "kind": "integer",
           "spelling": "std::int32_t",
-          "builtin": "int",
+          "builtin": "(platforma bağlı)",
           "size_bytes": 4,
           "signed": true,
           "fixed_width": true
@@ -302,7 +302,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "std::int32_t",
-              "builtin": "int",
+              "builtin": "(platforma bağlı)",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -371,7 +371,7 @@ expression: module
         "type": {
           "kind": "integer",
           "spelling": "std::int32_t",
-          "builtin": "int",
+          "builtin": "(platforma bağlı)",
           "size_bytes": 4,
           "signed": true,
           "fixed_width": true

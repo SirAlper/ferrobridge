@@ -1,6 +1,6 @@
 ---
 source: crates/ferrobridge-parser/tests/fixtures.rs
-expression: module
+expression: portable(&module)
 ---
 {
   "format_version": 5,
@@ -17,7 +17,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "std::int8_t",
-              "builtin": "signed char",
+              "builtin": "(platforma bağlı)",
               "size_bytes": 1,
               "signed": true,
               "fixed_width": true
@@ -31,7 +31,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "std::uint16_t",
-              "builtin": "unsigned short",
+              "builtin": "(platforma bağlı)",
               "size_bytes": 2,
               "signed": false,
               "fixed_width": true
@@ -45,7 +45,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "std::int32_t",
-              "builtin": "int",
+              "builtin": "(platforma bağlı)",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -59,7 +59,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "std::uint64_t",
-              "builtin": "unsigned long long",
+              "builtin": "(platforma bağlı)",
               "size_bytes": 8,
               "signed": false,
               "fixed_width": true
@@ -312,7 +312,7 @@ expression: module
                 "type": {
                   "kind": "integer",
                   "spelling": "std::int64_t",
-                  "builtin": "long long",
+                  "builtin": "(platforma bağlı)",
                   "size_bytes": 8,
                   "signed": true,
                   "fixed_width": true
@@ -347,7 +347,7 @@ expression: module
             "type": {
               "kind": "integer",
               "spelling": "my_id",
-              "builtin": "int",
+              "builtin": "(platforma bağlı)",
               "size_bytes": 4,
               "signed": true,
               "fixed_width": true
@@ -360,7 +360,7 @@ expression: module
         "type": {
           "kind": "integer",
           "spelling": "my_id",
-          "builtin": "int",
+          "builtin": "(platforma bağlı)",
           "size_bytes": 4,
           "signed": true,
           "fixed_width": true

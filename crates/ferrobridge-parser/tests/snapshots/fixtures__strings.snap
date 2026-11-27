@@ -1,6 +1,6 @@
 ---
 source: crates/ferrobridge-parser/tests/fixtures.rs
-expression: module
+expression: portable(&module)
 ---
 {
   "format_version": 5,
@@ -299,7 +299,7 @@ expression: module
             }
           },
           "public": false,
-          "offset_bits": 0,
+          "offset_bits": "(platforma bağlı)",
           "location": {
             "file": "input.h",
             "line": 25,
@@ -307,10 +307,7 @@ expression: module
           }
         }
       ],
-      "layout": {
-        "size_bytes": 24,
-        "align_bytes": 8
-      },
+      "layout": "(platforma bağlı)",
       "location": {
         "file": "input.h",
         "line": 17,

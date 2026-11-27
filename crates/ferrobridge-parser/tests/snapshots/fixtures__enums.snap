@@ -1,6 +1,6 @@
 ---
 source: crates/ferrobridge-parser/tests/fixtures.rs
-expression: module
+expression: portable(&module)
 ---
 {
   "format_version": 5,
@@ -50,7 +50,7 @@ expression: module
       "underlying": {
         "kind": "integer",
         "spelling": "std::uint8_t",
-        "builtin": "unsigned char",
+        "builtin": "(platforma bağlı)",
         "size_bytes": 1,
         "signed": false,
         "fixed_width": true
