@@ -132,6 +132,26 @@ v0.2's goal is a CMake project that adds a Rust module calling its own C++ code,
   - the filter is tested against PX4's real flag list.
 - **PX4's own CMake changes between releases.** Mitigation: the demo pins a PX4 tag, and the module relies only on standard target properties, not on PX4 internals.
 
+## Amendment (2026-11-28, Milestone 9)
+Milestone 9 implemented decisions 2 (depfile), 3 (flags as data), 4 (the cxx glue) and 8 (`compile_commands.json`). Decision 3 is refined as follows; the rest stands.
+
+- **The response file holds one argument per line**, exactly as passed to the compiler: no quoting, no `@file` syntax, blank lines ignored. CMake writes it with `file(GENERATE … CONTENT "$<JOIN:…,\n>")`, so a define such as `noreturn_function=__attribute__((noreturn))` needs no escaping. GCC/clang `@file` quoting was not chosen: CMake would have to quote, and spaces and backslashes would become a source of bugs.
+- **`compile_commands.json` is read through libclang** (`clang_CompilationDatabase_*`), which splits `"command"` strings the way clang does; there is no shell splitter of our own. The entry is chosen by canonical path, or by its trailing components when a relative `--for` path does not exist from the working directory. libclang adds `--driver-mode=…` after the compiler; the filter drops it.
+- **What the filter keeps** (as one or two arguments, joined or separate; relative paths are made absolute against the entry's directory):
+  - preprocessor: `-D`, `-U`, `-I`, `-isystem`, `-iquote`, `-idirafter`, `-iframework`, `-F`, `-include`, `-imacros`;
+  - the standard and library: `-std=` (moved out of the list, see below), `-stdlib=`;
+  - the target: `-arch`, `--target=`/`-target`, `--sysroot`, `-isysroot`, `--gcc-toolchain=`, `-m32`/`-m64`, `-march=`, `-mcpu=`, `-mfpu=`, `-mfloat-abi=`, `-mthumb`/`-marm`, `-mmacosx-version-min=`;
+  - flags that change the language: `-f[no-]exceptions`, `-f[no-]cxx-exceptions`, `-f[no-]rtti`, `char` signedness, `-fshort-enums`, `-fshort-wchar`, `-fms-extensions`, `-fms-compatibility`, `-f[no-]char8_t`, `-fpack-struct*`, `-f[no-]blocks`, `-ffast-math`, `-ffinite-math-only`, `-fopenmp`, `-ffreestanding`, `-fno-builtin`, `-fno-operator-names`, `-f[no-]sized-deallocation`, `-f[no-]aligned-allocation`, `-f[no-]declspec`, `-pthread`.
+- **Three levels for what is dropped:**
+  - without a message: the compiler (and a `ccache`-style launcher before it), `-c`, `-o <file>`, the source file, `-x <lang>`, `-M…` dependency flags, `--driver-mode=`;
+  - one `ℹ` line per kind: warnings (`-W…`, `-w`, `-pedantic`, `-Qunused-arguments`), optimization and debug (`-O…`, `-g…`), code generation and linker flags (other `-f…`, `-Wl,`, `-L`, `-l`). PX4 has ~45 of these on every command; a warning that is always there would not be read;
+  - one `⚠` listing them: anything else (`-Xclang …`, `--param …`, `-Wp,…`, `-fmodules…`), and flags whose value is missing.
+- **Arguments after `--` are never filtered**, so a dropped flag can always be passed on purpose.
+- **Standard precedence:** an explicit `--std` (or `Build::std`) wins over a `-std=` from a flag source (the last one wins), which wins over the default `c++17`.
+- **`ferrobridge-build`** reads the same sources (`Build::flags_file`, `Build::compile_commands`). Defines, include paths, preprocessor and language flags go to both libclang and the C++ compiler. Target flags go to libclang only, because in `build.rs` the compiler's target comes from Cargo (`cc`). Defines and undefines keep their order. For these sources, Cargo is told to rerun on the database or flags file and on each header libclang read, not on the include directories, which avoids rescanning PX4's ~5,000 files.
+- **`cxx-gen` is pinned exactly** (`=0.7.198`, matching `cxx 1.0.198`), and every glue file names both versions in its first line.
+
 ## References
 - `.claude/plans/m8-px4-measurement.md` (measurement, PX4 build notes, spike results)
+- `.claude/plans/m9-flags-as-data.plan.md` (the amendment's implementation and its PX4 check)
 - ADR-0004 (committed generated code), ADR-0008 (build-time generation), ADR-0009 (multi-header bridges), ADR-0011 (libraries without exceptions), ADR-0012 (versioning)

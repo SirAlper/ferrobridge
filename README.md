@@ -168,6 +168,27 @@ Mutable `std::string&` / `std::vector<T>&` and vectors of classes stay as cxx ty
 
 The naming rules (`clamp_i32_i32_i32` for overloads, `geo_length` for namespace clashes, `Vehicle::new_i32` for constructors) are in ADR-0005. For a real example, see `crates/ferrobridge-e2e/`.
 
+### Flags from your build system
+
+A header must be read with the flags it is compiled with (include paths, defines, forced includes, the standard). Instead of copying them after `--`, take them from the build:
+
+```bash
+# An entry of a compilation database (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON; Bear, Meson, ...)
+ferrobridge generate src/lib/geo/geo.h --out-dir out \
+  --compile-commands build/compile_commands.json --for src/lib/geo/geo.cpp
+
+# Or a file with one compiler argument per line (no quoting), e.g. written by your build system
+ferrobridge generate include/vehicle.h --out-dir out --flags-file build/vehicle.flags
+```
+
+- **What is kept:** defines, include paths, `-include`, the target (`-arch`, `--target=`, `--sysroot`, …) and flags that change the language (`-fno-exceptions`, `-fno-rtti`, `-funsigned-char`, …). Relative paths in a database entry are resolved against its directory.
+- **What is dropped:** warnings, optimization and code generation flags (one `ℹ` line per kind, since they do not change how a header is read), and the compiler, `-c`, `-o` and the source file. Unknown flags are dropped with a `⚠` that lists them; pass them after `--`, which is never filtered.
+- **The standard:** `--std` if given, otherwise the `-std=` of the flags, otherwise C++17.
+- **`--depfile <path>`** writes a Make-syntax depfile: `bridge.rs` depends on every header the translation unit read, including indirect ones and system headers.
+- **`--cxx-glue`** also writes cxx's C++ side (`bridge.rs.cc`, `bridge.rs.h`, `rust/cxx.h`, generated with `cxx-gen`), for build systems that compile the bridge's C++ themselves (CMake support is the next step, ADR-0013).
+
+`ferrobridge-build` takes the same sources in `build.rs` (`Build::compile_commands`, `Build::flags_file`, `generate` feature); there the flags also reach the C++ compiler, so the shim is compiled with the defines it was read with.
+
 ### Ownership annotations (`ferrobridge.toml`)
 
 A C++ header does not say who owns a pointer or how long it lives; ferrobridge **does not guess**. Items with raw pointers (`T*`) and non-const primitive references (`double& out`) are not bound until you annotate them. A draft for the places waiting for annotations:

@@ -178,3 +178,144 @@ fn annotation_errors_stop_the_build_with_their_line() {
         "{stderr}"
     );
 }
+
+const DB_HEADER: &str = r#"#pragma once
+#include <cstdint>
+#include "geo_config.h"
+#ifndef GEO_ENABLED
+#error "GEO_ENABLED must come from compile_commands.json"
+#endif
+
+namespace geo {
+int32_t scale(int32_t x);
+}  // namespace geo
+"#;
+
+const DB_IMPL: &str = r#"#include "geo.h"
+
+namespace geo {
+// `GEO_FACTOR` reaches the C++ compiler only through the compilation database.
+int32_t scale(int32_t x) { return GEO_FACTOR * x; }
+}  // namespace geo
+"#;
+
+const DB_BUILD_RS: &str = r#"fn main() {
+    let mut build = ferrobridge_build::Build::new();
+    build
+        .compile_commands("build/compile_commands.json", "cpp/geo.cc")
+        .file("cpp/geo.cc")
+        .generate(ferrobridge_build::Generate::new("geo").header("cpp/geo.h"));
+    if let Err(error) = build.compile("fb_build_it_db") {
+        panic!("{error}");
+    }
+}
+"#;
+
+const DB_TEST_RS: &str = r#"use crate_under_test::geo;
+
+#[test]
+fn flags_from_the_database_reach_libclang_and_the_compiler() -> ferrobridge::Result<()> {
+    assert_eq!(geo::scale(2)?, 6);
+    Ok(())
+}
+"#;
+
+/// The lines the crate's build script printed on stdout, from its newest run. Cargo keeps them in
+/// `build/<package>-<hash>/output` (older layout) or `build/<package>/<hash>/run/stdout`.
+fn build_script_lines(package: &str) -> Vec<String> {
+    fn walk(dir: &Path, package: &str, found: &mut Vec<(std::time::SystemTime, PathBuf)>) {
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let text = path.to_string_lossy();
+            if path.is_dir() {
+                walk(&path, package, found);
+            } else if text.contains(package)
+                && (path.ends_with("output") || path.ends_with("run/stdout"))
+            {
+                found.push((fs::metadata(&path).unwrap().modified().unwrap(), path));
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(&it_dir().join("target/debug/build"), package, &mut found);
+    found.sort();
+    let (_, newest) = found.last().unwrap();
+    fs::read_to_string(newest)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn flags_come_from_a_compile_commands_entry() {
+    let dir = write_crate("db", "");
+    let package = "fb_build_it_db";
+    fs::create_dir_all(dir.join("cpp/inc")).unwrap();
+    fs::create_dir_all(dir.join("build")).unwrap();
+    fs::remove_file(dir.join("ferrobridge.toml")).unwrap();
+    fs::write(dir.join("cpp/geo.h"), DB_HEADER).unwrap();
+    fs::write(dir.join("cpp/geo.cc"), DB_IMPL).unwrap();
+    fs::write(dir.join("cpp/inc/geo_config.h"), "#pragma once\n").unwrap();
+    // A unique line: Cargo compares contents, and the build script's output is read below, so it
+    // must run in this test even if an earlier run left a fresh build.
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    fs::write(
+        dir.join("build.rs"),
+        format!("// run {nonce}\n{DB_BUILD_RS}"),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("tests/it.rs"),
+        DB_TEST_RS.replace("crate_under_test", package),
+    )
+    .unwrap();
+    let database = format!(
+        r#"[{{
+  "directory": {build:?},
+  "command": "c++ -I../cpp -I../cpp/inc -DGEO_ENABLED -DGEO_FACTOR=3 -Wall -Werror -O2 -o geo.o -c ../cpp/geo.cc",
+  "file": "../cpp/geo.cc"
+}}]"#,
+        build = dir.join("build").to_str().unwrap(),
+    );
+    fs::write(dir.join("build/compile_commands.json"), database).unwrap();
+
+    let output = cargo_test(&dir);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(stdout.contains("test result: ok. 1 passed"), "{stdout}");
+
+    let script = build_script_lines(package);
+    let has = |line: &str| script.iter().any(|l| l == line);
+    let rerun = |path: &Path| format!("cargo:rerun-if-changed={}", path.display());
+    // The header that was read is watched; the include directory it came from is not scanned.
+    assert!(
+        has(&rerun(&dir.join("cpp/inc/geo_config.h"))),
+        "{script:#?}"
+    );
+    assert!(!has(&rerun(&dir.join("cpp/inc"))), "{script:#?}");
+    // The database itself, not `<entry directory>/compile_commands.json`.
+    assert!(
+        has(&rerun(&dir.join("build/compile_commands.json"))),
+        "{script:#?}"
+    );
+    assert!(
+        script
+            .iter()
+            .any(|l| l.starts_with("ferrobridge: flags: dropped 2 warning flags")),
+        "{script:#?}"
+    );
+    assert!(
+        !script
+            .iter()
+            .any(|l| l.starts_with("cargo:warning=ferrobridge: flags")),
+        "{script:#?}"
+    );
+}

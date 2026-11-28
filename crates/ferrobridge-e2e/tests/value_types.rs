@@ -47,6 +47,8 @@ fn template_instances_are_value_types_too() -> ferrobridge::Result<()> {
     let z = geo::cross(&x, &y)?;
     assert_eq!((z.x, z.y, z.z), (0.0, 0.0, 1.0));
     assert_eq!(z.scaled(2.0)?.z, 2.0);
+    // `const T sum() const`: the top-level `const` does not change the Rust signature.
+    assert_eq!(Vec3f::new_f32_f32_f32(1.0, 2.0, 3.0)?.sum()?, 6.0);
     let mut v = Vec3f {
         x: 3.0,
         y: 0.0,

@@ -39,6 +39,39 @@ expression: portable(&module)
       }
     },
     {
+      "kind": "unsupported",
+      "construct": "class_template",
+      "name": "geo::is_real",
+      "reason": "Class template: cannot be bound without being instantiated with a concrete type; instantiate it with `[templates]` in `ferrobridge.toml` (e.g. `Vector3f = \"Vector3<float>\"`).",
+      "location": {
+        "file": "input.h",
+        "line": 52,
+        "column": 30
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "class_template_specialization",
+      "name": "geo::is_real",
+      "reason": "Explicit specialization of a class template: not bound; only instantiations of the primary template requested with `[templates]` are.",
+      "location": {
+        "file": "input.h",
+        "line": 53,
+        "column": 20
+      }
+    },
+    {
+      "kind": "unsupported",
+      "construct": "class_template_specialization",
+      "name": "geo::is_real",
+      "reason": "Explicit specialization of a class template: not bound; only instantiations of the primary template requested with `[templates]` are.",
+      "location": {
+        "file": "input.h",
+        "line": 54,
+        "column": 20
+      }
+    },
+    {
       "kind": "function",
       "name": "cross",
       "namespace": [
@@ -97,7 +130,7 @@ expression: portable(&module)
       "noexcept": false,
       "location": {
         "file": "input.h",
-        "line": 51,
+        "line": 57,
         "column": 13
       }
     },
@@ -137,7 +170,7 @@ expression: portable(&module)
       "noexcept": false,
       "location": {
         "file": "input.h",
-        "line": 52,
+        "line": 58,
         "column": 8
       }
     },
@@ -171,7 +204,7 @@ expression: portable(&module)
           "offset_bits": 0,
           "location": {
             "file": "input.h",
-            "line": 56,
+            "line": 62,
             "column": 9
           }
         },
@@ -192,7 +225,7 @@ expression: portable(&module)
           "offset_bits": 32,
           "location": {
             "file": "input.h",
-            "line": 57,
+            "line": 63,
             "column": 9
           }
         }
@@ -203,7 +236,7 @@ expression: portable(&module)
       },
       "location": {
         "file": "input.h",
-        "line": 55,
+        "line": 61,
         "column": 8
       }
     },

@@ -4,6 +4,22 @@ All notable changes to ferrobridge are recorded here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- **Flags from the build system** (ADR-0013): `parse`, `generate` and `suggest` take `--flags-file <file>` (one argument per line, repeatable) and `--compile-commands <db> --for <source>` (an entry of a `compile_commands.json`, read through libclang). A filter keeps what libclang needs (defines, include paths, forced includes, target and language flags), summarizes dropped warning, optimization and code generation flags in one `ℹ` line per kind, and lists unknown flags in a `⚠`. Arguments after `--` are never filtered.
+- **`generate --depfile <path>`:** a Make-syntax depfile listing every file the headers include, directly or not.
+- **`generate --cxx-glue`:** also writes cxx's C++ side (`bridge.rs.cc`, `bridge.rs.h`, `rust/cxx.h`) through `cxx-gen` 0.7.198, for build systems that compile the bridge's C++ themselves.
+- **`ferrobridge-build`:** `Build::compile_commands` and `Build::flags_file` (`generate` feature). Their flags reach both libclang and the C++ compiler (target flags only libclang); Cargo reruns on each header that was read instead of scanning include directories.
+
+### Changed
+
+- `--std` has no fixed default any more: an explicit `--std` wins, then a `-std=` from the flag sources, then `c++17` (unchanged when no flag source is given).
+
+### Fixed
+
+- A method or function returning `const T` by value (e.g. PX4's `AlphaFilter<T>::update`) produced a bridge that did not compile (cxx spells the function's type without the `const`); it is now called through the shim.
+- Explicit specializations of a class template (`template <> struct is_floating_point<float>`) became several classes with the same Rust name; they are now reported as not bound.
+
 ## [0.1.0] - 2026-11-27
 
 The first release. ferrobridge reads C++ headers with libclang, takes ownership information from `ferrobridge.toml` and generates a cxx bridge, a C++ shim and a safe Rust API, for calling C++ from Rust without hand-written bridges or `unsafe`.

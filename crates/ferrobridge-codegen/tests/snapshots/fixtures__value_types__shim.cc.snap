@@ -6,8 +6,8 @@ expression: files.shim_cc
 // Source header: value_types/input.h
 //
 // Items not bound (2):
-//   - geo::Frozen::limit (input.h:46): Direct access to fields is a v0.2 goal; use accessor methods.
-//   - geo::Account::balance (input.h:60): Direct access to fields is a v0.2 goal; use accessor methods.
+//   - geo::Frozen::limit (input.h:48): Direct access to fields is a v0.2 goal; use accessor methods.
+//   - geo::Account::balance (input.h:62): Direct access to fields is a v0.2 goal; use accessor methods.
 
 #include "value_types/shim.h"
 
@@ -57,6 +57,10 @@ namespace ferrobridge::value_types {
 
 ::geo::V3<float> Vec3f_new_f32_f32_f32(float a, float b, float c) {
   return ::geo::V3<float>(a, b, c);
+}
+
+float Vec3f_sum(const ::geo::V3<float>& fb_self) {
+  return fb_self.sum();
 }
 
 }  // namespace ferrobridge::value_types

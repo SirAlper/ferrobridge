@@ -607,6 +607,8 @@ impl Checker<'_> {
                 || !lengths.is_empty(),
             operator: None,
             lengths,
+            // A `const` on a reference or pointer return is on the referent, not on the return type.
+            const_return: return_type.is_some_and(|ty| ty.is_const),
             location: location.clone(),
         })
     }

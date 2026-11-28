@@ -47,6 +47,12 @@ public:
     T value;
 };
 
+// Explicit specializations (like PX4's `math::is_floating_point<float>`): not bound. As classes
+// they would be several Rust types with the same name.
+template <typename U> struct is_real { static constexpr bool value = false; };
+template <> struct is_real<float> { static constexpr bool value = true; };
+template <> struct is_real<double> { static constexpr bool value = true; };
+
 // Concrete uses outside the template.
 Vec3<float> cross(const Vec3<float>& a, const Vec3<float>& b);
 double norm(const Vec3<double>& v);

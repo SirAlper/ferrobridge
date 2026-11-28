@@ -25,6 +25,8 @@ ferrobridge generate include/vehicle.h --out-dir src/ffi \
   --include-as vehicle.h --shim-namespace ferrobridge::vehicle -- -I include
 ```
 
+Flags can come from your build instead of `--`: `--compile-commands build/compile_commands.json --for src/vehicle.cc`, or `--flags-file <file>` (one argument per line). Warnings and optimization flags are dropped with a note; `--depfile` and `--cxx-glue` write a depfile and cxx's C++ glue for build systems that compile the bridge themselves.
+
 The generated files are compiled by [`ferrobridge-build`](https://crates.io/crates/ferrobridge-build) and use the [`ferrobridge`](https://crates.io/crates/ferrobridge) runtime crate (same minor version as this command). Full guide: the [ferrobridge README](https://github.com/SirAlper/ferrobridge#readme).
 
 ## License

@@ -26,6 +26,11 @@
 //! the same include paths, defines and C++ standard. In `generate` mode the same settings are also
 //! passed to the libclang that reads the header.
 //!
+//! In `generate` mode, flags can also come from the C++ build system instead of being copied:
+//! [`Build::compile_commands`] (an entry of a `compile_commands.json`) and [`Build::flags_file`]
+//! (one argument per line). Their defines, include paths and language flags go to both libclang
+//! and the C++ compiler; warnings, optimization and code generation flags are dropped (ADR-0013).
+//!
 //! The crate using the bridge depends on `cxx` and the `ferrobridge` runtime at the same minor
 //! version as this crate (ADR-0012). Getting started: the
 //! [ferrobridge README](https://github.com/SirAlper/ferrobridge#readme).
@@ -66,6 +71,9 @@ pub enum Error {
         /// The operating system's error message.
         message: String,
     },
+    /// A flag source ([`Build::flags_file`], [`Build::compile_commands`]) could not be read.
+    #[error("ferrobridge: {0}")]
+    Flags(String),
     /// The header could not be read, the annotations are invalid, or code could not be generated.
     #[error("ferrobridge: {header}: {message}")]
     Generate {
@@ -82,6 +90,8 @@ pub struct Build {
     committed: Vec<PathBuf>,
     #[cfg(feature = "generate")]
     generated: Vec<Generate>,
+    #[cfg(feature = "generate")]
+    flag_sources: Vec<FlagSource>,
     include_dirs: Vec<PathBuf>,
     defines: Vec<(String, Option<String>)>,
     files: Vec<PathBuf>,
@@ -150,8 +160,45 @@ impl Build {
         self
     }
 
-    fn cpp_std(&self) -> &str {
-        self.std.as_deref().unwrap_or(DEFAULT_STD)
+    /// Flags from a file with one compiler argument per line (no quoting; blank lines are
+    /// ignored), e.g. written by CMake. Relative paths in it are resolved from the crate directory.
+    /// See [`Build::compile_commands`] for what is kept.
+    #[cfg(feature = "generate")]
+    pub fn flags_file(&mut self, path: impl AsRef<Path>) -> &mut Self {
+        self.flag_sources
+            .push(FlagSource::File(path.as_ref().to_path_buf()));
+        self
+    }
+
+    /// Flags from the entry for `source` in a compilation database (`compile_commands.json` or its
+    /// directory), so the bridge is read and compiled with the library's own flags.
+    ///
+    /// Defines, include paths, forced includes and language flags (`-fno-exceptions`, …) go to
+    /// both libclang and the C++ compiler; target flags (`-arch`, `--target=`, `--sysroot`, …) go
+    /// only to libclang, since the compiler's target comes from Cargo. Warnings, optimization and
+    /// code generation flags are dropped; unknown flags are dropped with a `cargo:warning`. A
+    /// `-std=` is used unless [`Build::std`] is given. Cargo reruns the build when a header that
+    /// was read changes; the include directories themselves are not scanned.
+    #[cfg(feature = "generate")]
+    pub fn compile_commands(
+        &mut self,
+        database: impl AsRef<Path>,
+        source: impl AsRef<Path>,
+    ) -> &mut Self {
+        self.flag_sources.push(FlagSource::Database {
+            database: database.as_ref().to_path_buf(),
+            source: source.as_ref().to_path_buf(),
+        });
+        self
+    }
+
+    /// The standard: [`Build::std`], then a `-std=` from the flag sources, then `c++17`.
+    fn cpp_std(&self, from_sources: Option<&str>) -> String {
+        self.std
+            .as_deref()
+            .or(from_sources)
+            .unwrap_or(DEFAULT_STD)
+            .to_owned()
     }
 
     /// Compiles the bridges (generating them first if needed) and the C++ sources into a static
@@ -167,6 +214,12 @@ impl Build {
         let mut shims = Vec::new();
         #[cfg_attr(not(feature = "generate"), allow(unused_mut))]
         let mut include_dirs = self.include_dirs.clone();
+        #[cfg(feature = "generate")]
+        let source_flags = sources::read(&self.flag_sources)?;
+        #[cfg(feature = "generate")]
+        let source_std = source_flags.std.as_deref();
+        #[cfg(not(feature = "generate"))]
+        let source_std = None;
 
         for dir in &self.committed {
             for file in BRIDGE_FILES {
@@ -188,7 +241,7 @@ impl Build {
             let out_dir = std::env::var_os("OUT_DIR").ok_or(Error::MissingEnv("OUT_DIR"))?;
             let root = PathBuf::from(out_dir).join("ferrobridge");
             for bridge in &self.generated {
-                let generated = generate::run(self, bridge, &root)?;
+                let generated = generate::run(self, bridge, &source_flags, &root)?;
                 bridges.push(generated.dir.join("bridge.rs"));
                 shims.push(generated.dir.join("shim.cc"));
                 include_dirs.extend(generated.include_dirs);
@@ -213,12 +266,100 @@ impl Build {
         for (name, value) in &self.defines {
             build.define(name, value.as_deref());
         }
-        build.std(self.cpp_std());
+        #[cfg(feature = "generate")]
+        {
+            let side = sources::compiler_side(&source_flags);
+            for dir in &side.include_dirs {
+                build.include(dir);
+            }
+            for flag in &side.flags {
+                build.flag(flag);
+            }
+        }
+        build.std(&self.cpp_std(source_std));
         for flag in &self.flags {
             build.flag(flag);
         }
         build.compile(lib_name);
         Ok(())
+    }
+}
+
+/// Where flags come from in `generate` mode.
+#[cfg(feature = "generate")]
+#[derive(Debug, Clone)]
+enum FlagSource {
+    File(PathBuf),
+    Database { database: PathBuf, source: PathBuf },
+}
+
+#[cfg(feature = "generate")]
+mod sources {
+    use std::path::PathBuf;
+
+    use ferrobridge_parser::flags::{self, CompilerFlags, FlagKind, Report};
+
+    use crate::{Error, FlagSource, rerun_if_changed};
+
+    /// Reads and filters every flag source, in order; prints what was dropped (unknown flags as
+    /// `cargo:warning`) and tells Cargo to rerun when a source file changes.
+    pub(crate) fn read(sources: &[FlagSource]) -> Result<CompilerFlags, Error> {
+        let mut all = CompilerFlags::default();
+        for source in sources {
+            let flags = match source {
+                FlagSource::File(path) => {
+                    rerun_if_changed(path);
+                    let args = flags::read_flags_file(path)
+                        .map_err(|error| Error::Flags(error.to_string()))?;
+                    flags::filter(&args, None)
+                }
+                FlagSource::Database { database, source } => {
+                    let command = flags::from_compilation_database(database, source)
+                        .map_err(|error| Error::Flags(error.to_string()))?;
+                    rerun_if_changed(&command.database);
+                    command.flags()
+                }
+            };
+            all.append(flags);
+        }
+        for report in all.dropped.reports() {
+            match report {
+                Report::Note(text) => println!("ferrobridge: {text}"),
+                Report::Warning(text) => println!("cargo:warning=ferrobridge: {text}"),
+            }
+        }
+        Ok(all)
+    }
+
+    /// The flag sources' flags as the C++ compiler gets them.
+    #[derive(Debug, Default, PartialEq, Eq)]
+    pub(crate) struct CompilerSide {
+        pub(crate) include_dirs: Vec<PathBuf>,
+        pub(crate) flags: Vec<String>,
+    }
+
+    /// `-I` becomes include directories, target flags are left to Cargo, and everything else is
+    /// passed as it is, in order (so `-DX … -UX` keeps its meaning).
+    pub(crate) fn compiler_side(flags: &CompilerFlags) -> CompilerSide {
+        let mut side = CompilerSide::default();
+        for flag in &flags.flags {
+            match flag.kind {
+                FlagKind::Target => {}
+                FlagKind::IncludeDir => side.include_dirs.extend(
+                    flag.args
+                        .iter()
+                        .filter_map(|arg| arg.strip_prefix("-I"))
+                        .map(PathBuf::from),
+                ),
+                FlagKind::Define
+                | FlagKind::Undefine
+                | FlagKind::Preprocessor
+                | FlagKind::Language => {
+                    side.flags.extend(flag.args.iter().cloned());
+                }
+            }
+        }
+        side
     }
 }
 
@@ -263,6 +404,7 @@ mod generate {
 
     use ferrobridge_analysis::{Annotations, BridgePlan};
     use ferrobridge_codegen::CodegenOptions;
+    use ferrobridge_parser::flags::CompilerFlags;
     use ferrobridge_parser::{ParseOptions, ParserError};
 
     use crate::{Build, Error, rerun_if_changed, valid_name, write_if_changed};
@@ -342,7 +484,12 @@ mod generate {
         pub(crate) include_dirs: Vec<PathBuf>,
     }
 
-    pub(crate) fn run(build: &Build, bridge: &Generate, root: &Path) -> Result<Generated, Error> {
+    pub(crate) fn run(
+        build: &Build,
+        bridge: &Generate,
+        source_flags: &CompilerFlags,
+        root: &Path,
+    ) -> Result<Generated, Error> {
         if !valid_name(&bridge.name) {
             return Err(Error::InvalidName(bridge.name.clone()));
         }
@@ -375,11 +522,18 @@ mod generate {
             }
             None => Annotations::default(),
         };
-        let mut options = parse_options(build, bridge);
+        let mut options = parse_options(build, bridge, source_flags);
         options.instantiate = annotations.instantiations();
-        let module = ferrobridge_parser::parse_headers(&paths, &options)
+        let parsed = ferrobridge_parser::parse_headers_with_inclusions(&paths, &options)
             .map_err(|error| fail(describe_parser_error(&error)))?;
-        let plan = ferrobridge_analysis::check(&module, &annotations).map_err(|issues| {
+        if !build.flag_sources.is_empty() {
+            // The include directories from a flag source are not scanned (in PX4 that is thousands
+            // of files); every header that was actually read is watched instead.
+            for file in &parsed.inclusions {
+                rerun_if_changed(file);
+            }
+        }
+        let plan = ferrobridge_analysis::check(&parsed.module, &annotations).map_err(|issues| {
             let lines: Vec<String> = issues.iter().map(|i| format!("  {i}")).collect();
             fail(format!(
                 "`ferrobridge.toml` does not match the headers:\n{}",
@@ -428,8 +582,13 @@ mod generate {
         Ok(Generated { dir, include_dirs })
     }
 
-    /// The settings passed to libclang: the build's include directories, defines and standard.
-    pub(crate) fn parse_options(build: &Build, bridge: &Generate) -> ParseOptions {
+    /// The settings passed to libclang: the build's include directories and defines, the flag
+    /// sources' flags, the bridge's own arguments, and the standard.
+    pub(crate) fn parse_options(
+        build: &Build,
+        bridge: &Generate,
+        source_flags: &CompilerFlags,
+    ) -> ParseOptions {
         let mut extra_args = Vec::new();
         for dir in &build.include_dirs {
             extra_args.push(format!("-I{}", dir.display()));
@@ -440,9 +599,10 @@ mod generate {
                 None => format!("-D{name}"),
             });
         }
+        extra_args.extend(source_flags.clang_args());
         extra_args.extend(bridge.clang_args.iter().cloned());
         ParseOptions {
-            std: build.cpp_std().to_owned(),
+            std: build.cpp_std(source_flags.std.as_deref()),
             extra_args,
             prelude: bridge.prelude.clone(),
             instantiate: Vec::new(),
@@ -539,7 +699,7 @@ mod tests {
             .header_as("libraries/AP_Math/crc.h", "AP_Math/crc.h")
             .prelude("AP_Math/AP_Math.h")
             .clang_arg("-Wno-everything");
-        let options = generate::parse_options(&build, &bridge);
+        let options = generate::parse_options(&build, &bridge, &Default::default());
         assert_eq!(options.std, "c++20");
         assert_eq!(
             options.extra_args,
@@ -551,5 +711,83 @@ mod tests {
             ]
         );
         assert_eq!(options.prelude, ["AP_Math/AP_Math.h"]);
+    }
+
+    #[cfg(feature = "generate")]
+    #[test]
+    fn source_flags_reach_libclang_and_the_compiler() {
+        use ferrobridge_parser::flags;
+        let source = flags::filter(
+            &[
+                "-I/px4/src",
+                "-DNAME=a b",
+                "-DFLAG",
+                "-UOLD",
+                "-include",
+                "visibility.h",
+                "-fno-rtti",
+                "-arch",
+                "arm64",
+                "-std=gnu++17",
+                "-Werror",
+            ],
+            None,
+        );
+        let mut build = Build::new();
+        build.include_dir("own").define("OWN", None);
+        let bridge = Generate::new("geo").clang_arg("-Wno-everything");
+
+        let options = generate::parse_options(&build, &bridge, &source);
+        assert_eq!(options.std, "gnu++17");
+        assert_eq!(
+            options.extra_args,
+            [
+                "-Iown",
+                "-DOWN",
+                "-I/px4/src",
+                "-DNAME=a b",
+                "-DFLAG",
+                "-UOLD",
+                "-include",
+                "visibility.h",
+                "-fno-rtti",
+                "-arch",
+                "arm64",
+                "-Wno-everything"
+            ]
+        );
+        // An explicit standard wins.
+        build.std("c++20");
+        assert_eq!(
+            generate::parse_options(&build, &bridge, &source).std,
+            "c++20"
+        );
+
+        let side = sources::compiler_side(&source);
+        assert_eq!(side.include_dirs, [PathBuf::from("/px4/src")]);
+        // The target comes from Cargo, not from the flag source. Defines and undefines keep
+        // their order.
+        assert_eq!(
+            side.flags,
+            [
+                "-DNAME=a b",
+                "-DFLAG",
+                "-UOLD",
+                "-include",
+                "visibility.h",
+                "-fno-rtti"
+            ]
+        );
+    }
+
+    #[cfg(feature = "generate")]
+    #[test]
+    fn an_unreadable_flags_file_stops_the_build() {
+        let error = Build::new()
+            .flags_file("/missing/flags.txt")
+            .compile("x")
+            .unwrap_err();
+        assert!(matches!(&error, Error::Flags(_)), "{error}");
+        assert!(error.to_string().contains("/missing/flags.txt"), "{error}");
     }
 }

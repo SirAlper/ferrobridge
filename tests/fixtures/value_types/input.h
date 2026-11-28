@@ -30,6 +30,8 @@ struct V3 {
     V3(T a, T b, T c) : x(a), y(b), z(c) {}
     T dot(const V3<T>& o) const { return x * o.x + y * o.y + z * o.z; }
     V3<T> scaled(T k) const { return V3<T>(x * k, y * k, z * k); }
+    // A by-value return with a top-level `const` (like PX4's `AlphaFilter<T>::update`).
+    const T sum() const { return x + y + z; }
     void normalize();
 };
 

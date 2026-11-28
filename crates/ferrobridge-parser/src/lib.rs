@@ -8,9 +8,11 @@
 //! time (the `clang-sys` `runtime` feature). So if libclang cannot be found, the program does not
 //! crash on startup; a clear error is returned.
 //!
-//! The entry point is [`parse_header`].
+//! The entry point is [`parse_header`]. Flags from a build system are read and filtered by
+//! [`flags`].
 
 mod clang;
+pub mod flags;
 mod lower;
 
 use std::ffi::CString;
@@ -98,6 +100,57 @@ pub enum ParserError {
         /// Diagnostics at the error and fatal error levels. Warnings are not included.
         diagnostics: Vec<Diagnostic>,
     },
+    /// A flags file could not be read.
+    #[error("could not read the flags file {}: {message}", path.display())]
+    FlagsFile {
+        /// The file.
+        path: PathBuf,
+        /// The operating system's error message.
+        message: String,
+    },
+    /// A compilation database could not be read.
+    #[error("could not read the compilation database {}: {message}", path.display())]
+    CompilationDatabase {
+        /// The `compile_commands.json` file or its directory, as given.
+        path: PathBuf,
+        /// What went wrong.
+        message: String,
+    },
+    /// The compilation database has no entry for the source file.
+    #[error(
+        "{} has no entry for {}{}",
+        database.display(),
+        file.display(),
+        closest_text(closest)
+    )]
+    NoCompileCommand {
+        /// The source file, as given.
+        file: PathBuf,
+        /// The database, as given.
+        database: PathBuf,
+        /// The closest file names in the database (at most three), or every match when a relative
+        /// path matched several entries.
+        closest: Vec<String>,
+    },
+}
+
+fn closest_text(closest: &[String]) -> String {
+    if closest.is_empty() {
+        String::new()
+    } else {
+        format!("; closest: {}", closest.join(", "))
+    }
+}
+
+/// The result of [`parse_headers_with_inclusions`].
+#[derive(Debug, Clone)]
+pub struct Parsed {
+    /// The IR of the headers.
+    pub module: Module,
+    /// Every file the translation unit read (the headers, everything they include directly or
+    /// indirectly, and the prelude), canonical where possible, sorted and without duplicates. The
+    /// synthetic translation unit is not included. For depfiles and `rerun-if-changed`.
+    pub inclusions: Vec<PathBuf>,
 }
 
 /// Loads libclang if it is not loaded on this thread.
@@ -154,6 +207,18 @@ pub fn parse_headers<P: AsRef<Path>>(
     headers: &[P],
     options: &ParseOptions,
 ) -> Result<Module, ParserError> {
+    parse_headers_with_inclusions(headers, options).map(|parsed| parsed.module)
+}
+
+/// [`parse_headers`], and also the list of files the translation unit read ([`Parsed::inclusions`]).
+///
+/// # Errors
+///
+/// The same as [`parse_headers`].
+pub fn parse_headers_with_inclusions<P: AsRef<Path>>(
+    headers: &[P],
+    options: &ParseOptions,
+) -> Result<Parsed, ParserError> {
     if headers.is_empty() {
         return Err(ParserError::InvalidArgument(
             "the header list is empty".to_owned(),
@@ -213,7 +278,16 @@ pub fn parse_headers<P: AsRef<Path>>(
                 .ok_or(ParserError::ClangFailed(clang_sys::CXError_Failure))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(lower::lower(&tu, targets, &aliases))
+    let module = lower::lower(&tu, targets, &aliases);
+    let mut inclusions: Vec<PathBuf> = tu
+        .inclusions()
+        .into_iter()
+        .filter(|name| *name != unit_name)
+        .map(|name| std::fs::canonicalize(&name).unwrap_or_else(|_| PathBuf::from(name)))
+        .collect();
+    inclusions.sort();
+    inclusions.dedup();
+    Ok(Parsed { module, inclusions })
 }
 
 /// Positions a diagnostic relative to the files the user sees.

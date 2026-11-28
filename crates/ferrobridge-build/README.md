@@ -45,6 +45,8 @@ pub mod vehicle {
 }
 ```
 
+In `generate` mode the flags can come from the C++ build instead of being repeated: `.compile_commands("build/compile_commands.json", "cpp/vehicle.cc")` takes the entry of that source, and `.flags_file("build/vehicle.flags")` reads one argument per line. Defines, include paths and language flags go to both libclang and the C++ compiler; warnings and optimization flags are dropped, unknown flags with a `cargo:warning`. Cargo then reruns the build when a header that was read changes, without scanning the include directories.
+
 The crate using the bridge also depends on `cxx` and the [`ferrobridge`](https://crates.io/crates/ferrobridge) runtime (same minor version as this crate). Full guide: the [ferrobridge README](https://github.com/SirAlper/ferrobridge#readme).
 
 ## License

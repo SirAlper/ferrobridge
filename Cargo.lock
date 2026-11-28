@@ -184,6 +184,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cxx-gen"
+version = "0.7.198"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb0f24fd8cafa20f043e24372ca5d8273ab1fdce055ee977b989f82c1bcd89b5"
+dependencies = [
+ "codespan-reporting",
+ "indexmap",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "cxxbridge-cmd"
 version = "1.0.198"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -276,9 +289,11 @@ name = "ferrobridge-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "cxx-gen",
  "ferrobridge-analysis",
  "ferrobridge-codegen",
  "ferrobridge-parser",
+ "proc-macro2",
  "serde_json",
 ]
 
