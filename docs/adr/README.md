@@ -16,3 +16,4 @@ The record of architecture decisions. For a new ADR, copy `template.md` and incr
 | [0010](0010-trivially-copyable-classes-as-rust-value-types.md) | Trivially copyable classes become Rust value types | accepted | 2026-11-27 |
 | [0011](0011-libraries-without-exceptions.md) | Libraries without exceptions (`[library] exceptions = false`) | accepted | 2026-11-27 |
 | [0012](0012-release-and-versioning.md) | Release and versioning policy | accepted | 2026-11-27 |
+| [0013](0013-cmake-integration.md) | CMake integration: build-time generation, C++ compiled by CMake | accepted | 2026-11-28 |
