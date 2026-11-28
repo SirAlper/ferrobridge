@@ -393,6 +393,9 @@ pub struct FunctionPlan {
     /// Length parameters removed from the Rust signature (`slice` annotations); the shim fills them
     /// from the slice's length.
     pub lengths: Vec<LengthParam>,
+    /// The C++ return type has a top-level `const` (`const T f()`). cxx takes the function's address
+    /// with a type it spells without that `const`, which does not compile; the shim returns `T`.
+    pub const_return: bool,
     /// Where the declaration is in the source.
     pub location: SourceLocation,
 }
@@ -402,6 +405,7 @@ impl FunctionPlan {
     pub fn needs_shim(&self) -> bool {
         // cxx cannot bind operator names; the shim calls `fb_self.operator+(v)`.
         self.operator.is_some()
+            || self.const_return
             || matches!(
                 self.callee,
                 Callee::Static { .. } | Callee::Constructor { .. }

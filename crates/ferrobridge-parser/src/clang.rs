@@ -187,6 +187,24 @@ impl<'index> TranslationUnit<'index> {
         })
     }
 
+    /// The names of all files the translation unit read: the main file, every header included
+    /// directly or indirectly, and the files given with `-include`. In the order libclang reports
+    /// them; a file may appear more than once.
+    pub(crate) fn inclusions(&self) -> Vec<String> {
+        let mut files: Vec<cx::CXFile> = Vec::new();
+        // SAFETY: `self.raw` is valid. `collect_inclusion` writes only to `files`, which lives until
+        // this call ends; libclang calls the visitor on this thread, during the call.
+        unsafe {
+            cx::clang_getInclusions(self.raw, collect_inclusion, (&raw mut files).cast());
+        }
+        files
+            .into_iter()
+            .filter(|file| !file.is_null())
+            // SAFETY: `file` is not null and belongs to this translation unit, which is alive.
+            .map(|file| take_string(unsafe { cx::clang_getFileName(file) }))
+            .collect()
+    }
+
     /// The root cursor of the translation unit.
     pub(crate) fn cursor(&self) -> Cursor<'_> {
         // SAFETY: `self.raw` is valid; the returned cursor is tied to the lifetime of `self`.
@@ -209,6 +227,115 @@ impl<'index> TranslationUnit<'index> {
             })
             .collect()
     }
+}
+
+/// The visitor for `clang_getInclusions`: adds every included file to the `Vec` in `data`.
+extern "C" fn collect_inclusion(
+    file: cx::CXFile,
+    _stack: *mut cx::CXSourceLocation,
+    _depth: c_uint,
+    data: cx::CXClientData,
+) {
+    // A panic does not cross the FFI boundary; the file is then missing from the list.
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: `data` was created in `TranslationUnit::inclusions` from a `&mut Vec<CXFile>`
+        // and is valid until `clang_getInclusions` returns. libclang calls the visitor on the same
+        // thread and in order; there is no other reference at the same time.
+        let files = unsafe { &mut *data.cast::<Vec<cx::CXFile>>() };
+        files.push(file);
+    }));
+}
+
+/// One command of a compilation database, copied out of libclang.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RawCompileCommand {
+    /// The working directory of the command.
+    pub(crate) directory: String,
+    /// The source file, as written in the database (may be relative to `directory`).
+    pub(crate) filename: String,
+    /// All arguments, the compiler first.
+    pub(crate) arguments: Vec<String>,
+}
+
+/// A loaded compilation database; released with `Drop`.
+struct CompilationDatabase {
+    raw: cx::CXCompilationDatabase,
+}
+
+impl Drop for CompilationDatabase {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from `clang_CompilationDatabase_fromDirectory`, is not null, and is
+        // released only here. The command lists read from it were released before.
+        unsafe { cx::clang_CompilationDatabase_dispose(self.raw) };
+    }
+}
+
+/// A list of commands taken from a database; released with `Drop`.
+struct CompileCommands {
+    raw: cx::CXCompileCommands,
+}
+
+impl Drop for CompileCommands {
+    fn drop(&mut self) {
+        // SAFETY: `raw` came from `clang_CompilationDatabase_getAllCompileCommands`, is not null,
+        // and is released only here. The commands taken from it are not used after this.
+        unsafe { cx::clang_CompileCommands_dispose(self.raw) };
+    }
+}
+
+/// All commands of the compilation database in `directory` (the directory containing
+/// `compile_commands.json`). `None` if libclang cannot load it.
+pub(crate) fn compile_commands(directory: &CStr) -> Option<Vec<RawCompileCommand>> {
+    let mut error: cx::CXCompilationDatabase_Error = cx::CXCompilationDatabase_NoError;
+    // SAFETY: `directory` is a NUL-terminated C string that lives during the call; `error` is a
+    // valid output pointer. The returned database is released by `CompilationDatabase::drop`.
+    let raw =
+        unsafe { cx::clang_CompilationDatabase_fromDirectory(directory.as_ptr(), &mut error) };
+    if raw.is_null() {
+        return None;
+    }
+    let database = CompilationDatabase { raw };
+    if error != cx::CXCompilationDatabase_NoError {
+        return None;
+    }
+    // SAFETY: `database.raw` is valid; the returned list is released by `CompileCommands::drop`,
+    // before the database (it is declared later, so it is dropped first).
+    let list = unsafe { cx::clang_CompilationDatabase_getAllCompileCommands(database.raw) };
+    if list.is_null() {
+        return Some(Vec::new());
+    }
+    let list = CompileCommands { raw: list };
+    // SAFETY: `list.raw` is valid.
+    let count = unsafe { cx::clang_CompileCommands_getSize(list.raw) };
+    let mut commands = Vec::new();
+    for index in 0..count {
+        // SAFETY: `index < count`. The command belongs to `list` and is valid while it lives; it
+        // is not released separately.
+        let command = unsafe { cx::clang_CompileCommands_getCommand(list.raw, index) };
+        if command.is_null() {
+            continue;
+        }
+        // SAFETY: `command` is valid; ownership of the returned `CXString`s passes to `take_string`.
+        let (directory, filename, arg_count) = unsafe {
+            (
+                take_string(cx::clang_CompileCommand_getDirectory(command)),
+                take_string(cx::clang_CompileCommand_getFilename(command)),
+                cx::clang_CompileCommand_getNumArgs(command),
+            )
+        };
+        let arguments = (0..arg_count)
+            // SAFETY: `arg < arg_count`, a valid argument index of a valid command.
+            .map(|arg| take_string(unsafe { cx::clang_CompileCommand_getArg(command, arg) }))
+            .collect();
+        commands.push(RawCompileCommand {
+            directory,
+            filename,
+            arguments,
+        });
+    }
+    drop(list);
+    drop(database);
+    Some(commands)
 }
 
 /// Copies the values of a diagnostic; if `with_notes`, also the notes attached to it (one level).

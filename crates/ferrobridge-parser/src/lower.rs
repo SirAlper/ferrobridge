@@ -33,6 +33,8 @@ const REASON_NESTED: &str = "Nested types (a class/enum defined inside a class) 
 const REASON_TEMPLATE: &str = "Templates are outside the MVP scope (a v0.2 goal).";
 const REASON_CLASS_TEMPLATE: &str = "Class template: cannot be bound without being instantiated with a concrete type; \
      instantiate it with `[templates]` in `ferrobridge.toml` (e.g. `Vector3f = \"Vector3<float>\"`).";
+const REASON_SPECIALIZATION: &str = "Explicit specialization of a class template: not bound; only \
+     instantiations of the primary template requested with `[templates]` are.";
 const REASON_DEPENDENT: &str = "This type depending on a template parameter is not supported yet.";
 const REASON_MEMBER_TEMPLATE_PARAM: &str =
     "A member template's parameter; only the class's own parameters can be substituted.";
@@ -288,6 +290,17 @@ impl<'tu> Lowering<'tu> {
             }
             _ if is_linkage_spec(cursor) => self.visit_children(cursor),
             cx::CXCursor_FunctionDecl => self.function(cursor),
+            // `template <> struct is_real<float> { … }`: a class whose name is the template's, once
+            // per specialization.
+            cx::CXCursor_StructDecl | cx::CXCursor_ClassDecl
+                if cursor.is_definition() && !cursor.specialized_template().is_null() =>
+            {
+                self.unsupported(
+                    cursor,
+                    "class_template_specialization",
+                    REASON_SPECIALIZATION,
+                );
+            }
             cx::CXCursor_StructDecl | cx::CXCursor_ClassDecl if cursor.is_definition() => {
                 self.class(cursor);
             }

@@ -2,8 +2,8 @@
 // Source header: value_types/input.h
 //
 // Items not bound (2):
-//   - geo::Frozen::limit (input.h:46): Direct access to fields is a v0.2 goal; use accessor methods.
-//   - geo::Account::balance (input.h:60): Direct access to fields is a v0.2 goal; use accessor methods.
+//   - geo::Frozen::limit (input.h:48): Direct access to fields is a v0.2 goal; use accessor methods.
+//   - geo::Account::balance (input.h:62): Direct access to fields is a v0.2 goal; use accessor methods.
 
 #[cxx::bridge]
 #[rustfmt::skip]
@@ -18,6 +18,7 @@ pub mod ffi {
         fn Account_new() -> Result<UniquePtr<Account>>;
         fn Vec3f_new_noargs() -> Result<Vec3f>;
         fn Vec3f_new_f32_f32_f32(a: f32, b: f32, c: f32) -> Result<Vec3f>;
+        fn Vec3f_sum(fb_self: &Vec3f) -> Result<f32>;
     }
     #[namespace = "geo"]
     unsafe extern "C++" {
@@ -379,6 +380,15 @@ impl ffi::Vec3f {
     pub fn scaled(&self, k: f32) -> ::ferrobridge::Result<Vec3f> {
         self.raw_scaled(k)
             .map_err(::ferrobridge::__private::cpp("geo::V3<float>::scaled"))
+    }
+    /// C++: `geo::V3<float>::sum`
+    ///
+    /// # Errors
+    ///
+    /// `ferrobridge::Error::Cpp` if C++ throws an exception.
+    pub fn sum(&self) -> ::ferrobridge::Result<f32> {
+        ffi::Vec3f_sum(self)
+            .map_err(::ferrobridge::__private::cpp("geo::V3<float>::sum"))
     }
     /// C++: `geo::V3<float>::normalize`
     ///
