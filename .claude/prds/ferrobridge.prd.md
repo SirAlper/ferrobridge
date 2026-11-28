@@ -64,7 +64,7 @@ We believe that **automatically generating a safe Rust API from C++ headers and 
 | 4 | Safe API | The user can create and use a C++ object without writing any `unsafe`; exceptions arrive as `Result` | complete | `.claude/plans/m4-safe-api.plan.md` |
 | 5 | Build pipeline and demo skeleton | `build.rs` integration with `ferrobridge-build`; ≥ 85% of `AP_Math`'s non-template API (≥ 30% overall) usable from Rust against a real ArduPilot checkout | complete | `.claude/plans/m5-build-pipeline-and-demo.plan.md` |
 | 6 | Cross-header types, templates and fields | ≥ 80% of the `AP_Math` API usable from Rust (including `Vector3f`, `Matrix3f`, `Quaternion`). A type defined in one header can be used in functions in other headers too (e.g. `Vector2f` from `vector2.h` in `control.h`). Template instantiation enters the MVP in this milestone, with an ADR | complete | `.claude/plans/m6-templates-and-value-types.plan.md` |
-| 7 | v0.1 release | The tool is on crates.io; README, examples and demo are public | in-progress | `.claude/plans/m7-v0.1-release.plan.md` |
+| 7 | v0.1 release | The tool is on crates.io; README, examples and demo are public | complete | `.claude/plans/m7-v0.1-release.plan.md` |
 
 ## Open Questions
 - [x] Code compiled with exceptions disabled (`-fno-exceptions`): the `[library] exceptions = false` promise in `ferrobridge.toml`; functions return values directly, and if the promise is broken the program ends with `std::terminate` (not UB). ferrobridge's own checks stay `Result`. Decided 2026-11-27, ADR-0011.

@@ -2,7 +2,7 @@
 
 A tool that generates **safe and idiomatic** Rust bindings from C++ headers. It is built on cxx, takes ownership information from an annotation file (`ferrobridge.toml`) and does not need Bazel.
 
-> Status: **v0.1**, the first release: usable, but early; the API of the generated code may still change between minor versions ([CHANGELOG](CHANGELOG.md)). Real-world demo: ArduPilot `AP_Math` ([`demo/ap_math/`](demo/ap_math/README.md)).
+> Status: **v0.1** ([crates.io](https://crates.io/crates/ferrobridge-cli), [docs](https://docs.rs/ferrobridge-build)), the first release: usable, but early; the API of the generated code may still change between minor versions ([CHANGELOG](CHANGELOG.md)). Real-world demo: ArduPilot `AP_Math` ([`demo/ap_math/`](demo/ap_math/README.md)).
 
 ## Demo: ArduPilot `AP_Math`
 

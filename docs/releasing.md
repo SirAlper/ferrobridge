@@ -31,6 +31,8 @@ CI must be green on the release commit.
 
 ## 3. Publish
 
+The crates.io account needs a verified email address. crates.io limits how many **new** crates can be published in a short time (a version of an existing crate is not affected): with new crates, expect HTTP 429 after about five and retry each remaining crate when the time in the error has passed (`cargo publish -p <crate>`).
+
 ```bash
 cargo login                                  # once per machine; the token stays on your machine
 cargo publish --workspace --dry-run
